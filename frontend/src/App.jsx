@@ -5,7 +5,7 @@ import { connectWS, disconnectWS, onWS, sendWS } from "./ws";
 import { onVoice } from "./voice";
 import Rail from "./components/Rail";
 import { HomeSidebar, ServerSidebar, MeBar } from "./components/Sidebar";
-import Bell from "./components/Notifications";
+import Bell from "./components/Bell";
 
 const Login = lazy(() => import("./components/Login"));
 const ChatView = lazy(() => import("./components/ChatView"));
