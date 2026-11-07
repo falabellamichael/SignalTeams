@@ -13,3 +13,4 @@ export { PulseModal } from "./modals/pulse.jsx";
 export { SettingsModal } from "./modals/settings.jsx";
 export { ChannelModal } from "./modals/channel.jsx";
 export { ShortcutsModal } from "./modals/shortcuts.jsx";
+export { PickAgentModal } from "./modals/pickagent.jsx";

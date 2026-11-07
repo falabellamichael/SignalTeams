@@ -14,7 +14,7 @@ import Saved from "./components/Saved";
 import {
   AgentModal, PublishModal, ShareModal, ServerModal, SettingsModal, ChannelModal,
   PackModal, PackCreateModal, ServerSettingsModal, ProfileModal, GlobalSearchModal,
-  ForwardModal, GroupDmModal, InboxModal, PulseModal, ShortcutsModal,
+  ForwardModal, GroupDmModal, InboxModal, PulseModal, ShortcutsModal, PickAgentModal,
 } from "./components/Modals";
 import Bell from "./components/Notifications";
 
@@ -890,48 +890,4 @@ export default function App() {
   );
 }
 
-// pick an agent or pack to share in chat
-function PickAgentModal({ me, onClose, onPick, onPickPack }) {
-  const [agents, setAgents] = useState([]);
-  const [packs, setPacks] = useState([]);
-  const [q, setQ] = useState("");
-  useEffect(() => { api.agents({ q }).then(setAgents).catch(() => {}); }, [q]);
-  useEffect(() => { api.packs().then(setPacks).catch(() => {}); }, []);
-  const packsShown = packs.filter((p) =>
-    !q || p.name.toLowerCase().includes(q.toLowerCase()));
-  return (
-    <div className="shade" onClick={onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()}>
-        <div className="modal-head">
-          <div>
-            <h3>Share an agent</h3>
-            <div className="msub">Pick an agent — or a whole pack — to drop in this channel.</div>
-          </div>
-          <button className="ghost modal-x" title="Close (Esc)" onClick={onClose}><Ico n="x" s={15} /></button>
-        </div>
-        <input placeholder="Search…" value={q} onChange={(e) => setQ(e.target.value)} autoFocus />
-        <div style={{ marginTop: 10, maxHeight: 320, overflowY: "auto" }}>
-          {packsShown.length > 0 && (
-            <div className="side-group" style={{ padding: "2px 4px 4px" }}>Packs</div>
-          )}
-          {packsShown.map((p) => (
-            <div key={`p${p.id}`} className="ideopt" onClick={() => onPickPack(p)}
-              style={{ padding: "7px 9px", borderRadius: 6, cursor: "pointer", fontSize: 13 }}>
-              <b>{p.icon || "📦"} {p.name}</b>{" "}
-              <span style={{ color: "var(--dim)" }}>— {p.count} agents · {p.owner?.display_name}</span>
-            </div>
-          ))}
-          {agents.length > 0 && (
-            <div className="side-group" style={{ padding: "6px 4px 4px" }}>Agents</div>
-          )}
-          {agents.map((a) => (
-            <div key={a.id} className="ideopt" onClick={() => onPick(a)}
-              style={{ padding: "7px 9px", borderRadius: 6, cursor: "pointer", fontSize: 13 }}>
-              <b>{a.name}</b> <span style={{ color: "var(--dim)" }}>— {a.tagline || a.owner?.display_name}</span>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
+
