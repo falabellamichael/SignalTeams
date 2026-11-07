@@ -170,6 +170,11 @@ class ReactIn(BaseModel):
     emoji: str = Field(min_length=1, max_length=8)
 
 
+class AiIn(BaseModel):
+    op: str = Field(min_length=2, max_length=24)      # summarize|rephrase|translate|explain|reply
+    extra: str = Field(default="", max_length=120)    # target lang / tone / extra instruction
+
+
 class ReviewIn(BaseModel):
     rating: int = Field(ge=0, le=5, default=0)
     body: str = Field(default="", max_length=2000)

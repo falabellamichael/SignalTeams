@@ -8,6 +8,7 @@ import { QUICK, EMOJI_PICK, SLASH_COMMANDS } from "./chat/consts";
 import { Message } from "./chat/Message";
 import { ChannelTools } from "./chat/ChannelTools";
 import { ThreadPanel } from "./chat/ThreadPanel";
+import { MessageAiModal } from "./modals/aimessage";
 
 export default function ChatView({ channel, members, me, emojis, roles, channels = [], onAgentOpen, onPackOpen, onShareAgent, onUserOpen, onForward, onFwdJump, focusMsg, newSince = 0, onGroupAdd, onGroupRename, blocked, onMarkUnread }) {
   const [msgs, setMsgs] = useState([]);
@@ -24,6 +25,7 @@ export default function ChatView({ channel, members, me, emojis, roles, channels
   const [agents, setAgents] = useState([]);
   const [thread, setThread] = useState(null);   // {root, replies} | null
   const [menu, setMenu] = useState(null);       // {x, y, m, setEditing} — right-click / long-press
+  const [aiModalMsg, setAiModalMsg] = useState(null); // {msg, initialOp}
   const [hasMore, setHasMore] = useState(false);
   const [savedIds, setSavedIds] = useState(new Set());
   const [emojiOpen, setEmojiOpen] = useState(false);
@@ -363,8 +365,8 @@ export default function ChatView({ channel, members, me, emojis, roles, channels
 
   function openMenu(x, y, m, setEditing) {
     setMenu({
-      x: Math.min(x, window.innerWidth - 200),
-      y: Math.min(y, window.innerHeight - 260),
+      x: Math.min(Math.max(10, x), window.innerWidth - 220),
+      y: Math.min(Math.max(10, y), Math.max(10, window.innerHeight - 440)),
       m, setEditing,
     });
   }
@@ -394,6 +396,8 @@ export default function ChatView({ channel, members, me, emojis, roles, channels
       ? SLASH_COMMANDS.filter((c) => c.cmd.startsWith(mention.query.toLowerCase()))
           .map((c) => ({ kind: "cmd", id: "c" + c.cmd, insert: c.cmd, c }))
     : [
+      ...("silent".startsWith(mention.query.toLowerCase()) && mention.query
+        ? [{ kind: "silent", id: "silent", insert: "silent" }] : []),
       ...mentionables.filter((u) =>
         u.username.toLowerCase().startsWith(mention.query.toLowerCase()) ||
         u.display_name.toLowerCase().startsWith(mention.query.toLowerCase()))
@@ -644,6 +648,9 @@ export default function ChatView({ channel, members, me, emojis, roles, channels
                   {o.kind === "cmd" ? (
                     <><span className="aicon">{o.c.icon}</span>
                       <b>/{o.c.cmd} <i>{o.c.usage}</i></b><span>{o.c.desc}</span></>
+                  ) : o.kind === "silent" ? (
+                    <><span className="aicon">🔕</span>
+                      <b>@silent</b><span>send quietly — mentions don't ping</span></>
                   ) : o.kind === "emoji" ? (
                     <><img className="md-emoji" src={api.fileUrl(o.e.file_id)} alt="" />
                       <b>:{o.insert}:</b><span>custom emoji</span></>
@@ -816,6 +823,27 @@ export default function ChatView({ channel, members, me, emojis, roles, channels
                 const n = new Set(s); r.saved ? n.add(menu.m.id) : n.delete(menu.m.id); return n; });
               setMenu(null);
             }}><Ico n="bookmark" s={13} /> {savedIds.has(menu.m.id) ? "Unsave" : "Save"}</div>
+            {menu.m.content && (
+              <>
+                <div className="mm-sep" />
+                <div className="mm-subhead">AI Actions</div>
+                <div className="mm-item" onClick={() => { setAiModalMsg({ msg: menu.m, initialOp: "summarize" }); setMenu(null); }}>
+                  <Ico n="sparkle" s={13} /> Summarize
+                </div>
+                <div className="mm-item" onClick={() => { setAiModalMsg({ msg: menu.m, initialOp: "explain" }); setMenu(null); }}>
+                  <Ico n="help" s={13} /> Explain
+                </div>
+                <div className="mm-item" onClick={() => { setAiModalMsg({ msg: menu.m, initialOp: "rephrase" }); setMenu(null); }}>
+                  <Ico n="edit" s={13} /> Rephrase
+                </div>
+                <div className="mm-item" onClick={() => { setAiModalMsg({ msg: menu.m, initialOp: "translate" }); setMenu(null); }}>
+                  <Ico n="swap" s={13} /> Translate
+                </div>
+                <div className="mm-item" onClick={() => { setAiModalMsg({ msg: menu.m, initialOp: "reply" }); setMenu(null); }}>
+                  <Ico n="reply" s={13} /> Draft reply
+                </div>
+              </>
+            )}
             {menu.m.author?.id === me?.id && menu.m.content &&
               <div className="mm-item" onClick={() => {
                 menu.setEditing?.(true); setMenu(null);
@@ -825,6 +853,22 @@ export default function ChatView({ channel, members, me, emojis, roles, channels
                 <Ico n="trash" s={13} /> Delete</div>}
           </div>
         </>
+      )}
+      {aiModalMsg && (
+        <MessageAiModal
+          msg={aiModalMsg.msg}
+          initialOp={aiModalMsg.initialOp}
+          onClose={() => setAiModalMsg(null)}
+          onInsertDraft={(text) => {
+            setDraft((d) => (d ? d + " " + text : text));
+            inputRef.current?.focus();
+          }}
+          onReplyWith={(m, text) => {
+            setReplyTo(m);
+            setDraft(text);
+            inputRef.current?.focus();
+          }}
+        />
       )}
     </div>
   );

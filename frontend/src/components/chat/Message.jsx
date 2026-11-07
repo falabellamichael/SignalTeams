@@ -187,6 +187,10 @@ export function Message({ m, grouped, me, members, agents, emojis, roles, channe
         <span title="Thread" onClick={() => onThread?.(m)}><Ico n="dots3" s={13} /></span>
         {mine && m.content &&
           <span title="Edit" onClick={() => { setEditDraft(m.content); setEditing(true); }}><Ico n="edit" s={13} /></span>}
+        <span title="More actions" onClick={(e) => {
+          const r = e.currentTarget.getBoundingClientRect();
+          onMenu?.(r.left, r.bottom + 4, m, setEditing);
+        }}><Ico n="dots" s={13} /></span>
       </div>
     </div>
   );

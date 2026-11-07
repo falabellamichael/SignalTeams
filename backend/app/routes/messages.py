@@ -9,8 +9,8 @@ from ..auth import current_user
 from ..db import db, emit_buzz, now
 from ..hub import hub
 
-from ..helpers import STAR_EMOJI, URL_RE, _parse_search, audit, can_see_agent, can_see_pack, channel_member_ids, is_blocked, message_json, public_user, reactions_json, unfurl
-from ..schemas import EditIn, MessageIn, ReactIn
+from ..helpers import STAR_EMOJI, URL_RE, _parse_search, _server_llm, _user_llm, audit, can_see_agent, can_see_pack, channel_member_ids, is_blocked, message_json, public_user, reactions_json, unfurl
+from ..schemas import AiIn, EditIn, MessageIn, ReactIn
 from ..services import _agent_cool, agent_reply, starboard_check
 
 router = APIRouter()
@@ -141,7 +141,13 @@ async def post_message(cid: int, body: MessageIn, user=Depends(current_user)):
                 poll = {"q": q, "options": opts}
             else:
                 raise HTTPException(400, "Polls need a question and 2+ options")
-        if not body.content.strip() and not body.agent_id and not body.pack_id and not body.attachments:
+        content = body.content.strip()
+        silent = False
+        m_silent = re.match(r"^@silent\s+", content, re.IGNORECASE)
+        if m_silent:
+            content = content[m_silent.end():].lstrip()
+            silent = True
+        if not content and not body.agent_id and not body.pack_id and not body.attachments:
             raise HTTPException(400, "Empty message")
         atts = [{"id": f["id"], "name": str(f.get("name", "file"))[:120],
                  "mime": str(f.get("mime", "application/octet-stream"))[:80],
@@ -154,7 +160,7 @@ async def post_message(cid: int, body: MessageIn, user=Depends(current_user)):
             if (not om or not och or om["channel_id"] == cid or
                     user["id"] not in channel_member_ids(conn, och)):
                 raise HTTPException(400, "Can't forward that message")
-        u = URL_RE.search(body.content)
+        u = URL_RE.search(content)
         jm = u and re.search(r"#/s/(\d+)/c/(\d+)/m/(\d+)", u.group(0))
         if jm:
             tm = conn.execute("SELECT * FROM messages WHERE id=?", (int(jm[3]),)).fetchone()
@@ -168,7 +174,7 @@ async def post_message(cid: int, body: MessageIn, user=Depends(current_user)):
         cur = conn.execute(
             "INSERT INTO messages(channel_id, author_id, content, agent_id, pack_id, reply_to, "
             "thread_root, attachments, embed, fwd_of, poll, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
-            (cid, user["id"], body.content.strip(), body.agent_id, body.pack_id, body.reply_to,
+            (cid, user["id"], content, body.agent_id, body.pack_id, body.reply_to,
              body.thread_root, json.dumps(atts),
              json.dumps(embed) if embed else None, body.fwd_of,
              json.dumps(poll) if poll else None, now()))
@@ -177,7 +183,7 @@ async def post_message(cid: int, body: MessageIn, user=Depends(current_user)):
                    "message": message_json(conn, m, user["id"])}
         members = channel_member_ids(conn, ch)
         # @username mentions → buzz event ping for each mentioned member
-        names = {n.lower() for n in re.findall(r"@(\w+)", body.content)}
+        names = {n.lower() for n in re.findall(r"@(\w+)", content)}
         pinged = []
         hit_agents = []
         if names:
@@ -216,11 +222,14 @@ async def post_message(cid: int, body: MessageIn, user=Depends(current_user)):
                     pinged += [h["user_id"] for h in holders
                                if h["user_id"] in mset and ok_mention(h["user_id"])
                                and h["user_id"] not in pinged]
-            for uid in pinged:
-                emit_buzz(conn, user["id"], "mentioned", {
-                    "to": uid, "channel_id": cid, "server_id": ch["server_id"],
-                    "channel": ch["name"], "msg_id": m["id"],
-                    "excerpt": body.content.strip()[:100]})
+            if not silent:
+                for uid in pinged:
+                    emit_buzz(conn, user["id"], "mentioned", {
+                        "to": uid, "channel_id": cid, "server_id": ch["server_id"],
+                        "channel": ch["name"], "msg_id": m["id"],
+                        "excerpt": content[:100]})
+            else:
+                pinged = []
             # leftover @tokens may be agent names — those agents reply in-channel
             cand = {re.sub(r"[^a-z0-9]+", "", n) for n in names} - {
                 r["username"].lower() for r in rows} - {"", "everyone", "here"} \
@@ -297,6 +306,48 @@ async def delete_message(mid: int, user=Depends(current_user)):
                   f"#{ch['name']}", (m["content"] or "")[:80])
     await hub.send_many(members, {"type": "message_deleted", "channel_id": m["channel_id"], "id": mid})
     return {"ok": True}
+
+
+_AI_OPS = {
+    "summarize": "Summarize this message in one tight line — keep names, decisions, and numbers.",
+    "rephrase": "Rewrite this message to be clearer and friendlier; output only the rewritten text.",
+    "translate": "Translate this message into English (or the language named in the note); output only the translation.",
+    "explain": "Explain what this message means — jargon, tone, and subtext — in one or two sentences.",
+    "reply": "Draft a short reply to this message in its own tone; output only the reply text.",
+}
+
+
+@router.post("/api/messages/{mid}/ai")
+async def ai_action(mid: int, body: AiIn, user=Depends(current_user)):
+    """Message-level AI ops — right-click powers Discord doesn't have."""
+    op = body.op.strip().lower()
+    if op not in _AI_OPS:
+        raise HTTPException(400, f"op must be one of: {', '.join(_AI_OPS)}")
+    with db() as conn:
+        m = conn.execute("SELECT * FROM messages WHERE id=?", (mid,)).fetchone()
+        if not m:
+            raise HTTPException(404, "No such message")
+        ch = conn.execute("SELECT * FROM channels WHERE id=?", (m["channel_id"],)).fetchone()
+        if not ch or user["id"] not in channel_member_ids(conn, ch):
+            raise HTTPException(404, "No such message")
+        ep = _user_llm(conn, user["id"]) or _server_llm(conn, ch["server_id"])
+        author = conn.execute("SELECT display_name, username FROM users WHERE id=?",
+                              (m["author_id"],)).fetchone()
+    text = (m["content"] or "")[:3000]
+    if not text:
+        raise HTTPException(400, "Nothing to work on — the message has no text")
+    instr = _AI_OPS[op]
+    if body.extra.strip():
+        instr += f" Note from the requester: {body.extra.strip()}"
+    who = (author["display_name"] or author["username"]) if author else "?"
+    try:
+        from ..llm import chat
+        reply, provider, model = await asyncio.to_thread(
+            chat, instr, [], f"{who}: {text}", endpoint=ep)
+    except Exception as e:
+        raise HTTPException(502, f"AI op failed — {e}")
+    return {"op": op, "reply": reply.strip()[:2000],
+            "provider": provider, "model": model}
 
 
 @router.patch("/api/messages/{mid}")

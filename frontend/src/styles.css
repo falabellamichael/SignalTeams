@@ -260,6 +260,11 @@ a { color: var(--accent); text-decoration: none; }
   font-size: 12.5px; cursor: pointer; }
 .mm-item:hover { background: var(--hover); }
 .mm-item.danger { color: var(--bad); }
+.mm-sep { height: 1px; background: var(--border); margin: 4px 0; }
+.mm-subhead { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em;
+  color: var(--dim); padding: 4px 9px 2px; }
+.spin { animation: spin 1s linear infinite; }
+@keyframes spin { 100% { transform: rotate(360deg); } }
 @keyframes msgflash {
   0% { background: rgba(232, 181, 74, .28); box-shadow: 0 0 0 1px rgba(232, 181, 74, .4); }
   100% { background: transparent; box-shadow: none; }

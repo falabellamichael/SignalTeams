@@ -114,6 +114,31 @@ class Smoke(unittest.TestCase):
         dm = self.req("POST", f"/api/dms/{reg2['user']['id']}", token=tok)
         self.assertTrue(dm["id"])
 
+        # @silent message modifier test
+        buzz_before = self.req("GET", "/api/buzz", token=reg2["token"])
+        silent_msg = self.req("POST", f"/api/channels/{chan['id']}/messages",
+                              {"content": "@silent @tester2 quiet message"}, token=tok)
+        self.assertEqual(silent_msg["content"], "@tester2 quiet message")
+        buzz_after_silent = self.req("GET", "/api/buzz", token=reg2["token"])
+        self.assertEqual(len(buzz_before), len(buzz_after_silent))
+
+        # loud mention emits buzz
+        loud_msg = self.req("POST", f"/api/channels/{chan['id']}/messages",
+                            {"content": "@tester2 loud message"}, token=tok)
+        self.assertEqual(loud_msg["content"], "@tester2 loud message")
+        buzz_after_loud = self.req("GET", "/api/buzz", token=reg2["token"])
+        self.assertEqual(len(buzz_after_loud), len(buzz_before) + 1)
+
+        # Message AI ops validation
+        self.req("POST", f"/api/messages/{silent_msg['id']}/ai",
+                 {"op": "bad_op"}, token=tok, expect=400)
+        self.req("POST", f"/api/messages/999999/ai",
+                 {"op": "summarize"}, token=tok, expect=404)
+        # Calling without LLM running in temp test env returns 502 gracefully
+        ai_res = self.req("POST", f"/api/messages/{silent_msg['id']}/ai",
+                          {"op": "summarize"}, token=tok, expect=502)
+        self.assertIn("AI op failed", ai_res["detail"])
+
     def test_llm_providers_shape(self):
         reg = self.req("POST", "/api/register",
                        {"username": "llmtester", "password": "pw12345"})

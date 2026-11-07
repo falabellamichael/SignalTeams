@@ -111,6 +111,7 @@ export const api = {
   send: (cid, content, agent_id, attachments, pack_id, reply_to, thread_root, fwd_of, poll) =>
     req("POST", `/api/channels/${cid}/messages`,
       { content, agent_id, pack_id, reply_to, thread_root, fwd_of, attachments, poll }),
+  messageAi: (mid, op, extra = "") => req("POST", `/api/messages/${mid}/ai`, { op, extra }),
   thread: (mid) => req("GET", `/api/messages/${mid}/thread`),
   markRead: (cid) => req("POST", `/api/channels/${cid}/read`, {}),
   huddle: (cid) => req("POST", `/api/channels/${cid}/huddle`),
