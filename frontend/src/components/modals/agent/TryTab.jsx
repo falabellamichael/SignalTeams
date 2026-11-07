@@ -5,6 +5,7 @@ import { providerModels } from "../_shared.jsx";
 
 export function TryTab({ agent, onOpenConnect }) {
   const [providers, setProviders] = useState([]);
+  const [userLlm, setUserLlm] = useState(null);
   const [model, setModel] = useState("");
   const [history, setHistory] = useState([]);
   const [draft, setDraft] = useState("");
@@ -12,10 +13,18 @@ export function TryTab({ agent, onOpenConnect }) {
   const [err, setErr] = useState("");
   const endRef = useRef(null);
 
-  useEffect(() => { api.llmProviders().then(setProviders).catch(() => {}); }, []);
+  useEffect(() => {
+    api.llmProviders().then(setProviders).catch(() => {});
+    api.llmMe().then(setUserLlm).catch(() => {});
+  }, []);
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth" }); }, [history]);
 
   const allModels = providerModels(providers);
+  const autoLabel = agent.api_url
+    ? (agent.model || "endpoint default")
+    : (userLlm?.base_url && userLlm?.model)
+      ? userLlm.model
+      : (agent.model || "auto");
 
   async function send() {
     const msg = draft.trim();
@@ -60,12 +69,14 @@ export function TryTab({ agent, onOpenConnect }) {
   return (
     <div>
       <div className="lib-tools" style={{ marginBottom: 8 }}>
-        <span style={{ fontSize: 11, color: agent.api_url ? "var(--honey)" : "var(--dim)", alignSelf: "center" }}>
+        <span style={{ fontSize: 11, color: (agent.api_url || userLlm?.base_url) ? "var(--honey)" : "var(--dim)", alignSelf: "center" }}>
           {agent.api_url
             ? `🔌 Dedicated API (${agent.api_kind || "openai"}): ${agent.api_url}`
-            : providers.length
-              ? "Local providers:"
-              : "⚠ no local LLM detected — connect an API in 🔌 Connect"}
+            : userLlm?.base_url
+              ? `🔌 Personal Endpoint: ${userLlm.base_url}`
+              : providers.length
+                ? "Local providers:"
+                : "⚠ no LLM detected — connect an API in 🔌 Connect"}
         </span>
         {onOpenConnect && !agent.api_url && (
           <button className="ghost" style={{ fontSize: 11, padding: "2px 7px" }} onClick={onOpenConnect}>
@@ -74,7 +85,7 @@ export function TryTab({ agent, onOpenConnect }) {
         )}
         {allModels.length > 0 && (
           <select value={model} onChange={(e) => setModel(e.target.value)} style={{ fontSize: 11.5 }}>
-            <option value="">auto{agent.model ? ` (${agent.model})` : ""}</option>
+            <option value="">auto ({autoLabel})</option>
             {allModels.map((m) => <option key={m} value={m}>{m}</option>)}
           </select>
         )}
@@ -85,7 +96,7 @@ export function TryTab({ agent, onOpenConnect }) {
       <div className="pchat">
         {history.length === 0 && (
           <div style={{ color: "var(--dim)", fontSize: 12, padding: 8 }}>
-            Talk to <b>{agent.name}</b> — its system prompt is doing the driving. Runs on your local models.
+            Talk to <b>{agent.name}</b> — its system prompt is doing the driving.
           </div>
         )}
         {history.map((m, i) => (
@@ -108,4 +119,3 @@ export function TryTab({ agent, onOpenConnect }) {
     </div>
   );
 }
-

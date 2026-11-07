@@ -4,7 +4,6 @@ import { api } from "../../../api";
 import { AGENT_API_PRESETS, ModelField } from "../_shared.jsx";
 
 export function ConnectTab({ agent, me, onSaved }) {
-  const mine = agent.owner_id === me?.id;
   const [kind, setKind] = useState(agent.api_kind || "");
   const [url, setUrl] = useState(agent.api_url || "");
   const [key, setKey] = useState("");
@@ -16,23 +15,24 @@ export function ConnectTab({ agent, me, onSaved }) {
   const [ctxMethod, setCtxMethod] = useState(agent.context_method || "GET");
   const [ctxHeaders, setCtxHeaders] = useState("");
   const [clearCtxHeaders, setClearCtxHeaders] = useState(false);
+  const [userLlm, setUserLlm] = useState(null);
   const [testing, setTesting] = useState(false);
   const [saving, setSaving] = useState(false);
   const [probe, setProbe] = useState(null);
   const [msg, setMsg] = useState("");
   const [err, setErr] = useState("");
+
   useEffect(() => {
-    if (!agent.api_url) return;
+    api.llmMe().then(setUserLlm).catch(() => {});
     api.agentConnectTest(agent.id, {})
-      .then((r) => { if (r?.ok && r.models?.length) setProbe((p) => p || r); })
+      .then((r) => { if (r?.ok) setProbe((p) => p || r); })
       .catch(() => {});
   }, [agent.id]);
 
   function applyPreset(p) {
-    if (!mine) return;
     setKind(p.kind);
     setUrl(p.url);
-    if (p.model && !model) setModel(p.model);
+    if (p.model) setModel(p.model);
     setProbe(null);
     setMsg("");
     setErr("");
@@ -87,28 +87,45 @@ export function ConnectTab({ agent, me, onSaved }) {
   return (
     <div>
       <div className="msub" style={{ marginBottom: 10 }}>
-        Give <b>{agent.name}</b> its own dedicated LLM / API endpoint, bearer key, and live HTTP tool grounding.
-        {!mine && " (Read-only — only the agent owner can edit connection credentials.)"}
+        Give <b>{agent.name}</b> its own dedicated LLM / API endpoint, bearer key, and live HTTP tool grounding — or let it inherit your configured endpoint.
       </div>
 
-      {mine && (
-        <>
-          <label style={{ marginTop: 4 }}>Quick provider presets</label>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginBottom: 10 }}>
-            {AGENT_API_PRESETS.map((p) => {
-              const active = (kind || "") === p.kind && (url || "") === p.url;
-              return (
-                <button key={p.id} type="button"
-                  className={`chip ${active ? "on" : ""}`}
-                  style={{ fontSize: 11.5, padding: "3px 9px" }}
-                  onClick={() => applyPreset(p)}>
-                  {p.label}
-                </button>
-              );
-            })}
+      {!url.trim() && userLlm?.base_url && (
+        <div style={{
+          display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10,
+          padding: "9px 12px", borderRadius: 9, marginBottom: 10, fontSize: 12,
+          background: "rgba(63, 185, 80, 0.1)", border: "1px solid var(--good)"
+        }}>
+          <div>
+            <b style={{ color: "var(--good)" }}>✓ Inheriting your Personal Endpoint:</b>{" "}
+            <span>{userLlm.base_url}</span>
+            {userLlm.model && <span style={{ color: "var(--honey)", marginLeft: 6 }}>· {userLlm.model}</span>}
           </div>
-        </>
+          <button type="button" className="ghost" style={{ fontSize: 11, padding: "3px 8px", flexShrink: 0 }}
+            onClick={() => {
+              setKind(userLlm.kind || "openai");
+              setUrl(userLlm.base_url);
+              if (userLlm.model) setModel(userLlm.model);
+            }}>
+            Copy to Agent →
+          </button>
+        </div>
       )}
+
+      <label style={{ marginTop: 4 }}>Quick provider presets</label>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginBottom: 10 }}>
+        {AGENT_API_PRESETS.map((p) => {
+          const active = (kind || "") === p.kind && (url || "") === p.url;
+          return (
+            <button key={p.id} type="button"
+              className={`chip ${active ? "on" : ""}`}
+              style={{ fontSize: 11.5, padding: "3px 9px" }}
+              onClick={() => applyPreset(p)}>
+              {p.label}
+            </button>
+          );
+        })}
+      </div>
 
       <div style={{
         padding: "12px 14px", borderRadius: 10, background: "var(--panel2)",
@@ -120,7 +137,7 @@ export function ConnectTab({ agent, me, onSaved }) {
         <div className="mrow">
           <div style={{ maxWidth: 195 }}>
             <label style={{ marginTop: 4 }}>Protocol</label>
-            <select value={kind} disabled={!mine} onChange={(e) => {
+            <select value={kind} onChange={(e) => {
               const v = e.target.value;
               setKind(v);
               if (v && !url) {
@@ -137,7 +154,7 @@ export function ConnectTab({ agent, me, onSaved }) {
           </div>
           <div>
             <label style={{ marginTop: 4 }}>Endpoint / Base URL</label>
-            <input value={url} disabled={!mine}
+            <input value={url}
               onChange={(e) => {
                 const v = e.target.value;
                 setUrl(v);
@@ -145,7 +162,9 @@ export function ConnectTab({ agent, me, onSaved }) {
               }}
               placeholder={kind === "webhook"
                 ? "https://your-service.example.com/agent-webhook"
-                : "https://api.openai.com/v1 or http://127.0.0.1:9000/v1"} />
+                : userLlm?.base_url
+                  ? `Inheriting ${userLlm.base_url} (or enter dedicated URL)`
+                  : "https://api.nexus-projects.ai/v1 or https://api.openai.com/v1"} />
           </div>
         </div>
 
@@ -165,12 +184,14 @@ export function ConnectTab({ agent, me, onSaved }) {
               )}
             </label>
             <div style={{ display: "flex", gap: 6 }}>
-              <input type="password" value={key} disabled={!mine}
+              <input type="password" value={key}
                 onChange={(e) => { setKey(e.target.value); setClearKey(false); }}
                 placeholder={agent.has_api_key && !clearKey
                   ? "•••••••••••••••• (leave blank to keep stored key)"
-                  : "sk-... / Bearer token (optional for local engines)"} />
-              {mine && agent.has_api_key && !clearKey && (
+                  : !url.trim() && userLlm?.has_key
+                    ? "Using your personal API key (or enter agent-specific key)"
+                    : "sk-... / Bearer token (optional for local engines)"} />
+              {agent.has_api_key && !clearKey && (
                 <button type="button" className="ghost" style={{ fontSize: 11, whiteSpace: "nowrap" }}
                   onClick={() => { setKey(""); setClearKey(true); }}>
                   Clear key
@@ -180,35 +201,33 @@ export function ConnectTab({ agent, me, onSaved }) {
           </div>
           <div style={{ maxWidth: 220 }}>
             <label>Default Model</label>
-            <ModelField value={model} disabled={!mine} options={probe?.models || []}
+            <ModelField value={model} options={probe?.models || []}
               onChange={(e) => setModel(e.target.value)}
-              placeholder="gpt-4o, claude-3-7-sonnet — test to list" />
+              placeholder={userLlm?.model || "Qwen/Qwen3.8-27B-FP8, gpt-4o…"} />
           </div>
         </div>
 
-        {mine && (
-          <div>
-            <label>
-              Custom Request Headers (JSON){" "}
-              {agent.has_api_headers && !clearHeaders && (
-                <span style={{ color: "var(--good)", textTransform: "none" }}>· stored</span>
-              )}
-            </label>
-            <div style={{ display: "flex", gap: 6 }}>
-              <input value={headers}
-                onChange={(e) => { setHeaders(e.target.value); setClearHeaders(false); }}
-                placeholder={agent.has_api_headers && !clearHeaders
-                  ? '{"X-Custom-Header": "..."} (leave blank to keep stored headers)'
-                  : '{"HTTP-Referer": "https://signalteams.local", "X-Title": "SignalTeams"}'} />
-              {agent.has_api_headers && !clearHeaders && (
-                <button type="button" className="ghost" style={{ fontSize: 11, whiteSpace: "nowrap" }}
-                  onClick={() => { setHeaders(""); setClearHeaders(true); }}>
-                  Clear
-                </button>
-              )}
-            </div>
+        <div>
+          <label>
+            Custom Request Headers (JSON){" "}
+            {agent.has_api_headers && !clearHeaders && (
+              <span style={{ color: "var(--good)", textTransform: "none" }}>· stored</span>
+            )}
+          </label>
+          <div style={{ display: "flex", gap: 6 }}>
+            <input value={headers}
+              onChange={(e) => { setHeaders(e.target.value); setClearHeaders(false); }}
+              placeholder={agent.has_api_headers && !clearHeaders
+                ? '{"X-Custom-Header": "..."} (leave blank to keep stored headers)'
+                : '{"HTTP-Referer": "https://signalteams.local", "X-Title": "SignalTeams"}'} />
+            {agent.has_api_headers && !clearHeaders && (
+              <button type="button" className="ghost" style={{ fontSize: 11, whiteSpace: "nowrap" }}
+                onClick={() => { setHeaders(""); setClearHeaders(true); }}>
+                Clear
+              </button>
+            )}
           </div>
-        )}
+        </div>
       </div>
 
       <div style={{
@@ -225,40 +244,38 @@ export function ConnectTab({ agent, me, onSaved }) {
         <div className="mrow">
           <div style={{ maxWidth: 110 }}>
             <label style={{ marginTop: 2 }}>Method</label>
-            <select value={ctxMethod} disabled={!mine} onChange={(e) => setCtxMethod(e.target.value)}>
+            <select value={ctxMethod} onChange={(e) => setCtxMethod(e.target.value)}>
               <option value="GET">GET</option>
               <option value="POST">POST</option>
             </select>
           </div>
           <div>
             <label style={{ marginTop: 2 }}>Context / Tool URL</label>
-            <input value={ctxUrl} disabled={!mine} onChange={(e) => setCtxUrl(e.target.value)}
+            <input value={ctxUrl} onChange={(e) => setCtxUrl(e.target.value)}
               placeholder="https://api.example.com/status or http://127.0.0.1:8000/search" />
           </div>
         </div>
-        {mine && (
-          <div>
-            <label>
-              Context Headers (JSON){" "}
-              {agent.has_context_headers && !clearCtxHeaders && (
-                <span style={{ color: "var(--good)", textTransform: "none" }}>· stored</span>
-              )}
-            </label>
-            <div style={{ display: "flex", gap: 6 }}>
-              <input value={ctxHeaders}
-                onChange={(e) => { setCtxHeaders(e.target.value); setClearCtxHeaders(false); }}
-                placeholder={agent.has_context_headers && !clearCtxHeaders
-                  ? '{"Authorization": "Bearer ..."} (leave blank to keep)'
-                  : '{"Authorization": "Bearer ...", "X-Api-Key": "..."}'} />
-              {agent.has_context_headers && !clearCtxHeaders && (
-                <button type="button" className="ghost" style={{ fontSize: 11, whiteSpace: "nowrap" }}
-                  onClick={() => { setCtxHeaders(""); setClearCtxHeaders(true); }}>
-                  Clear
-                </button>
-              )}
-            </div>
+        <div>
+          <label>
+            Context Headers (JSON){" "}
+            {agent.has_context_headers && !clearCtxHeaders && (
+              <span style={{ color: "var(--good)", textTransform: "none" }}>· stored</span>
+            )}
+          </label>
+          <div style={{ display: "flex", gap: 6 }}>
+            <input value={ctxHeaders}
+              onChange={(e) => { setCtxHeaders(e.target.value); setClearCtxHeaders(false); }}
+              placeholder={agent.has_context_headers && !clearCtxHeaders
+                ? '{"Authorization": "Bearer ..."} (leave blank to keep)'
+                : '{"Authorization": "Bearer ...", "X-Api-Key": "..."}'} />
+            {agent.has_context_headers && !clearCtxHeaders && (
+              <button type="button" className="ghost" style={{ fontSize: 11, whiteSpace: "nowrap" }}
+                onClick={() => { setCtxHeaders(""); setClearCtxHeaders(true); }}>
+                Clear
+              </button>
+            )}
           </div>
-        )}
+        </div>
       </div>
 
       {probe && (
@@ -270,7 +287,7 @@ export function ConnectTab({ agent, me, onSaved }) {
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
             <b style={{ color: probe.ok ? "var(--good)" : "var(--bad)" }}>
               {probe.ok
-                ? `✓ Endpoint reachable (${probe.kind || "local"} · ${probe.latency_ms}ms)`
+                ? `✓ Endpoint reachable (${probe.kind || "local"}${probe.inherited ? " · inherited" : ""} · ${probe.latency_ms}ms)`
                 : `✗ Connection check failed (${probe.latency_ms}ms)`}
             </b>
             {probe.url && <span style={{ color: "var(--dim)", fontSize: 11 }}>{probe.url}</span>}
@@ -278,20 +295,20 @@ export function ConnectTab({ agent, me, onSaved }) {
           {probe.error && <div style={{ color: "var(--bad)", marginTop: 4 }}>{probe.error}</div>}
           {probe.sample && (
             <div style={{ marginTop: 4, color: "var(--dim)", fontFamily: "ui-monospace, Consolas, monospace", fontSize: 11 }}>
-              Webhook response: {probe.sample}
+              Response preview: {probe.sample}
             </div>
           )}
           {probe.models?.length > 0 && (
             <div style={{ marginTop: 8 }}>
               <div style={{ fontSize: 11, color: "var(--dim)", marginBottom: 4 }}>
-                Discovered {probe.models.length} model{probe.models.length === 1 ? "" : "s"} — click to assign:
+                Discovered {probe.models.length} chat model{probe.models.length === 1 ? "" : "s"} — click to assign:
               </div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 5, maxHeight: 96, overflowY: "auto" }}>
                 {probe.models.map((m) => (
                   <button key={m} type="button"
                     className={`chip ${model === m ? "on" : ""}`}
                     style={{ fontSize: 11, padding: "2px 8px" }}
-                    onClick={() => mine && setModel(m)}>
+                    onClick={() => setModel(m)}>
                     {m}
                   </button>
                 ))}
@@ -325,14 +342,11 @@ export function ConnectTab({ agent, me, onSaved }) {
         <button type="button" onClick={runTest} disabled={testing}>
           <Ico n="bolt" s={13} /> {testing ? "Testing…" : "Test connection"}
         </button>
-        {mine && (
-          <button type="button" className="primary" onClick={save} disabled={saving}>
-            <Ico n="save" s={13} /> {saving ? "Saving…" : "Save connection"}
-          </button>
-        )}
+        <button type="button" className="primary" onClick={save} disabled={saving}>
+          <Ico n="save" s={13} /> {saving ? "Saving…" : "Save connection"}
+        </button>
         {msg && <span style={{ fontSize: 12, color: "var(--good)", fontWeight: 600 }}>{msg}</span>}
       </div>
     </div>
   );
 }
-

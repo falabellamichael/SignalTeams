@@ -10,6 +10,7 @@ from .hub import hub
 
 from .helpers import STAR_EMOJI, _agent_llm, _grounding, _server_llm, _split_model, _sysprompt, _user_llm, agent_bot_user, can_see_agent, channel_member_ids, friend_ids, message_json, starboard_bot_user
 
+
 async def _server_changed(conn, sid):
     members = [r["user_id"] for r in conn.execute(
         "SELECT user_id FROM server_members WHERE server_id=?", (sid,)).fetchall()]
@@ -153,6 +154,8 @@ async def _summarize_task(cid: int, asker_id: int, count: int):
             bot_u = conn.execute(
                 "SELECT * FROM users WHERE username=?", (SCRIBE_BOT[0],)).fetchone()
         members = channel_member_ids(conn, ch)
+        scribe_ep = ((_server_llm(conn, ch["server_id"]) if ch and ch["server_id"] else None)
+                     or _user_llm(conn, asker_id))
     if not ch or not asker:
         return
     history = [{"role": "user", "content": f"{r['dn'] or r['un']}: {r['content']}"}
@@ -173,7 +176,8 @@ async def _summarize_task(cid: int, asker_id: int, count: int):
             "3-6 tight bullets: decisions, plans, who's doing what, open "
             "questions. Be terse, specific, and keep names.",
             history[:-1],
-            f"Summarize these {len(history)} messages from #{ch['name']}.")
+            f"Summarize these {len(history)} messages from #{ch['name']}.",
+            endpoint=scribe_ep)
     except Exception:
         summary = "my brain's offline — no local LLM reachable right now"
     finally:
@@ -210,11 +214,20 @@ async def reminder_loop():
             pass
 
 
+def _strip_echo_prefix(text: str, asker_un: str, asker_dn: str = "", agent_name: str = "") -> str:
+    """Strip any leading @asker or AgentName: prefix that the LLM echoed."""
+    s = (text or "").lstrip("\r\n ")
+    names = [re.escape(x) for x in (asker_un, asker_dn, agent_name) if x]
+    if names:
+        pat = rf"^(?:(?:@?(?:{'|'.join(names)}))[:\s,]+)+"
+        s = re.sub(pat, "", s, flags=re.I).lstrip()
+    return s
+
+
 async def agent_reply(cid, aid, asker_id, msg_id, depth=0):
     """Generate a reply from an agent @mentioned in chat and post it in-channel.
     Bot replies may themselves @mention other agents — those get summoned too,
     bounded by depth (max 3 hops) + per-agent cooldown so convos can't runaway."""
-    import asyncio, queue, threading
     from .llm import chat_stream as llm_stream
     try:
         with db() as conn:
@@ -232,20 +245,30 @@ async def agent_reply(cid, aid, asker_id, msg_id, depth=0):
             root = msg["thread_root"]          # summoned inside a thread → stay there
             if root:
                 hist = conn.execute(
-                    "SELECT m.content, u.display_name dn, u.username un FROM messages m "
+                    "SELECT m.author_id, m.content, u.display_name dn, u.username un FROM messages m "
                     "JOIN users u ON u.id=m.author_id "
                     "WHERE m.channel_id=? AND m.id<=? AND (m.thread_root=? OR m.id=?) "
                     "ORDER BY m.id DESC LIMIT 12",
                     (cid, msg_id, root, root)).fetchall()
             else:
                 hist = conn.execute(
-                    "SELECT m.content, u.display_name dn, u.username un FROM messages m "
+                    "SELECT m.author_id, m.content, u.display_name dn, u.username un FROM messages m "
                     "JOIN users u ON u.id=m.author_id "
                     "WHERE m.channel_id=? AND m.id<=? ORDER BY m.id DESC LIMIT 12",
                     (cid, msg_id)).fetchall()
-            history = [{"role": "user",
-                        "content": f"{r['dn'] or r['un']}: {r['content']}"}
-                       for r in reversed(hist)]
+            history = []
+            for r in reversed(hist):
+                c_txt = (r["content"] or "").strip()
+                if "my brain's offline" in c_txt:
+                    continue
+                if r["author_id"] == bot["id"]:
+                    clean_bot = re.sub(r"^(?:@\S+\s+)+", "", c_txt).strip()
+                    if clean_bot:
+                        history.append({"role": "assistant", "content": clean_bot})
+                else:
+                    history.append({"role": "user", "content": f"{r['dn'] or r['un']}: {c_txt}"})
+            if not history:
+                history = [{"role": "user", "content": f"{asker['display_name'] or asker['username']}: {msg['content']}"}]
         typing = {"type": "typing", "channel_id": cid,
                   "user": {"id": bot["id"], "display_name": a["name"]}}
         await hub.send_many(members, {**typing, "on": True})
@@ -268,22 +291,25 @@ async def agent_reply(cid, aid, asker_id, msg_id, depth=0):
             a["context_headers"] if "context_headers" in a.keys() else None)) \
             if a["context_url"] else ""
         q = queue.Queue()
+        _aprov, _amdl = _split_model(a["model"])
+
         def _pump():
             try:
                 for kind, data in llm_stream(
                         _sysprompt(a, ground_ctx),
                         history[:-1],
                         history[-1]["content"],
-                        model=_split_model(a["model"])[1],
-                        provider=_split_model(a["model"])[0],
+                        model=_amdl,
+                        provider=_aprov,
                         temperature=a["temperature"],
                         endpoint=asker_llm):
                     if kind == "token":
-                        q.put(data)
-            except Exception:
-                q.put("")
+                        q.put(("TOK", data))
+            except Exception as e:
+                q.put(("ERR", str(e)))
             finally:
-                q.put("")
+                q.put(("DONE", ""))
+
         threading.Thread(target=_pump, daemon=True).start()
 
         reply, done, errored = "", False, False
@@ -292,25 +318,27 @@ async def agent_reply(cid, aid, asker_id, msg_id, depth=0):
             buf = []
             while True:
                 try:
-                    item = q.get_nowait()
+                    ev, item = q.get_nowait()
                 except queue.Empty:
                     break
-                if item == "":
+                if ev == "DONE":
                     done = True
-                elif item == "":
+                elif ev == "ERR":
                     errored, done = True, True
-                else:
+                elif ev == "TOK":
                     buf.append(item)
             if buf and not errored:
                 reply += "".join(buf)
+                cleaned = _strip_echo_prefix(reply, asker["username"], asker["display_name"], a["name"])
                 with db() as conn:
                     conn.execute("UPDATE messages SET content=? WHERE id=?",
-                                 (prefix + reply[:3600] + "▌", mid))
+                                 (prefix + cleaned[:3600] + "▌", mid))
                     mj = message_json(conn, conn.execute(
                         "SELECT * FROM messages WHERE id=?", (mid,)).fetchone(), asker_id)
                 await hub.send_many(members, {
                     "type": "message_updated", "channel_id": cid, "message": mj})
         await hub.send_many(members, {**typing, "on": False})
+        reply = _strip_echo_prefix(reply, asker["username"], asker["display_name"], a["name"])
         if errored or not reply:
             reply = "hmm, my brain's offline — no local LLM reachable right now"
         text = prefix + reply[:3600]

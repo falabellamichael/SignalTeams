@@ -47,6 +47,7 @@ export const providerModels = (ps) => ps.flatMap((p) => p.models.map((m) =>
 
 export const AGENT_API_PRESETS = [
   { id: "inherit", label: "Inherit Default", kind: "", url: "", model: "" },
+  { id: "nexus", label: "Nexus AI", kind: "openai", url: "https://api.nexus-projects.ai/v1", model: "Qwen/Qwen3.8-27B-FP8" },
   { id: "openai", label: "OpenAI", kind: "openai", url: "https://api.openai.com/v1", model: "gpt-4o" },
   { id: "anthropic", label: "Anthropic", kind: "anthropic", url: "https://api.anthropic.com", model: "claude-3-7-sonnet-latest" },
   { id: "openrouter", label: "OpenRouter", kind: "openai", url: "https://openrouter.ai/api/v1", model: "anthropic/claude-3.7-sonnet" },

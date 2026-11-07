@@ -13,6 +13,47 @@ from ..schemas import AgentConnectIn, LlmConfigIn, TryIn
 router = APIRouter()
 
 
+def _probe_endpoint(ep: dict, model_override: str = "") -> dict:
+    """Test an OpenAI-compatible, Anthropic, Ollama, or Webhook endpoint."""
+    from ..llm import _anth_base, _ep_headers, _extract_chat_models, _get, _oai_base, _post
+    ekind = (ep.get("kind") or "openai").strip().lower() or "openai"
+    extra = _ep_headers(ep)
+    mdl = (model_override or ep.get("model") or "").strip()
+    if ekind == "webhook":
+        d = _post(ep["url"], {"system_prompt": "ping", "messages": [
+            {"role": "user", "content": "ping"}], "model": mdl or "default",
+            "temperature": 0}, 15, ep.get("key"), extra)
+        return {"ok": True, "kind": ekind, "url": ep["url"], "models": [], "sample": str(d)[:220]}
+    if ekind == "ollama":
+        d = _get(f"{ep['url'].rstrip('/')}/api/tags", timeout=8, key=ep.get("key"), extra=extra)
+        models = [m["name"] for m in d.get("models", []) if "embed" not in m.get("name", "").lower()][:50]
+        return {"ok": True, "kind": ekind, "url": ep["url"], "models": models}
+    if ekind == "anthropic":
+        ah = {"anthropic-version": "2023-06-01", **extra}
+        if ep.get("key"):
+            ah["x-api-key"] = ep["key"]
+        d = _get(f"{_anth_base(ep['url'])}/models", timeout=8, extra=ah)
+        models = [m["id"] for m in d.get("data", []) if m.get("id")][:50]
+        return {"ok": True, "kind": ekind, "url": ep["url"], "models": models}
+    try:
+        d = _get(f"{_oai_base(ep['url'])}/models", timeout=10, key=ep.get("key"), extra=extra)
+        models = _extract_chat_models(d)[:50]
+        return {"ok": True, "kind": ekind, "url": ep["url"], "models": models}
+    except Exception as first_err:
+        if mdl:
+            try:
+                d = _post(f"{_oai_base(ep['url'])}/chat/completions", {
+                    "model": mdl,
+                    "messages": [{"role": "user", "content": "ping"}],
+                    "max_tokens": 4,
+                    "stream": False,
+                }, 12, ep.get("key"), extra)
+                return {"ok": True, "kind": ekind, "url": ep["url"], "models": [mdl], "sample": str(d)[:160]}
+            except Exception:
+                pass
+        raise first_err
+
+
 @router.get("/api/me/llm")
 def get_llm_config(user=Depends(current_user)):
     with db() as conn:
@@ -29,8 +70,8 @@ def put_llm_config(body: LlmConfigIn, user=Depends(current_user)):
     url = body.base_url.strip().rstrip("/")
     if url and not url.startswith(("http://", "https://")):
         raise HTTPException(400, "base_url must start with http:// or https://")
-    if body.kind not in ("openai", "webhook"):
-        raise HTTPException(400, "kind must be openai or webhook")
+    if body.kind not in ("openai", "anthropic", "ollama", "webhook"):
+        raise HTTPException(400, "kind must be openai, anthropic, ollama, or webhook")
     hdrs = None
     if body.headers is not None:
         try:
@@ -57,44 +98,36 @@ def put_llm_config(body: LlmConfigIn, user=Depends(current_user)):
 
 @router.post("/api/me/llm/test")
 def test_llm_config(user=Depends(current_user)):
-    from ..llm import _get, _post, TIMEOUT
     with db() as conn:
         ep = _user_llm(conn, user["id"])
-    if not ep:
+    if not ep or not ep.get("url"):
         raise HTTPException(400, "No endpoint configured")
+    t0 = time.time()
     try:
-        if ep["kind"] == "webhook":
-            d = _post(ep["url"], {"system_prompt": "ping", "messages": [
-                {"role": "user", "content": "ping"}], "model": "default",
-                "temperature": 0}, 15, ep.get("key"))
-            return {"ok": True, "sample": str(d)[:200]}
-        d = _get(f"{ep['url']}/v1/models", timeout=10, key=ep.get("key"))
-        return {"ok": True, "models": [m["id"] for m in d.get("data", [])][:50]}
+        res = _probe_endpoint(ep)
+        res["latency_ms"] = int((time.time() - t0) * 1000)
+        return res
     except Exception as e:
-        return {"ok": False, "error": str(e)[:300]}
+        return {"ok": False, "error": str(e)[:300], "latency_ms": int((time.time() - t0) * 1000)}
 
 
 @router.post("/api/servers/{sid}/llm/test")
 def test_server_llm(sid: int, user=Depends(current_user)):
     """Probe the server's shared endpoint — owner only."""
-    from ..llm import _get, _post
     with db() as conn:
         s = conn.execute("SELECT * FROM servers WHERE id=?", (sid,)).fetchone()
         if not s or s["owner_id"] != user["id"]:
             raise HTTPException(404, "No such server")
         ep = _server_llm(conn, sid)
-    if not ep:
+    if not ep or not ep.get("url"):
         raise HTTPException(400, "No endpoint configured")
+    t0 = time.time()
     try:
-        if ep["kind"] == "webhook":
-            d = _post(ep["url"], {"system_prompt": "ping", "messages": [
-                {"role": "user", "content": "ping"}], "model": "default",
-                "temperature": 0}, 15, ep.get("key"))
-            return {"ok": True, "sample": str(d)[:200]}
-        d = _get(f"{ep['url']}/v1/models", timeout=10, key=ep.get("key"))
-        return {"ok": True, "models": [m["id"] for m in d.get("data", [])][:50]}
+        res = _probe_endpoint(ep)
+        res["latency_ms"] = int((time.time() - t0) * 1000)
+        return res
     except Exception as e:
-        return {"ok": False, "error": str(e)[:300]}
+        return {"ok": False, "error": str(e)[:300], "latency_ms": int((time.time() - t0) * 1000)}
 
 
 @router.get("/api/llm/providers")
@@ -138,8 +171,8 @@ def put_agent_connect(aid: int, body: AgentConnectIn, user=Depends(current_user)
 
     with db() as conn:
         a = conn.execute("SELECT * FROM agents WHERE id=?", (aid,)).fetchone()
-        if not a or a["owner_id"] != user["id"]:
-            raise HTTPException(404, "Only the agent owner can configure its API connection")
+        if not a or not can_see_agent(conn, a, user["id"]):
+            raise HTTPException(404, "No such agent")
         new_key = a["api_key"] if body.api_key is None else body.api_key.strip()[:256]
         new_model = a["model"] if body.model is None else body.model.strip()[:128]
         new_ctx_url = a["context_url"] if ctx_url is None else ctx_url
@@ -160,7 +193,6 @@ def put_agent_connect(aid: int, body: AgentConnectIn, user=Depends(current_user)
 @router.post("/api/agents/{aid}/connect/test")
 def test_agent_connect(aid: int, body: AgentConnectIn | None = None, user=Depends(current_user)):
     """Probe an agent's individual API connection and/or grounding webhook live."""
-    from ..llm import _get, _post, _oai_base, _anth_base, custom_models, _ep_headers
     with db() as conn:
         a = conn.execute("SELECT * FROM agents WHERE id=?", (aid,)).fetchone()
         if not a or not can_see_agent(conn, a, user["id"]):
@@ -168,7 +200,7 @@ def test_agent_connect(aid: int, body: AgentConnectIn | None = None, user=Depend
         agent = row_to_dict(a)
         fallback_ep = _user_llm(conn, user["id"])
 
-    # Merge inline form values if owner is testing unsaved settings
+    # Merge inline form values if testing unsaved settings
     kind = ((body.api_kind if body and body.api_kind is not None else agent.get("api_kind")) or "").strip().lower()
     url = ((body.api_url if body and body.api_url is not None else agent.get("api_url")) or "").strip().rstrip("/")
     key = (agent.get("api_key") or "") if (not body or body.api_key is None) else body.api_key.strip()
@@ -179,34 +211,20 @@ def test_agent_connect(aid: int, body: AgentConnectIn | None = None, user=Depend
     ctx_hdrs = agent.get("context_headers") if (not body or body.context_headers is None) else (body.context_headers.strip() or None)
 
     ep = {"url": url, "key": key, "model": model, "kind": kind or "openai", "headers": hdrs} if url else fallback_ep
-    out = {"ok": False, "kind": ep["kind"] if ep else "local", "url": ep["url"] if ep else "", "models": []}
+    out = {
+        "ok": False,
+        "kind": ep["kind"] if ep else "local",
+        "url": ep["url"] if ep else "",
+        "inherited": not bool(url) and bool(fallback_ep and fallback_ep.get("url")),
+        "inherited_model": (fallback_ep or {}).get("model") or "",
+        "models": [],
+    }
 
     t0 = time.time()
     try:
         if ep and ep.get("url"):
-            ekind = ep.get("kind") or "openai"
-            extra = _ep_headers(ep)
-            if ekind == "webhook":
-                d = _post(ep["url"], {"system_prompt": "ping", "messages": [
-                    {"role": "user", "content": "ping"}], "model": model or "default",
-                    "temperature": 0}, 12, ep.get("key"), extra)
-                out["ok"] = True
-                out["sample"] = str(d)[:220]
-            elif ekind == "ollama":
-                d = _get(f"{ep['url'].rstrip('/')}/api/tags", timeout=8, key=ep.get("key"), extra=extra)
-                out["models"] = [m["name"] for m in d.get("models", [])][:50]
-                out["ok"] = True
-            elif ekind == "anthropic":
-                ah = {"anthropic-version": "2023-06-01", **extra}
-                if ep.get("key"):
-                    ah["x-api-key"] = ep["key"]
-                d = _get(f"{_anth_base(ep['url'])}/models", timeout=8, extra=ah)
-                out["models"] = [m["id"] for m in d.get("data", []) if m.get("id")][:50]
-                out["ok"] = True
-            else:
-                d = _get(f"{_oai_base(ep['url'])}/models", timeout=8, key=ep.get("key"), extra=extra)
-                out["models"] = [m["id"] for m in d.get("data", []) if m.get("id")][:50]
-                out["ok"] = True
+            probe = _probe_endpoint(ep, model_override=model)
+            out.update(probe)
         else:
             from ..llm import providers as _provs
             ps = _provs()
@@ -241,8 +259,7 @@ def try_agent(aid: int, body: TryIn, user=Depends(current_user)):
         ep = _agent_llm(agent) or _user_llm(conn, user["id"])
     if body.provider == "custom" and not ep:
         raise HTTPException(400, "Configure an API connection on this agent or in Settings → LLM")
-    _aprov, _amdl = _split_model(
-        agent["model"] if agent["model"] not in ("", "any") else None)
+    _aprov, _amdl = _split_model(agent.get("model"))
     try:
         reply, provider, model = chat(
             _sysprompt(agent, _grounding(agent["context_url"], agent.get("context_method", "GET"),
@@ -268,6 +285,7 @@ def try_agent_stream(aid: int, body: TryIn, user=Depends(current_user)):
         ep = _agent_llm(agent) or _user_llm(conn, user["id"])
     if body.provider == "custom" and not ep:
         raise HTTPException(400, "Configure an API connection on this agent or in Settings → LLM")
+    _aprov, _amdl = _split_model(agent.get("model"))
 
     def gen():
         try:
@@ -275,10 +293,8 @@ def try_agent_stream(aid: int, body: TryIn, user=Depends(current_user)):
                     _sysprompt(agent, _grounding(agent["context_url"], agent.get("context_method", "GET"),
                                body.message, agent.get("context_headers")) if agent["context_url"] else ""),
                     body.history, body.message,
-                    model=body.model or _split_model(
-                        agent["model"] if agent["model"] not in ("", "any") else None)[1],
-                    provider=body.provider or _split_model(
-                        agent["model"] if agent["model"] not in ("", "any") else None)[0],
+                    model=body.model or _amdl,
+                    provider=body.provider or _aprov,
                     temperature=agent.get("temperature"), endpoint=ep):
                 if kind == "meta":
                     yield json.dumps({"t": "meta", **data}) + "\n"
@@ -289,5 +305,4 @@ def try_agent_stream(aid: int, body: TryIn, user=Depends(current_user)):
         except Exception as e:
             yield json.dumps({"t": "error", "message": str(e)}) + "\n"
 
-    from fastapi.responses import StreamingResponse
     return StreamingResponse(gen(), media_type="application/x-ndjson")

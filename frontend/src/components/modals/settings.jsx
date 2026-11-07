@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from "react";
 import Ico from "../Ico";
 import { api } from "../../api";
-import { Avatar } from "../../util";
 import { COLORS, EMOJI_CHOICES, Modal, ModelField, NotifCtl, STATUSES } from "./_shared.jsx";
 
 
@@ -35,15 +34,16 @@ export function SettingsModal({ me, theme, onTheme, onClose, onSaved, onLogout }
   }, []);
   const llmModelOpts = (llm.base_url || "").trim() ? llmModels.custom : llmModels.local;
 
-  async function saveLlm() {
+  async function saveLlm(overrideModel) {
     setLlmBusy(true);
+    const nextModel = typeof overrideModel === "string" ? overrideModel : llm.model;
     const r = await api.llmSave({
-      base_url: llm.base_url, model: llm.model, kind: llm.kind,
+      base_url: llm.base_url, model: nextModel, kind: llm.kind,
       api_key: llmKey === "" ? null : llmKey,
       headers: llmHdrs === "" ? null : llmHdrs,
     }).catch((e) => (setLlmMsg(e.message), null));
     setLlmBusy(false);
-    if (r) { setLlm(r); setLlmKey(""); setLlmMsg(r.base_url ? "Endpoint saved." : "Custom endpoint cleared — local providers only."); }
+    if (r) { setLlm(r); setLlmKey(""); setLlmMsg(r.base_url ? "Endpoint saved ✓" : "Custom endpoint cleared — local providers only."); }
   }
 
   const [llmHealth, setLlmHealth] = useState(null);   // null | true | false
@@ -55,13 +55,18 @@ export function SettingsModal({ me, theme, onTheme, onClose, onSaved, onLogout }
       api_key: llmKey === "" ? null : llmKey,
       headers: llmHdrs === "" ? null : llmHdrs,
     }).catch(() => null);
-    if (saved) setLlm(saved);
+    if (saved) { setLlm(saved); setLlmKey(""); }
     const r = await api.llmTest().catch((e) => ({ ok: false, error: e.message }));
     setLlmBusy(false); setLlmHealth(!!r.ok);
-    if (r.models?.length) setLlmModels((m) => ({ ...m, custom: r.models }));
+    if (r.models?.length) {
+      setLlmModels((m) => ({ ...m, custom: r.models }));
+      if (!llm.model && r.models[0]) {
+        setLlm((prev) => ({ ...prev, model: r.models[0] }));
+      }
+    }
     setLlmMsg(r.ok
-      ? (r.models ? `Connected — ${r.models.length} model(s) visible.` : `Connected — ${r.sample?.slice(0, 80) || "endpoint answered"}`)
-      : `Can't reach it: ${r.error || "unknown"}`);
+      ? (r.models?.length ? `✓ Connected (${r.latency_ms || 0}ms) — ${r.models.length} chat model(s) visible.` : `✓ Connected (${r.latency_ms || 0}ms) — ${r.sample?.slice(0, 80) || "endpoint answered"}`)
+      : `✗ Can't reach it: ${r.error || "unknown"}`);
   }
 
   async function save() {
@@ -157,15 +162,17 @@ export function SettingsModal({ me, theme, onTheme, onClose, onSaved, onLogout }
         <span title={llmHealth ? "last test passed" : "last test failed"}
           style={{ color: llmHealth ? "#3fb950" : "var(--bad)", fontSize: 14 }}>
           {" ● "}</span>}<span style={{ color: "var(--dim)", fontWeight: 400 }}>
-        (any OpenAI-compatible API — OpenRouter, Groq, vLLM — or a webhook harness;
+        (any OpenAI-compatible API — Nexus, OpenRouter, Groq, vLLM — or a webhook harness;
         your summons &amp; Try tab use it first)</span></label>
       <div style={{ display: "flex", gap: 8 }}>
         <input value={llm.base_url} style={{ flex: 1 }}
-          placeholder="https://openrouter.ai/api or http://host:8000"
+          placeholder="https://api.nexus-projects.ai/v1 or https://openrouter.ai/api/v1"
           onChange={(e) => setLlm({ ...llm, base_url: e.target.value })} />
-        <select value={llm.kind} style={{ maxWidth: 116 }}
+        <select value={llm.kind} style={{ maxWidth: 132 }}
           onChange={(e) => setLlm({ ...llm, kind: e.target.value })}>
           <option value="openai">OpenAI API</option>
+          <option value="anthropic">Anthropic</option>
+          <option value="ollama">Ollama</option>
           <option value="webhook">Webhook</option>
         </select>
       </div>
@@ -180,14 +187,26 @@ export function SettingsModal({ me, theme, onTheme, onClose, onSaved, onLogout }
       <input value={llmHdrs} onChange={(e) => setLlmHdrs(e.target.value)}
         placeholder={llm.has_headers ? 'extra headers • set — JSON to replace, "{}" clears'
           : 'extra headers JSON — e.g. {"X-Api-Key":"…"}'} />
+      {llmModels.custom.length > 0 && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginTop: 6 }}>
+          {llmModels.custom.map((m) => (
+            <button key={m} type="button"
+              className={`chip ${llm.model === m ? "on" : ""}`}
+              style={{ fontSize: 11, padding: "2px 8px" }}
+              onClick={() => { setLlm((prev) => ({ ...prev, model: m })); saveLlm(m); }}>
+              {m}
+            </button>
+          ))}
+        </div>
+      )}
       <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-        <button disabled={llmBusy} onClick={saveLlm}>Save endpoint</button>
+        <button disabled={llmBusy} onClick={() => saveLlm()}>Save endpoint</button>
         <button disabled={llmBusy || !llm.base_url} onClick={testLlm}>Test</button>
         {llm.base_url &&
           <button onClick={() => { setLlm({ ...llm, base_url: "", model: "" }); setLlmKey(""); }}
             title="Clear the fields — then Save to apply"><Ico n="x" s={12} /></button>}
       </div>
-      {llmMsg && <div className="msub" style={{ marginTop: 6 }}>{llmMsg}</div>}
+      {llmMsg && <div className="msub" style={{ marginTop: 6, color: llmHealth === false ? "var(--bad)" : llmHealth === true ? "var(--good)" : undefined }}>{llmMsg}</div>}
       <label>Account <span style={{ color: "var(--dim)", fontWeight: 400 }}>(security)</span></label>
       {acct.supabase_linked &&
         <div className="msub" style={{ marginBottom: 6 }}>

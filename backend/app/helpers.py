@@ -400,13 +400,22 @@ def _parse_search(q: str, user):
     return free, clauses, params, len(found)
 
 
+_PLACEHOLDER_MODELS = {
+    "", "any", "default", "local-llm", "local-model", "local-embeddings", "crew-model"
+}
+
+
 def _split_model(spec):
-    """'ollama:llama3' → ('ollama', 'llama3'); bare names → (None, name)."""
-    if spec and ":" in spec:
-        p, m = spec.split(":", 1)
+    """'ollama:llama3' → ('ollama', 'llama3'); bare names → (None, name).
+    Seed/placeholder model tags ('any', 'local-llm', 'local-embeddings', etc.) map to (None, None)."""
+    s = (spec or "").strip()
+    if s.lower() in _PLACEHOLDER_MODELS:
+        return None, None
+    if ":" in s:
+        p, m = s.split(":", 1)
         if p in ("ollama", "lmstudio", "custom") and m:
-            return p, m
-    return None, (spec or None)
+            return p, (None if m.lower() in _PLACEHOLDER_MODELS else m)
+    return None, s
 
 
 def _pub_server(d):
@@ -448,13 +457,17 @@ def _agent_llm(a):
     if not url:
         return None
     kind = ((a["api_kind"] if "api_kind" in keys else "") or "openai").strip() or "openai"
+    mdl = ((a["model"] if "model" in keys else "") or "").strip()
+    if mdl.lower() in _PLACEHOLDER_MODELS:
+        mdl = ""
     return {
         "url": url,
         "key": (a["api_key"] if "api_key" in keys else "") or "",
-        "model": (a["model"] if "model" in keys else "") or "",
+        "model": mdl,
         "kind": kind,
         "headers": (a["api_headers"] if "api_headers" in keys else None),
         "label": f"agent:{kind}",
+        "source": "agent",
     }
 
 
@@ -473,10 +486,14 @@ def _server_llm(conn, sid):
     r = conn.execute(
         "SELECT llm_url, llm_key, llm_model, llm_kind FROM servers WHERE id=?",
         (sid,)).fetchone()
-    if not r or not r["llm_url"]:
+    if not r or not (r["llm_url"] or "").strip():
         return None
-    return {"url": r["llm_url"], "key": r["llm_key"],
-            "model": r["llm_model"], "kind": r["llm_kind"]}
+    mdl = (r["llm_model"] or "").strip()
+    if mdl.lower() in _PLACEHOLDER_MODELS:
+        mdl = ""
+    kind = (r["llm_kind"] or "openai").strip() or "openai"
+    return {"url": r["llm_url"].strip().rstrip("/"), "key": r["llm_key"] or "",
+            "model": mdl, "kind": kind, "label": f"server:{kind}", "source": "server"}
 
 
 def _user_llm(conn, uid):
@@ -485,8 +502,12 @@ def _user_llm(conn, uid):
     r = conn.execute(
         "SELECT llm_url, llm_key, llm_model, llm_kind, llm_headers FROM users WHERE id=?",
         (uid,)).fetchone()
-    if not r or not r["llm_url"]:
+    if not r or not (r["llm_url"] or "").strip():
         return _ENV_LLM
-    return {"url": r["llm_url"], "key": r["llm_key"],
-            "model": r["llm_model"], "kind": r["llm_kind"],
-            "headers": r["llm_headers"]}
+    mdl = (r["llm_model"] or "").strip()
+    if mdl.lower() in _PLACEHOLDER_MODELS:
+        mdl = ""
+    kind = (r["llm_kind"] or "openai").strip() or "openai"
+    return {"url": r["llm_url"].strip().rstrip("/"), "key": r["llm_key"] or "",
+            "model": mdl, "kind": kind, "headers": r["llm_headers"],
+            "label": f"user:{kind}", "source": "user"}

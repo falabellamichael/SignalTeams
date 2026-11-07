@@ -156,7 +156,7 @@ export function ServerSettingsModal({ server, me, onClose, onSaved, onDeleted, o
             <span style={{ color: "var(--dim)", fontWeight: 400 }}>
               (shared engine — every @summon in this server uses it first)</span></label>
           <input value={srvLlm.url} onChange={(e) => setSrvLlm({ ...srvLlm, url: e.target.value })}
-            placeholder="https://…/v1 or webhook URL (blank = personal/local)" />
+            placeholder="https://api.nexus-projects.ai/v1 or webhook URL (blank = personal/local)" />
           <div style={{ display: "flex", gap: 8 }}>
             <ModelField value={srvLlm.model} onChange={(e) => setSrvLlm({ ...srvLlm, model: e.target.value })}
               options={srvModels} placeholder="model (optional)" style={{ flex: 1 }} />
@@ -169,6 +169,18 @@ export function ServerSettingsModal({ server, me, onClose, onSaved, onDeleted, o
           <input type="password" value={srvLlmKey}
             onChange={(e) => setSrvLlmKey(e.target.value)}
             placeholder={server.has_llm_key ? "api key — set (type to replace)" : "api key (optional)"} />
+          {srvModels.length > 0 && (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginTop: 4 }}>
+              {srvModels.map((m) => (
+                <button key={m} type="button"
+                  className={`chip ${srvLlm.model === m ? "on" : ""}`}
+                  style={{ fontSize: 11, padding: "2px 8px" }}
+                  onClick={() => setSrvLlm((prev) => ({ ...prev, model: m }))}>
+                  {m}
+                </button>
+              ))}
+            </div>
+          )}
           <div style={{ display: "flex", gap: 8 }}>
             <button onClick={async () => {
               const s = await api.editServer(server.id, {
@@ -178,17 +190,23 @@ export function ServerSettingsModal({ server, me, onClose, onSaved, onDeleted, o
               }).catch((e) => (setSrvLlmMsg(e.message), null));
               if (s) { onSaved(s); setSrvLlmKey(""); setSrvLlmMsg("Saved — the crew runs on this engine."); }
             }}>Save engine</button>
-            <button onClick={async () => {
+            <button disabled={!srvLlm.url.trim()} onClick={async () => {
               setSrvLlmMsg("Testing…");
+              const s = await api.editServer(server.id, {
+                llm_url: srvLlm.url.trim(), llm_model: srvLlm.model.trim(),
+                llm_kind: srvLlm.kind,
+                llm_key: srvLlmKey === "" ? null : srvLlmKey,
+              }).catch(() => null);
+              if (s) { onSaved(s); setSrvLlmKey(""); }
               const r = await api.serverLlmTest(server.id).catch((e) => ({ ok: false, error: e.message }));
               setSrvLlmHealth(!!r.ok);
               if (r?.models?.length) setSrvModels(r.models);
               setSrvLlmMsg(r.ok
-                ? (r.models ? `Connected — ${r.models.length} model(s) visible.` : `Connected — ${String(r.sample || "").slice(0, 80)}`)
-                : `Can't reach it: ${r.error || "unknown"}`);
+                ? (r.models?.length ? `✓ Connected (${r.latency_ms || 0}ms) — ${r.models.length} chat model(s) visible.` : `✓ Connected (${r.latency_ms || 0}ms) — ${String(r.sample || "").slice(0, 80)}`)
+                : `✗ Can't reach it: ${r.error || "unknown"}`);
             }}>Test</button>
           </div>
-          {srvLlmMsg && <div className="idehint">{srvLlmMsg}</div>}
+          {srvLlmMsg && <div className="idehint" style={{ color: srvLlmHealth === false ? "var(--bad)" : srvLlmHealth === true ? "var(--good)" : undefined }}>{srvLlmMsg}</div>}
           <label>Roles <span style={{ color: "var(--dim)", fontWeight: 400 }}>
             ({roles.length}/20 — colored names + pills)</span></label>
           {roles.length > 0 && (

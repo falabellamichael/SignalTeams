@@ -40,6 +40,18 @@ def modeldir_models():
     return _dir_cache["models"]
 
 
+DEFAULT_UA = "SignalTeams/1.0"
+_PLACEHOLDER_MODELS = {
+    "", "any", "default", "local-llm", "local-model", "local-embeddings", "crew-model"
+}
+_NON_CHAT_MODALITIES = {
+    "image", "tts", "stt", "audio", "speech", "embedding", "embeddings", "rerank", "moderation"
+}
+_NON_CHAT_TOKENS = (
+    "embed", "whisper", "tts", "kokoro", "sd-turbo", "stable-diffusion", "flux-", "moonshine", "bge-", "rerank"
+)
+
+
 def _ep_headers(endpoint):
     """Merge a custom endpoint's extra headers (e.g. X-Api-Key) into requests."""
     try:
@@ -50,8 +62,8 @@ def _ep_headers(endpoint):
 
 
 def _post(url, payload, timeout, key=None, extra=None):
-    headers = {"Content-Type": "application/json", **(extra or {})}
-    if key:
+    headers = {"User-Agent": DEFAULT_UA, "Content-Type": "application/json", **(extra or {})}
+    if key and "Authorization" not in headers and "authorization" not in headers:
         headers["Authorization"] = f"Bearer {key}"
     req = urllib.request.Request(
         url, data=json.dumps(payload).encode(), headers=headers, method="POST")
@@ -60,10 +72,35 @@ def _post(url, payload, timeout, key=None, extra=None):
 
 
 def _get(url, timeout=3, key=None, extra=None):
-    req = urllib.request.Request(url, headers={
-        **({"Authorization": f"Bearer {key}"} if key else {}), **(extra or {})})
+    headers = {"User-Agent": DEFAULT_UA, **(extra or {})}
+    if key and "Authorization" not in headers and "authorization" not in headers:
+        headers["Authorization"] = f"Bearer {key}"
+    req = urllib.request.Request(url, headers=headers)
     with urllib.request.urlopen(req, timeout=timeout) as r:
         return json.loads(r.read().decode())
+
+
+def _extract_chat_models(d, preferred=""):
+    """Extract chat/text model IDs from a /v1/models payload, filtering out
+    image, TTS, STT, and embedding models when modality or naming indicates non-chat."""
+    raw = [m for m in (d.get("data") or []) if isinstance(m, dict) and m.get("id")]
+    if not raw:
+        return []
+    chat_only = []
+    for m in raw:
+        mid = str(m["id"])
+        mod = str(m.get("modality") or m.get("type") or "").lower()
+        labels = {str(x).lower() for x in (m.get("labels") or []) if x}
+        if mod and mod in _NON_CHAT_MODALITIES:
+            continue
+        if labels and (labels & _NON_CHAT_MODALITIES) and not (labels & {"text", "chat", "llm"}):
+            continue
+        if not mod and any(tok in mid.lower() for tok in _NON_CHAT_TOKENS):
+            continue
+        chat_only.append(mid)
+    out = chat_only or [str(m["id"]) for m in raw]
+    out.sort(key=lambda x: (0 if preferred and x == preferred else 1, 1 if "gguf" in x.lower() else 0))
+    return out
 
 
 def _oai_base(url: str) -> str:
@@ -132,9 +169,38 @@ def custom_models(endpoint):
         ]
     try:
         d = _get(f"{_oai_base(endpoint['url'])}/models", timeout=6, key=endpoint.get("key"), extra=extra)
-        return [m["id"] for m in d.get("data", [])]
+        models = _extract_chat_models(d, preferred=endpoint.get("model") or "")
+        if models:
+            return models
     except Exception:
-        return [endpoint["model"]] if endpoint.get("model") else ["default"]
+        pass
+    return [endpoint["model"]] if endpoint.get("model") else ["default"]
+
+
+def _resolve_endpoint_model(model, endpoint, provider=None):
+    """Choose the right model for a custom/agent/server/user endpoint."""
+    kind = (endpoint.get("kind") or "openai") if endpoint else "openai"
+    m = (model or "").strip()
+    if m.lower() in _PLACEHOLDER_MODELS:
+        m = ""
+    em = ((endpoint.get("model") if endpoint else "") or "").strip()
+    if em.lower() in _PLACEHOLDER_MODELS:
+        em = ""
+    is_agent_ep = str((endpoint or {}).get("label") or "").startswith("agent:")
+    # When inheriting a Server or User endpoint that has an explicit model set,
+    # prefer the endpoint's configured model unless the caller explicitly asked for custom:<model>.
+    if not is_agent_ep and em and provider != "custom":
+        use = em
+    else:
+        use = m or em
+    if not use:
+        if kind == "anthropic":
+            return "claude-3-7-sonnet-latest"
+        if kind == "webhook":
+            return "webhook"
+        avail = custom_models(endpoint)
+        use = avail[0] if avail else "default"
+    return use
 
 
 def providers(endpoint=None):
@@ -185,10 +251,25 @@ def _wh_text(d):
     return ""
 
 
-def _custom_chat(endpoint, model, msgs, temp):
+def _oai_text(d):
+    """Reply text from a chat/completions body — tolerates content:null from
+    reasoning models (vLLM puts the answer in 'reasoning' when the token
+    budget runs out mid-thought) and raises a clear error on empty replies."""
+    c = (d.get("choices") or [{}])[0] or {}
+    msg = c.get("message") or {}
+    txt = (msg.get("content") or "").strip()
+    if not txt and (msg.get("reasoning") or msg.get("reasoning_content")):
+        txt = str(msg.get("reasoning") or msg.get("reasoning_content")).strip()
+    if not txt:
+        raise RuntimeError(
+            f"endpoint returned an empty reply (finish_reason={c.get('finish_reason')})")
+    return txt
+
+
+def _custom_chat(endpoint, model, msgs, temp, provider=None):
     """One-shot reply from an OpenAI-compatible, Anthropic, Ollama, or Webhook endpoint."""
     kind = endpoint.get("kind") or "openai"
-    use = model or endpoint.get("model") or ("claude-3-7-sonnet-latest" if kind == "anthropic" else "default")
+    use = _resolve_endpoint_model(model, endpoint, provider)
     extra = _ep_headers(endpoint)
     label = endpoint.get("label") or kind
     if kind == "webhook":
@@ -198,9 +279,19 @@ def _custom_chat(endpoint, model, msgs, temp):
             "model": use, "temperature": temp}, TIMEOUT, endpoint.get("key"), extra)
         return _wh_text(d), label, use
     if kind == "ollama":
-        d = _post(f"{endpoint['url'].rstrip('/')}/api/chat", {
-            "model": use, "messages": msgs, "stream": False,
-            "options": {"temperature": temp}}, TIMEOUT, endpoint.get("key"), extra)
+        try:
+            d = _post(f"{endpoint['url'].rstrip('/')}/api/chat", {
+                "model": use, "messages": msgs, "stream": False,
+                "options": {"temperature": temp}}, TIMEOUT, endpoint.get("key"), extra)
+        except Exception:
+            avail = custom_models(endpoint)
+            if avail and avail[0] != use:
+                use = avail[0]
+                d = _post(f"{endpoint['url'].rstrip('/')}/api/chat", {
+                    "model": use, "messages": msgs, "stream": False,
+                    "options": {"temperature": temp}}, TIMEOUT, endpoint.get("key"), extra)
+            else:
+                raise
         return d["message"]["content"].strip(), label, use
     if kind == "anthropic":
         sys_txt = msgs[0]["content"] if msgs and msgs[0]["role"] == "system" else ""
@@ -215,10 +306,21 @@ def _custom_chat(endpoint, model, msgs, temp):
         blocks = d.get("content") or []
         txt = "".join(b.get("text", "") for b in blocks if isinstance(b, dict)).strip()
         return txt or _wh_text(d), label, use
-    d = _post(f"{_oai_base(endpoint['url'])}/chat/completions", {
-        "model": use, "messages": msgs, "temperature": temp,
-        "max_tokens": 800, "stream": False}, TIMEOUT, endpoint.get("key"), extra)
-    return d["choices"][0]["message"]["content"].strip(), label, use
+    try:
+        d = _post(f"{_oai_base(endpoint['url'])}/chat/completions", {
+            "model": use, "messages": msgs, "temperature": temp,
+            "max_tokens": 2048, "stream": False}, TIMEOUT, endpoint.get("key"), extra)
+    except Exception:
+        em = (endpoint.get("model") or "").strip()
+        avail = ([em] if em and em.lower() not in _PLACEHOLDER_MODELS else []) + custom_models(endpoint)
+        alt = next((x for x in avail if x and x != use and x != "default"), None)
+        if not alt:
+            raise
+        use = alt
+        d = _post(f"{_oai_base(endpoint['url'])}/chat/completions", {
+            "model": use, "messages": msgs, "temperature": temp,
+            "max_tokens": 2048, "stream": False}, TIMEOUT, endpoint.get("key"), extra)
+    return _oai_text(d), label, use
 
 
 def _temp(t):
@@ -246,7 +348,7 @@ def chat(system_prompt, history, message, model=None, provider=None, temperature
 
     if endpoint and endpoint.get("url") and provider in (None, "custom"):
         try:
-            return _custom_chat(endpoint, model, msgs, temp)
+            return _custom_chat(endpoint, model, msgs, temp, provider=provider)
         except Exception as e:
             errors.append(f"custom: {e}")
             if provider == "custom":
@@ -258,8 +360,8 @@ def chat(system_prompt, history, message, model=None, provider=None, temperature
             use = pick(model, models, "local-model")
             d = _post(f"{LMSTUDIO}/v1/chat/completions", {
                 "model": use, "messages": msgs, "temperature": temp,
-                "max_tokens": 800, "stream": False}, TIMEOUT)
-            return d["choices"][0]["message"]["content"].strip(), "lmstudio", use
+                "max_tokens": 2048, "stream": False}, TIMEOUT)
+            return _oai_text(d), "lmstudio", use
         except Exception as e:
             errors.append(f"lmstudio: {e}")
 
@@ -290,22 +392,29 @@ def chat_stream(system_prompt, history, message, model=None, provider=None, temp
 
     if endpoint and endpoint.get("url") and provider in (None, "custom") \
             and (endpoint.get("kind") or "openai") == "openai":
-        use = model or endpoint.get("model") or "default"
+        use = _resolve_endpoint_model(model, endpoint, provider)
         label = endpoint.get("label") or "custom"
         yield ("meta", {"provider": label, "model": use})
         try:
+            hdrs = {"User-Agent": DEFAULT_UA, "Content-Type": "application/json", **_ep_headers(endpoint)}
+            if endpoint.get("key") and "Authorization" not in hdrs and "authorization" not in hdrs:
+                hdrs["Authorization"] = f"Bearer {endpoint['key']}"
             req = urllib.request.Request(
                 f"{_oai_base(endpoint['url'])}/chat/completions",
                 data=json.dumps({"model": use, "messages": msgs, "temperature": temp,
-                                 "stream": True}).encode(),
-                headers={"Content-Type": "application/json",
-                         **({"Authorization": f"Bearer {endpoint['key']}"}
-                            if endpoint.get("key") else {}), **_ep_headers(endpoint)},
+                                 "max_tokens": 2048, "stream": True}).encode(),
+                headers=hdrs,
                 method="POST")
+            emitted = False
+            reasoning_buf = []
+            raw_lines = []
             with urllib.request.urlopen(req, timeout=TIMEOUT) as r:
                 for line in r:
                     line = line.strip()
+                    if not line:
+                        continue
                     if not line.startswith(b"data:"):
+                        raw_lines.append(line)
                         continue
                     data = line[5:].strip()
                     if data == b"[DONE]":
@@ -314,23 +423,35 @@ def chat_stream(system_prompt, history, message, model=None, provider=None, temp
                         chunk = json.loads(data)
                     except Exception:
                         continue
-                    piece = (chunk.get("choices") or [{}])[0] \
-                        .get("delta", {}).get("content", "")
+                    delta = (chunk.get("choices") or [{}])[0].get("delta") or {}
+                    piece = delta.get("content") or ""
                     if piece:
-                        yield ("token", piece)
+                        if not emitted:
+                            piece = piece.lstrip("\r\n")
+                        if piece:
+                            emitted = True
+                            yield ("token", piece)
+                    elif delta.get("reasoning") or delta.get("reasoning_content"):
+                        reasoning_buf.append(str(delta.get("reasoning") or delta.get("reasoning_content")))
+            if not emitted:
+                if reasoning_buf:
+                    yield ("token", "".join(reasoning_buf).strip())
+                elif raw_lines:
+                    body = json.loads(b"\n".join(raw_lines).decode("utf-8", "replace"))
+                    yield ("token", (_oai_text(body) or _wh_text(body)).strip())
             yield ("done", {})
             return
         except Exception:
-            reply, _p, _m = _custom_chat(endpoint, model, msgs, temp)
-            yield ("token", reply)
+            reply, _p, _m = _custom_chat(endpoint, model, msgs, temp, provider=provider)
+            yield ("token", reply.lstrip("\r\n"))
             yield ("done", {})
             return
 
     if endpoint and endpoint.get("url") and provider in (None, "custom") \
             and (endpoint.get("kind") or "openai") != "openai":
-        reply, prov, use = _custom_chat(endpoint, model, msgs, temp)
+        reply, prov, use = _custom_chat(endpoint, model, msgs, temp, provider=provider)
         yield ("meta", {"provider": prov, "model": use})
-        yield ("token", reply)
+        yield ("token", reply.lstrip("\r\n"))
         yield ("done", {})
         return
 
@@ -346,7 +467,7 @@ def chat_stream(system_prompt, history, message, model=None, provider=None, temp
             f"{OLLAMA}/api/chat",
             data=json.dumps({"model": use, "messages": msgs, "stream": True,
                              "options": {"temperature": temp}}).encode(),
-            headers={"Content-Type": "application/json"}, method="POST")
+            headers={"User-Agent": DEFAULT_UA, "Content-Type": "application/json"}, method="POST")
         with urllib.request.urlopen(req, timeout=TIMEOUT) as r:
             for line in r:
                 line = line.strip()
