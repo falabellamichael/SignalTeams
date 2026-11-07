@@ -21,6 +21,30 @@ function Modal({ title, sub, onClose, children, wide }) {
   );
 }
 
+let _dlId = 0;
+function ModelField({ value, onChange, options, placeholder, style, disabled }) {
+  // input + datalist: dropdown of discovered models, free text still allowed
+  const [id] = useState(() => `mdl-list-${++_dlId}`);
+  return (
+    <>
+      <input list={id} value={value} onChange={onChange}
+        placeholder={placeholder} style={style} disabled={disabled} />
+      <datalist id={id}>
+        {(options || []).map((m) => <option key={m} value={m} />)}
+      </datalist>
+    </>
+  );
+}
+
+function useLlmProviders() {
+  const [providers, setProviders] = useState([]);
+  useEffect(() => { api.llmProviders().then(setProviders).catch(() => {}); }, []);
+  return providers;
+}
+// "ollama:x"/"lmstudio:x"/"custom:x" select a provider; anything else is a bare model name
+const providerModels = (ps) => ps.flatMap((p) => p.models.map((m) =>
+  ["ollama", "lmstudio", "custom"].includes(p.name) ? `${p.name}:${m}` : m));
+
 const AGENT_API_PRESETS = [
   { id: "inherit", label: "Inherit Default", kind: "", url: "", model: "" },
   { id: "openai", label: "OpenAI", kind: "openai", url: "https://api.openai.com/v1", model: "gpt-4o" },
@@ -181,6 +205,12 @@ function ConnectTab({ agent, me, onSaved }) {
   const [probe, setProbe] = useState(null);
   const [msg, setMsg] = useState("");
   const [err, setErr] = useState("");
+  useEffect(() => {
+    if (!agent.api_url) return;
+    api.agentConnectTest(agent.id, {})
+      .then((r) => { if (r?.ok && r.models?.length) setProbe((p) => p || r); })
+      .catch(() => {});
+  }, [agent.id]);
 
   function applyPreset(p) {
     if (!mine) return;
@@ -334,9 +364,9 @@ function ConnectTab({ agent, me, onSaved }) {
           </div>
           <div style={{ maxWidth: 220 }}>
             <label>Default Model</label>
-            <input value={model} disabled={!mine}
+            <ModelField value={model} disabled={!mine} options={probe?.models || []}
               onChange={(e) => setModel(e.target.value)}
-              placeholder="gpt-4o, claude-3-7-sonnet, qwen-max…" />
+              placeholder="gpt-4o, claude-3-7-sonnet — test to list" />
           </div>
         </div>
 
@@ -502,7 +532,7 @@ function TryTab({ agent, onOpenConnect }) {
   useEffect(() => { api.llmProviders().then(setProviders).catch(() => {}); }, []);
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth" }); }, [history]);
 
-  const allModels = providers.flatMap((p) => p.models.map((m) => `${p.name}:${m}`));
+  const allModels = providerModels(providers);
 
   async function send() {
     const msg = draft.trim();
@@ -783,6 +813,8 @@ export function PublishModal({ initial, onClose, onDone }) {
   const [tagText, setTagText] = useState((initial?.tags || []).join(", "));
   const [err, setErr] = useState("");
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
+  const providers = useLlmProviders();
+  const modelOpts = [...new Set(providerModels(providers))];
 
   async function save() {
     setErr("");
@@ -816,7 +848,9 @@ export function PublishModal({ initial, onClose, onDone }) {
       <div className="mrow">
         <div><label>Name</label><input value={f.name} onChange={set("name")} placeholder="BugHunter" /></div>
         <div style={{ maxWidth: 110 }}><label>Version</label><input value={f.version} onChange={set("version")} /></div>
-        <div style={{ maxWidth: 170 }}><label>Model</label><input value={f.model} onChange={set("model")} placeholder="ollama:llama3, custom:gpt-4o, bare name" /></div>
+        <div style={{ maxWidth: 170 }}><label>Model</label>
+          <ModelField value={f.model} onChange={set("model")} options={modelOpts}
+            placeholder="pick ▾ or type — ollama:llama3" /></div>
       </div>
       <label>Icon</label>
       <div className="emoji-pick">
@@ -1471,6 +1505,13 @@ export function ServerSettingsModal({ server, me, onClose, onSaved, onDeleted, o
   const [srvLlmKey, setSrvLlmKey] = useState("");
   const [srvLlmMsg, setSrvLlmMsg] = useState("");
   const [srvLlmHealth, setSrvLlmHealth] = useState(null);
+  const [srvModels, setSrvModels] = useState([]);
+  useEffect(() => {
+    if (!server.llm_url) return;
+    api.serverLlmTest(server.id)
+      .then((r) => { if (r?.models?.length) setSrvModels(r.models); })
+      .catch(() => {});
+  }, [server.id]);
 
   async function uploadEmoji() {
     const f = emFileRef.current?.files?.[0];
@@ -1589,8 +1630,8 @@ export function ServerSettingsModal({ server, me, onClose, onSaved, onDeleted, o
           <input value={srvLlm.url} onChange={(e) => setSrvLlm({ ...srvLlm, url: e.target.value })}
             placeholder="https://…/v1 or webhook URL (blank = personal/local)" />
           <div style={{ display: "flex", gap: 8 }}>
-            <input value={srvLlm.model} onChange={(e) => setSrvLlm({ ...srvLlm, model: e.target.value })}
-              placeholder="model (optional)" style={{ flex: 1 }} />
+            <ModelField value={srvLlm.model} onChange={(e) => setSrvLlm({ ...srvLlm, model: e.target.value })}
+              options={srvModels} placeholder="model (optional)" style={{ flex: 1 }} />
             <select value={srvLlm.kind}
               onChange={(e) => setSrvLlm({ ...srvLlm, kind: e.target.value })}>
               <option value="openai">OpenAI-compatible</option>
@@ -1613,6 +1654,7 @@ export function ServerSettingsModal({ server, me, onClose, onSaved, onDeleted, o
               setSrvLlmMsg("Testing…");
               const r = await api.serverLlmTest(server.id).catch((e) => ({ ok: false, error: e.message }));
               setSrvLlmHealth(!!r.ok);
+              if (r?.models?.length) setSrvModels(r.models);
               setSrvLlmMsg(r.ok
                 ? (r.models ? `Connected — ${r.models.length} model(s) visible.` : `Connected — ${String(r.sample || "").slice(0, 80)}`)
                 : `Can't reach it: ${r.error || "unknown"}`);
@@ -1803,10 +1845,18 @@ export function SettingsModal({ me, theme, onTheme, onClose, onSaved, onLogout }
   const [llmHdrs, setLlmHdrs] = useState("");
   const [llmMsg, setLlmMsg] = useState("");
   const [llmBusy, setLlmBusy] = useState(false);
+  const [llmModels, setLlmModels] = useState({ custom: [], local: [] });
   useEffect(() => {
     api.me().then(setAcct).catch(() => {});
     api.llmMe().then(setLlm).catch(() => {});
+    api.llmProviders().then((ps) => {
+      setLlmModels({
+        custom: ps.find((p) => p.name === "custom")?.models || [],
+        local: ps.filter((p) => p.name !== "custom").flatMap((p) => p.models),
+      });
+    }).catch(() => {});
   }, []);
+  const llmModelOpts = (llm.base_url || "").trim() ? llmModels.custom : llmModels.local;
 
   async function saveLlm() {
     setLlmBusy(true);
@@ -1831,6 +1881,7 @@ export function SettingsModal({ me, theme, onTheme, onClose, onSaved, onLogout }
     if (saved) setLlm(saved);
     const r = await api.llmTest().catch((e) => ({ ok: false, error: e.message }));
     setLlmBusy(false); setLlmHealth(!!r.ok);
+    if (r.models?.length) setLlmModels((m) => ({ ...m, custom: r.models }));
     setLlmMsg(r.ok
       ? (r.models ? `Connected — ${r.models.length} model(s) visible.` : `Connected — ${r.sample?.slice(0, 80) || "endpoint answered"}`)
       : `Can't reach it: ${r.error || "unknown"}`);
@@ -1942,7 +1993,7 @@ export function SettingsModal({ me, theme, onTheme, onClose, onSaved, onLogout }
         </select>
       </div>
       <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
-        <input value={llm.model} style={{ flex: 1 }}
+        <ModelField value={llm.model} style={{ flex: 1 }} options={llmModelOpts}
           placeholder="model (blank = endpoint default)"
           onChange={(e) => setLlm({ ...llm, model: e.target.value })} />
         <input type="password" value={llmKey} style={{ flex: 1 }}

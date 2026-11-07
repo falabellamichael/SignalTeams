@@ -1,6 +1,7 @@
 """Shared serializers, lookups, and pure helpers."""
 import html
 import json
+import os
 import re
 import urllib.error
 import urllib.request
@@ -409,6 +410,11 @@ def _split_model(spec):
 
 
 _ENV_LLM = None
+if os.environ.get("AGENTHIVE_LLM_URL"):
+    _ENV_LLM = {"url": os.environ["AGENTHIVE_LLM_URL"].rstrip("/"),
+                "key": os.environ.get("AGENTHIVE_LLM_KEY", ""),
+                "model": os.environ.get("AGENTHIVE_LLM_MODEL", ""),
+                "kind": os.environ.get("AGENTHIVE_LLM_KIND", "openai")}
 
 
 def _pub_server(d):

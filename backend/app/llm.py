@@ -8,11 +8,39 @@ Override with AGENTHIVE_LMSTUDIO / AGENTHIVE_OLLAMA env vars.
 """
 import json
 import os
+import time
 import urllib.request
 
 LMSTUDIO = os.environ.get("AGENTHIVE_LMSTUDIO", "http://127.0.0.1:1234")
 OLLAMA = os.environ.get("AGENTHIVE_OLLAMA", "http://127.0.0.1:11434")
+MODELDIR = os.environ.get("AGENTHIVE_MODELDIR", "D:/AI-Models")
 TIMEOUT = float(os.environ.get("AGENTHIVE_LLM_TIMEOUT", "90"))
+
+_dir_cache = {"t": 0.0, "models": []}
+
+
+def modeldir_models():
+    """Local model files under AGENTHIVE_MODELDIR: .gguf artifacts plus HF-format
+    dirs (config.json + safetensors), up to 3 levels deep. Cached 60s."""
+    if _dir_cache["models"] and time.time() - _dir_cache["t"] < 60:
+        return _dir_cache["models"]
+    out = []
+    try:
+        for root, dirs, files in os.walk(MODELDIR):
+            out += [f for f in files if f.lower().endswith(".gguf")]
+            if "config.json" in files and any(
+                    f.lower().endswith(".safetensors") for f in files):
+                out.append(os.path.basename(root))
+            if root[len(MODELDIR):].count(os.sep) >= 3:
+                dirs[:] = []
+            else:
+                dirs[:] = [d for d in dirs
+                           if not d.startswith((".", "_"))
+                           and d.lower() not in ("__pycache__", "node_modules", ".git")]
+    except Exception:
+        return []
+    _dir_cache["t"], _dir_cache["models"] = time.time(), sorted(set(out))
+    return _dir_cache["models"]
 
 
 def _ep_headers(endpoint):
@@ -114,7 +142,9 @@ def custom_models(endpoint):
 
 def providers(endpoint=None):
     out = []
-    for name, models in (("lmstudio", lmstudio_models()), ("ollama", ollama_models())):
+    for name, models in (("lmstudio", lmstudio_models()),
+                         ("ollama", ollama_models()),
+                         ("modeldir", modeldir_models())):
         if models:
             out.append({"name": name, "models": models})
     if endpoint and endpoint.get("url"):
