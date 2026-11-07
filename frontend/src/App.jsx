@@ -1,22 +1,35 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { Suspense, lazy, useCallback, useEffect, useRef, useState } from "react";
 import Ico from "./components/Ico";
 import { api, getToken, setToken } from "./api";
 import { connectWS, disconnectWS, onWS, sendWS } from "./ws";
 import { onVoice } from "./voice";
-import Login from "./components/Login";
 import Rail from "./components/Rail";
 import { HomeSidebar, ServerSidebar, MeBar } from "./components/Sidebar";
-import ChatView from "./components/ChatView";
-import Library from "./components/Library";
-import Buzz from "./components/Buzz";
-import Friends from "./components/Friends";
-import Saved from "./components/Saved";
-import {
-  AgentModal, PublishModal, ShareModal, ServerModal, SettingsModal, ChannelModal,
-  PackModal, PackCreateModal, ServerSettingsModal, ProfileModal, GlobalSearchModal,
-  ForwardModal, GroupDmModal, InboxModal, PulseModal, ShortcutsModal, PickAgentModal,
-} from "./components/Modals";
 import Bell from "./components/Notifications";
+
+const Login = lazy(() => import("./components/Login"));
+const ChatView = lazy(() => import("./components/ChatView"));
+const Library = lazy(() => import("./components/Library"));
+const Buzz = lazy(() => import("./components/Buzz"));
+const Friends = lazy(() => import("./components/Friends"));
+const Saved = lazy(() => import("./components/Saved"));
+const AgentModal = lazy(() => import("./components/modals/agent/index.jsx").then((m) => ({ default: m.AgentModal })));
+const PublishModal = lazy(() => import("./components/modals/publish.jsx").then((m) => ({ default: m.PublishModal })));
+const ShareModal = lazy(() => import("./components/modals/share.jsx").then((m) => ({ default: m.ShareModal })));
+const ServerModal = lazy(() => import("./components/modals/server.jsx").then((m) => ({ default: m.ServerModal })));
+const ServerSettingsModal = lazy(() => import("./components/modals/serversettings.jsx").then((m) => ({ default: m.ServerSettingsModal })));
+const ChannelModal = lazy(() => import("./components/modals/channel.jsx").then((m) => ({ default: m.ChannelModal })));
+const PackModal = lazy(() => import("./components/modals/packs.jsx").then((m) => ({ default: m.PackModal })));
+const PackCreateModal = lazy(() => import("./components/modals/packs.jsx").then((m) => ({ default: m.PackCreateModal })));
+const ProfileModal = lazy(() => import("./components/modals/profile.jsx").then((m) => ({ default: m.ProfileModal })));
+const GlobalSearchModal = lazy(() => import("./components/modals/search.jsx").then((m) => ({ default: m.GlobalSearchModal })));
+const ForwardModal = lazy(() => import("./components/modals/forward.jsx").then((m) => ({ default: m.ForwardModal })));
+const GroupDmModal = lazy(() => import("./components/modals/groupdm.jsx").then((m) => ({ default: m.GroupDmModal })));
+const InboxModal = lazy(() => import("./components/modals/inbox.jsx").then((m) => ({ default: m.InboxModal })));
+const PulseModal = lazy(() => import("./components/modals/pulse.jsx").then((m) => ({ default: m.PulseModal })));
+const ShortcutsModal = lazy(() => import("./components/modals/shortcuts.jsx").then((m) => ({ default: m.ShortcutsModal })));
+const PickAgentModal = lazy(() => import("./components/modals/pickagent.jsx").then((m) => ({ default: m.PickAgentModal })));
+const SettingsModal = lazy(() => import("./components/modals/settings.jsx").then((m) => ({ default: m.SettingsModal })));
 
 export default function App() {
   const [me, setMe] = useState(null);
@@ -715,6 +728,7 @@ export default function App() {
         {main}
       </div>
 
+      <Suspense fallback={null}>
       {modal?.kind === "agent" && (
         <AgentModal agent={modal.agent} me={me} onClose={() => setModal(null)}
           onStar={starAgent} onInstall={installAgent}
@@ -886,6 +900,7 @@ export default function App() {
       {modal?.kind === "shortcuts" && (
         <ShortcutsModal onClose={() => setModal(null)} />
       )}
+      </Suspense>
     </div>
   );
 }
