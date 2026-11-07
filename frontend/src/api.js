@@ -141,6 +141,7 @@ export const api = {
   markUnread: (cid, mid) => req("POST", `/api/channels/${cid}/mark-unread`, { message_id: mid }),
   readAll: () => req("POST", "/api/me/read-all"),
   serverLlmTest: (sid) => req("POST", `/api/servers/${sid}/llm/test`),
+  serverAudit: (sid, before) => req("GET", `/api/servers/${sid}/audit${before ? `?before=${before}` : ""}`),
   deleteServer: (sid) => req("DELETE", `/api/servers/${sid}`),
   leaveServer: (sid) => req("POST", `/api/servers/${sid}/leave`),
   editChannel: (cid, p) => req("PATCH", `/api/channels/${cid}`, p),

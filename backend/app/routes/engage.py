@@ -8,7 +8,7 @@ from ..auth import current_user
 from ..db import db, now
 from ..hub import hub
 
-from ..helpers import _fmt_due, _gated_channel, can_see_agent, channel_member_ids, public_user
+from ..helpers import _fmt_due, _gated_channel, audit, can_see_agent, channel_member_ids, public_user
 from ..schemas import KnockIn, ReminderIn, SummarizeIn
 from ..services import REMIND_BOT, _agent_cool, _summarize_task, agent_reply, bot_post
 
@@ -81,6 +81,10 @@ async def resolve_knock(cid: int, uid: int, body: KnockIn, user=Depends(current_
         if body.approve:
             conn.execute("INSERT OR IGNORE INTO channel_members(channel_id, user_id) "
                          "VALUES (?,?)", (cid, uid))
+        if ch["server_id"]:
+            audit(conn, ch["server_id"], user["id"],
+                  "member.approve" if body.approve else "member.deny",
+                  f"@{knocker['username']}" if knocker else str(uid), f"#{ch['name']}")
     if body.approve:
         await bot_post(cid, "bot:system", "System", "📡",
                        f"🚪 {user['display_name']} let **{knocker['display_name']}** in")

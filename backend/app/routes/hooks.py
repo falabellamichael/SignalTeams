@@ -16,7 +16,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from ..auth import current_user
 from ..db import db, emit_buzz, now
 from ..hub import hub
-from ..helpers import can_see_agent, channel_member_ids, hook_bot_user, is_blocked, message_json
+from ..helpers import audit, can_see_agent, channel_member_ids, hook_bot_user, is_blocked, message_json
 from ..services import _agent_cool, agent_reply
 
 router = APIRouter()
@@ -70,6 +70,9 @@ def create_hook(cid: int, body: dict, user=Depends(current_user)):
             (cid, name, icon, secrets.token_urlsafe(24), user["id"], now()))
         h = conn.execute("SELECT * FROM channel_hooks WHERE id=?",
                          (cur.lastrowid,)).fetchone()
+        ch = conn.execute("SELECT server_id FROM channels WHERE id=?", (cid,)).fetchone()
+        audit(conn, ch["server_id"], user["id"], "hook.create",
+              name, f"in #{conn.execute('SELECT name FROM channels WHERE id=?', (cid,)).fetchone()['name']}")
         return _hook_json(h)
 
 
@@ -88,6 +91,11 @@ def edit_hook(wid: int, body: dict, user=Depends(current_user)):
             (name, icon, token, wid))
         h = conn.execute("SELECT * FROM channel_hooks WHERE id=?", (wid,)).fetchone()
         hook_bot_user(conn, h)                     # keep the bot user in sync
+        ch = conn.execute("SELECT server_id, name cname FROM channels WHERE id=?",
+                          (h["channel_id"],)).fetchone()
+        audit(conn, ch["server_id"], user["id"],
+              "hook.rotate" if body.get("rotate") else "hook.update",
+              name, f"in #{ch['cname']}" if ch else "")
         return _hook_json(h)
 
 
@@ -99,6 +107,10 @@ def delete_hook(wid: int, user=Depends(current_user)):
             raise HTTPException(404, "No such webhook")
         _own_channel(conn, h["channel_id"], user["id"])
         conn.execute("DELETE FROM channel_hooks WHERE id=?", (wid,))
+        ch = conn.execute("SELECT server_id, name cname FROM channels WHERE id=?",
+                          (h["channel_id"],)).fetchone()
+        audit(conn, ch["server_id"], user["id"], "hook.delete",
+              h["name"], f"in #{ch['cname']}" if ch else "")
         return {"deleted": wid}
 
 

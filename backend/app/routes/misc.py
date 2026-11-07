@@ -9,7 +9,7 @@ from fastapi.responses import Response
 from ..auth import current_user, optional_user
 from ..db import db, now
 
-from ..helpers import friend_ids
+from ..helpers import audit, friend_ids
 from ..services import _server_changed
 
 router = APIRouter()
@@ -53,6 +53,7 @@ async def add_emoji(sid: int, file: UploadFile = File(...), name: str = Form(...
             "INSERT INTO emojis(server_id, name, file_id, uploader, created_at) VALUES (?,?,?,?,?)",
             (sid, slug, fid, user["id"], now()))
         eid = cur.lastrowid
+        audit(conn, sid, user["id"], "emoji.create", f":{slug}:")
     with db() as conn:
         await _server_changed(conn, sid)
     return {"id": eid, "name": slug, "file_id": fid}
@@ -70,6 +71,7 @@ async def del_emoji(eid: int, user=Depends(current_user)):
             raise HTTPException(403, "Only the uploader or the server owner can delete it")
         sid = e["server_id"]
         conn.execute("DELETE FROM emojis WHERE id=?", (eid,))
+        audit(conn, sid, user["id"], "emoji.delete", f":{e['name']}:")
     with db() as conn:
         await _server_changed(conn, sid)
     return {"deleted": eid}

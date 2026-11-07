@@ -269,6 +269,21 @@ def is_blocked(conn, a: int, b: int):
         (a, b, b, a)).fetchone())
 
 
+AUDIT_KEEP = 500        # per-server cap — oldest rows roll off
+
+
+def audit(conn, sid, actor_id, action, target="", detail=""):
+    """One audit-log row; prunes the tail so the table stays bounded."""
+    conn.execute(
+        "INSERT INTO audit_log(server_id, actor_id, action, target, detail, created_at) "
+        "VALUES (?,?,?,?,?,?)",
+        (sid, actor_id, action, str(target or "")[:120], str(detail or "")[:300], now()))
+    conn.execute(
+        "DELETE FROM audit_log WHERE server_id=? AND id NOT IN "
+        "(SELECT id FROM audit_log WHERE server_id=? ORDER BY id DESC LIMIT ?)",
+        (sid, sid, AUDIT_KEEP))
+
+
 def agent_bot_user(conn, a):
     """Get-or-create the synthetic chat user that posts as this agent."""
     slug = re.sub(r"[^a-z0-9]+", "", a["name"].lower())[:24] or f"a{a['id']}"

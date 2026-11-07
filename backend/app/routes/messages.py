@@ -9,7 +9,7 @@ from ..auth import current_user
 from ..db import db, emit_buzz, now
 from ..hub import hub
 
-from ..helpers import STAR_EMOJI, URL_RE, _parse_search, can_see_agent, can_see_pack, channel_member_ids, is_blocked, message_json, public_user, reactions_json, unfurl
+from ..helpers import STAR_EMOJI, URL_RE, _parse_search, audit, can_see_agent, can_see_pack, channel_member_ids, is_blocked, message_json, public_user, reactions_json, unfurl
 from ..schemas import EditIn, MessageIn, ReactIn
 from ..services import _agent_cool, agent_reply, starboard_check
 
@@ -292,6 +292,9 @@ async def delete_message(mid: int, user=Depends(current_user)):
         members = channel_member_ids(conn, ch)
         conn.execute("DELETE FROM messages WHERE thread_root=?", (mid,))
         conn.execute("DELETE FROM messages WHERE id=?", (mid,))
+        if ch["server_id"]:
+            audit(conn, ch["server_id"], user["id"], "message.delete",
+                  f"#{ch['name']}", (m["content"] or "")[:80])
     await hub.send_many(members, {"type": "message_deleted", "channel_id": m["channel_id"], "id": mid})
     return {"ok": True}
 

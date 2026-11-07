@@ -253,6 +253,17 @@ CREATE TABLE IF NOT EXISTS channel_hooks (               -- incoming webhooks pe
     created_at REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_hooks_channel ON channel_hooks(channel_id);
+
+CREATE TABLE IF NOT EXISTS audit_log (                   -- who did what, per server
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    server_id  INTEGER NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+    actor_id   INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    action     TEXT NOT NULL,                           -- channel.create, member.kick, …
+    target     TEXT NOT NULL DEFAULT '',                -- "#general", "@nova", role name
+    detail     TEXT NOT NULL DEFAULT '',                -- short human-readable extras
+    created_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_audit_server ON audit_log(server_id, id DESC);
 """
 
 

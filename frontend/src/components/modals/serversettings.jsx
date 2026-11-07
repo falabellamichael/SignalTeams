@@ -1,7 +1,23 @@
 import React, { useState, useEffect, useRef } from "react";
 import Ico from "../Ico";
 import { api } from "../../api";
+import { timeAgo } from "../../util";
 import { EMOJI_CHOICES, Modal, ModelField } from "./_shared.jsx";
+
+const AUDIT_LABEL = {
+  "server.update": "edited the server", "invite.rotate": "rotated the invite",
+  "member.kick": "kicked", "member.leave": "left the team",
+  "member.nick": "changed nickname on", "member.roles": "updated roles on",
+  "member.approve": "let into", "member.deny": "denied a knock in",
+  "owner.transfer": "handed ownership to",
+  "role.create": "created role", "role.delete": "deleted role",
+  "channel.create": "created channel", "channel.update": "edited channel",
+  "channel.delete": "deleted channel", "channel.reorder": "reordered channels",
+  "emoji.create": "added emoji", "emoji.delete": "removed emoji",
+  "hook.create": "added webhook", "hook.update": "edited webhook",
+  "hook.rotate": "rotated webhook", "hook.delete": "deleted webhook",
+  "message.delete": "deleted a message in",
+};
 
 export function ServerSettingsModal({ server, me, onClose, onSaved, onDeleted, onLeft, onKick, onTransfer }) {
   const owner = server.owner_id === me?.id;
@@ -34,6 +50,16 @@ export function ServerSettingsModal({ server, me, onClose, onSaved, onDeleted, o
   const [srvLlmMsg, setSrvLlmMsg] = useState("");
   const [srvLlmHealth, setSrvLlmHealth] = useState(null);
   const [srvModels, setSrvModels] = useState([]);
+  const [audit, setAudit] = useState(null);
+  const [auditOpen, setAuditOpen] = useState(false);
+  const [auditMore, setAuditMore] = useState(false);
+  useEffect(() => {
+    if (owner && auditOpen && audit === null) {
+      api.serverAudit(server.id)
+        .then((rows) => { setAudit(rows); setAuditMore(rows.length === 50); })
+        .catch(() => setAudit([]));
+    }
+  }, [owner, auditOpen, audit, server.id]);
   useEffect(() => {
     if (!server.llm_url) return;
     api.serverLlmTest(server.id)
@@ -282,6 +308,40 @@ export function ServerSettingsModal({ server, me, onClose, onSaved, onDeleted, o
               </div>
             ))}
           </div>
+          <label style={{ cursor: "pointer", userSelect: "none" }}
+            onClick={() => setAuditOpen((o) => !o)}>
+            <Ico n={auditOpen ? "caretD" : "caretR"} s={11} /> Audit log{" "}
+            <span style={{ color: "var(--dim)", fontWeight: 400 }}>
+              (who did what — last 500 events)</span></label>
+          {auditOpen && (
+            <div style={{ maxHeight: 200, overflowY: "auto", marginBottom: 8 }}>
+              {audit === null && <div className="idehint">Loading…</div>}
+              {(audit || []).length === 0 && audit !== null && (
+                <div className="idehint">Nothing yet — kicks, edits, hooks and channel changes land here.</div>)}
+              {(audit || []).map((r) => (
+                <div key={r.id} style={{
+                  display: "flex", alignItems: "baseline", gap: 7, padding: "3px 2px",
+                  fontSize: 12, borderBottom: "1px solid var(--border)"
+                }}>
+                  <span style={{ fontSize: 13, flexShrink: 0 }}>{r.actor?.avatar_emoji}</span>
+                  <b style={{ flexShrink: 0 }}>{r.actor?.display_name}</b>
+                  <span style={{ color: "var(--dim)", flexShrink: 0 }}>
+                    {AUDIT_LABEL[r.action] || r.action}</span>
+                  {r.target && <b style={{ flexShrink: 0, maxWidth: 130, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.target}</b>}
+                  {r.detail && <span style={{ color: "var(--dim)", fontSize: 11, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={r.detail}>{r.detail}</span>}
+                  <span style={{ color: "var(--dim)", fontSize: 10.5, marginLeft: "auto", flexShrink: 0 }}>
+                    {timeAgo(r.created_at)}</span>
+                </div>
+              ))}
+              {auditMore && (
+                <button className="ghost" style={{ fontSize: 11, marginTop: 6 }} onClick={async () => {
+                  const older = await api.serverAudit(server.id, audit[audit.length - 1].id).catch(() => []);
+                  setAudit((a) => [...(a || []), ...older]);
+                  setAuditMore(older.length === 50);
+                }}>load older</button>
+              )}
+            </div>
+          )}
         </>
       ) : (
         <div className="msub" style={{ marginBottom: 8 }}>

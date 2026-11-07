@@ -8,7 +8,7 @@ from ..auth import current_user
 from ..db import db, emit_buzz, now
 from ..hub import hub
 
-from ..helpers import _pub_server, channel_json, public_user
+from ..helpers import _pub_server, audit, channel_json, public_user
 from ..schemas import ChannelIn, ChannelPatch, JoinIn, MemberRoleIn, NickIn, RoleIn, ServerIn, ServerPatch, TransferIn
 from ..services import _server_changed
 
@@ -109,6 +109,14 @@ async def edit_server(sid: int, body: ServerPatch, user=Depends(current_user)):
         if body.llm_kind is not None:
             conn.execute("UPDATE servers SET llm_kind=? WHERE id=?",
                          (body.llm_kind in ("openai", "webhook") and body.llm_kind or "openai", sid))
+        changed = [k for k, v in (("name", body.name), ("icon", body.icon),
+                                ("icon_file", body.icon_file), ("star_threshold", body.star_threshold),
+                                ("llm endpoint", body.llm_url), ("llm key", body.llm_key),
+                                ("llm model", body.llm_model), ("llm kind", body.llm_kind))
+                   if v is not None]
+        if changed:
+            audit(conn, sid, user["id"], "server.update", s["name"],
+                  "changed " + ", ".join(changed))
         out = _pub_server(dict(conn.execute("SELECT * FROM servers WHERE id=?", (sid,)).fetchone()))
     with db() as conn:
         await _server_changed(conn, sid)
@@ -124,6 +132,7 @@ async def regen_invite(sid: int, user=Depends(current_user)):
             raise HTTPException(404, "No such server")
         conn.execute("UPDATE servers SET invite_code=? WHERE id=?",
                      (secrets.token_urlsafe(6), sid))
+        audit(conn, sid, user["id"], "invite.rotate", s["name"], "old code stopped working")
         out = _pub_server(dict(conn.execute("SELECT * FROM servers WHERE id=?", (sid,)).fetchone()))
     with db() as conn:
         await _server_changed(conn, sid)
@@ -156,6 +165,7 @@ async def leave_server(sid: int, user=Depends(current_user)):
             raise HTTPException(404, "Not a member")
         conn.execute("DELETE FROM server_members WHERE server_id=? AND user_id=?",
                      (sid, user["id"]))
+        audit(conn, sid, user["id"], "member.leave", f"@{user['username']}", s["name"])
     with db() as conn:
         await _server_changed(conn, sid)
     return {"ok": True}
@@ -172,8 +182,11 @@ async def kick_member(sid: int, uid: int, user=Depends(current_user)):
         if not conn.execute("SELECT 1 FROM server_members WHERE server_id=? AND user_id=?",
                             (sid, uid)).fetchone():
             raise HTTPException(404, "Not a member")
+        tgt = conn.execute("SELECT username FROM users WHERE id=?", (uid,)).fetchone()
         conn.execute("DELETE FROM server_members WHERE server_id=? AND user_id=?",
                      (sid, uid))
+        audit(conn, sid, user["id"], "member.kick",
+              f"@{tgt['username']}" if tgt else str(uid))
     await hub.send_many([uid], {"type": "server_left", "server_id": sid})
     with db() as conn:
         await _server_changed(conn, sid)
@@ -186,11 +199,14 @@ async def set_nick(sid: int, body: NickIn, user=Depends(current_user)):
         if not conn.execute("SELECT 1 FROM server_members WHERE server_id=? AND user_id=?",
                             (sid, user["id"])).fetchone():
             raise HTTPException(404, "Not a member")
+        nick = body.nickname.strip()[:48]
         conn.execute("UPDATE server_members SET nickname=? WHERE server_id=? AND user_id=?",
-                     (body.nickname.strip()[:48], sid, user["id"]))
+                     (nick, sid, user["id"]))
+        audit(conn, sid, user["id"], "member.nick",
+              f"@{user['username']}", nick or "nickname cleared")
     with db() as conn:
         await _server_changed(conn, sid)
-        return {"nickname": body.nickname.strip()[:48]}
+        return {"nickname": nick}
 
 
 @router.post("/api/servers/{sid}/transfer")
@@ -205,6 +221,9 @@ async def transfer_server(sid: int, body: TransferIn, user=Depends(current_user)
                             (sid, body.user_id)).fetchone():
             raise HTTPException(404, "Not a member")
         conn.execute("UPDATE servers SET owner_id=? WHERE id=?", (body.user_id, sid))
+        tgt = conn.execute("SELECT username FROM users WHERE id=?", (body.user_id,)).fetchone()
+        audit(conn, sid, user["id"], "owner.transfer",
+              f"@{tgt['username']}" if tgt else str(body.user_id), s["name"])
     with db() as conn:
         await _server_changed(conn, sid)
         return {"ok": True, "owner_id": body.user_id}
@@ -322,6 +341,7 @@ async def add_role(sid: int, body: RoleIn, user=Depends(current_user)):
         except Exception:
             raise HTTPException(409, "A role with that name already exists")
         rid = cur.lastrowid
+        audit(conn, sid, user["id"], "role.create", body.name.strip(), color.lower())
     with db() as conn:
         await _server_changed(conn, sid)
     return {"id": rid, "name": body.name.strip(), "color": color.lower()}
@@ -339,9 +359,7 @@ async def del_role(rid: int, user=Depends(current_user)):
             raise HTTPException(403, "Only the owner manages roles")
         sid = r["server_id"]
         conn.execute("DELETE FROM server_roles WHERE id=?", (rid,))
-    with db() as conn:
-        await _server_changed(conn, sid)
-    return {"deleted": rid}
+        audit(conn, sid, user["id"], "role.delete", r["name"], r["color"])
 
 
 @router.post("/api/servers/{sid}/members/{uid}/roles")
@@ -370,6 +388,11 @@ async def toggle_member_role(sid: int, uid: int, body: MemberRoleIn,
                 "INSERT INTO member_roles(server_id, user_id, role_id) VALUES (?,?,?)",
                 (sid, uid, body.role_id))
             on = True
+        un = conn.execute("SELECT username FROM users WHERE id=?", (uid,)).fetchone()
+        rn = conn.execute("SELECT name FROM server_roles WHERE id=?", (body.role_id,)).fetchone()
+        audit(conn, sid, user["id"], "member.roles",
+              f"@{un['username']}" if un else str(uid),
+              ("+" if on else "-") + (rn["name"] if rn else "role"))
     with db() as conn:
         await _server_changed(conn, sid)
     return {"role_id": body.role_id, "on": on}
@@ -395,6 +418,8 @@ def add_channel(sid: int, body: ChannelIn, user=Depends(current_user)):
             (sid, body.kind, body.name.lstrip("#"), body.topic, pos,
              json.dumps(roster), body.category[:48], body.role_id or None,
              max(0, min(int(body.voice_cap or 0), 99)), now()))
+        audit(conn, sid, user["id"], "channel.create",
+              f"#{body.name.lstrip('#')}", body.kind)
         return channel_json(conn, conn.execute(
             "SELECT * FROM channels WHERE id=?", (cur.lastrowid,)).fetchone(), user["id"])
 
@@ -430,6 +455,13 @@ async def edit_channel(cid: int, body: ChannelPatch, user=Depends(current_user))
                 raise HTTPException(404, "No such role")
             conn.execute("UPDATE channels SET role_id=? WHERE id=?",
                          (body.role_id or None, cid))
+        changed = [k for k, v in (("name", body.name), ("topic", body.topic),
+                                ("category", body.category), ("slowmode", body.slowmode_secs),
+                                ("voice cap", body.voice_cap), ("roster", body.roster),
+                                ("role gate", body.role_id))
+                   if v is not None]
+        audit(conn, ch["server_id"], user["id"], "channel.update",
+              f"#{ch['name']}", "changed " + ", ".join(changed) if changed else "")
         sid = ch["server_id"]
     with db() as conn:
         await _server_changed(conn, sid)
@@ -451,6 +483,7 @@ async def reorder_channels(sid: int, body: dict, user=Depends(current_user)):
             raise HTTPException(400, "order must list every channel id exactly once")
         for i, cid in enumerate(ids):
             conn.execute("UPDATE channels SET position=? WHERE id=?", (i, cid))
+        audit(conn, sid, user["id"], "channel.reorder", "", f"{len(ids)} channels")
     with db() as conn:
         await _server_changed(conn, sid)
     return {"ok": True}
@@ -469,7 +502,30 @@ async def del_channel(cid: int, user=Depends(current_user)):
         if left <= 1:
             raise HTTPException(400, "A server needs at least one channel")
         conn.execute("DELETE FROM channels WHERE id=?", (cid,))
+        audit(conn, ch["server_id"], user["id"], "channel.delete", f"#{ch['name']}")
         sid = ch["server_id"]
     with db() as conn:
         await _server_changed(conn, sid)
     return {"ok": True}
+
+
+@router.get("/api/servers/{sid}/audit")
+def get_audit(sid: int, before: int = 0, user=Depends(current_user)):
+    """Server audit log — owner only, newest first, 50 per page."""
+    with db() as conn:
+        s = conn.execute("SELECT owner_id FROM servers WHERE id=?", (sid,)).fetchone()
+        if not s or s["owner_id"] != user["id"]:
+            raise HTTPException(404, "No such server")
+        q = ("SELECT a.*, u.username, u.display_name, u.avatar_emoji, u.avatar_color "
+             "FROM audit_log a JOIN users u ON u.id=a.actor_id WHERE a.server_id=?")
+        args = [sid]
+        if before:
+            q += " AND a.id<?"
+            args.append(before)
+        rows = conn.execute(q + " ORDER BY a.id DESC LIMIT 50", args).fetchall()
+        return [{"id": r["id"], "action": r["action"], "target": r["target"],
+                 "detail": r["detail"], "created_at": r["created_at"],
+                 "actor": {"id": r["actor_id"], "username": r["username"],
+                          "display_name": r["display_name"],
+                          "avatar_emoji": r["avatar_emoji"],
+                          "avatar_color": r["avatar_color"]}} for r in rows]
