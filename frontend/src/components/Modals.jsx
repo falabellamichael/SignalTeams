@@ -1,5 +1,5 @@
 // Split into components/modals/* — this file only re-exports.
-export { AgentModal } from "./modals/agent.jsx";
+export { AgentModal } from "./modals/agent/index.jsx";
 export { PublishModal } from "./modals/publish.jsx";
 export { ShareModal } from "./modals/share.jsx";
 export { PackModal, PackCreateModal } from "./modals/packs.jsx";
