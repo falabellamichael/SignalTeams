@@ -23,6 +23,17 @@ async function req(method, path, body) {
   return data;
 }
 
+async function reqForm(path, fd) {
+  const res = await fetch(path, {
+    method: "POST",
+    headers: getToken() ? { Authorization: `Bearer ${getToken()}` } : {},
+    body: fd,
+  });
+  const data = await res.json().catch(() => null);
+  if (!res.ok) throw new Error(data?.detail || `HTTP ${res.status}`);
+  return data;
+}
+
 export const api = {
   raw: (path) => req("GET", path),
   authConfig: () => req("GET", "/api/auth/config"),
@@ -63,14 +74,7 @@ export const api = {
   addEmoji: (sid, name, file) => {
     const fd = new FormData();
     fd.append("name", name); fd.append("file", file);
-    return fetch(`/api/servers/${sid}/emojis`, {
-      method: "POST",
-      headers: getToken() ? { Authorization: `Bearer ${getToken()}` } : {},
-      body: fd }).then(async (r) => {
-      const d = await r.json().catch(() => null);
-      if (!r.ok) throw new Error(d?.detail || `HTTP ${r.status}`);
-      return d;
-    });
+    return reqForm(`/api/servers/${sid}/emojis`, fd);
   },
   delEmoji: (eid) => req("DELETE", `/api/emojis/${eid}`),
   addRole: (sid, name, color) => req("POST", `/api/servers/${sid}/roles`, { name, color }),
@@ -122,14 +126,7 @@ export const api = {
   upload: async (file) => {
     const fd = new FormData();
     fd.append("file", file);
-    const res = await fetch("/api/upload", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${getToken()}` },
-      body: fd,
-    });
-    const data = await res.json().catch(() => null);
-    if (!res.ok) throw new Error(data?.detail || `HTTP ${res.status}`);
-    return data;
+    return reqForm("/api/upload", fd);
   },
   fileUrl: (id) => `/api/files/${id}?token=${encodeURIComponent(getToken())}`,
   delMessage: (mid) => req("DELETE", `/api/messages/${mid}`),
