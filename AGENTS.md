@@ -14,7 +14,17 @@
 - `AGENTHIVE_HOST=0.0.0.0` exposes the backend to LAN; backend also serves `frontend/dist`
   when it exists (single-port mode — `start-lan.bat` does build+serve).
 - Local LLM playground proxies Ollama :11434 / LM Studio :1234 — override with
-  `AGENTHIVE_OLLAMA` / `AGENTHIVE_LMSTUDIO`.
+  `AGENTHIVE_OLLAMA` / `AGENTHIVE_LMSTUDIO`. `AGENTHIVE_MODELDIR` (default
+  `D:/AI-Models`) is scanned for .gguf/HF models → `/api/llm/providers` returns
+  them as the `modeldir` provider (bare model names, 60s cache).
+- Backend layout: `app/main.py` is a thin factory; request models in
+  `app/schemas.py`, serializers/lookups in `app/helpers.py`, async bot/starboard/
+  agent-reply/reminder tasks in `app/services.py`, endpoints by domain in
+  `app/routes/{auth,friends,servers,dms,messages,engage,agents,playground,packs,misc,ws}.py`.
+- Frontend modals live in `frontend/src/components/modals/*.jsx` — shared bits
+  (`Modal`, `ModelField`, `useLlmProviders`, presets/consts) in `_shared.jsx`;
+  `components/Modals.jsx` is just a re-export barrel (import sites unchanged).
+- QA scripts/screenshots live under `qa/`.
 - Uploads live in `backend/uploads/` — served at `/api/files/{id}?token=` (auth via query
   for `<img>` tags). `agent_history` snapshots the previous agent on every PATCH.
 - Git Bash `/tmp` is invisible to Windows python.exe — use paths under `D:\AgentHive`
