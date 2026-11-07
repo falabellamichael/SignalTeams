@@ -1,0 +1,20 @@
+import { chromium } from 'playwright';
+const b = await chromium.launch(), p = await b.newPage({ viewport: { width: 1280, height: 800 } });
+const errs = []; p.on('console', m => m.type() === 'error' && errs.push(m.text()));
+await p.goto('http://localhost:5175');
+await p.fill('input[placeholder="username"]', 'mike');
+await p.fill('input[placeholder="password"]', 'password');
+await p.click('button[type="submit"], button:has-text("Sign in"), form button');
+await p.waitForTimeout(1200);
+await p.click('.rail-ico[title="Signal HQ"], .rail-ico:has-text("📡")');
+await p.waitForTimeout(600);
+await p.click('.chan:has-text("general"), .nav-chan:has-text("general")');
+await p.waitForTimeout(1200);
+const n = await p.locator('.embed').count();
+const title = n ? await p.locator('.embed-title').first().textContent() : null;
+const site = n ? await p.locator('.embed-site').first().textContent() : null;
+await p.screenshot({ path: 'qa-embed.png' });
+// bell state check
+const unseen = await p.locator('button[title="Notifications"] .rail-badge').count();
+console.log(JSON.stringify({ embeds: n, title, site, bellBadge: unseen, errs: errs.slice(0,3) }));
+await b.close();

@@ -1,0 +1,39 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "SignalTeams",
+  "version": "0.1.0",
+  "identifier": "com.falab.signalteams",
+  "build": {
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "bootstrap"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "label": "main",
+        "title": "SignalTeams",
+        "url": "http://127.0.0.1:8075/",
+        "create": false,
+        "decorations": false,
+        "backgroundColor": "#0d1117",
+        "width": 1340,
+        "height": 880,
+        "minWidth": 820,
+        "minHeight": 580,
+        "dragDropEnabled": false
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis"],
+    "icon": ["icons/icon.ico"],
+    "resources": {
+      "icons/icon.ico": "SignalTeams.ico"
+    }
+  }
+}

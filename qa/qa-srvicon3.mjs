@@ -1,0 +1,18 @@
+import { chromium } from "file:///D:/VehicleSite/node_modules/playwright/index.mjs";
+const errors = [], failed = [];
+const browser = await chromium.launch();
+const page = await (await browser.newContext()).newPage();
+page.on("console", (m) => { if (m.type() === "error") errors.push(m.text()); });
+page.on("requestfailed", (r) => failed.push(r.url()));
+await page.goto("http://127.0.0.1:8075", { waitUntil: "networkidle" });
+await page.click('button:has-text("crew account")');
+await page.fill('input:not([type])', "mike");
+await page.locator('input[type="password"]').first().fill("password");
+await page.click('button:has-text("Sign in"), button:has-text("sign in")');
+await page.waitForSelector(".rail", { timeout: 10000 });
+await page.waitForTimeout(1400);
+console.log("rail imgs:", await page.locator(".rail-ico .rail-ico-img").count());
+await page.screenshot({ path: "qa-srvicon3.png", clip: { x: 0, y: 0, width: 340, height: 700 } });
+console.log("CONSOLE:", errors.length ? errors.slice(0, 3) : "clean");
+console.log("FAILED:", failed.length ? failed.slice(0, 3) : "none");
+await browser.close();

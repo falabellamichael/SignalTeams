@@ -1,0 +1,29 @@
+# secrets
+.env
+backend/.env
+frontend/.env
+
+# deps / build
+node_modules/
+frontend/dist/
+frontend/src-tauri/target/
+frontend/src-tauri/gen/
+*.exe
+
+# python
+__pycache__/
+*.pyc
+.venv/
+
+# data
+backend/*.db
+backend/*.db-*
+/agenthive.db
+backend/uploads/
+
+# logs
+*.log
+
+# qa
+qa-*.png
+qa/*.png

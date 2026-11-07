@@ -1,0 +1,15 @@
+{
+  "name": "SignalTeams — share agents with your crew",
+  "short_name": "SignalTeams",
+  "description": "Buzz's feed, Discord's channels — rebuilt around sharing agents with your team.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#0d1117",
+  "theme_color": "#e8b54a",
+  "icons": [
+    { "src": "/icon.svg", "type": "image/svg+xml", "sizes": "any", "purpose": "any" },
+    { "src": "/icon-192.png", "type": "image/png", "sizes": "192x192", "purpose": "any" },
+    { "src": "/icon-512.png", "type": "image/png", "sizes": "512x512", "purpose": "maskable" }
+  ]
+}

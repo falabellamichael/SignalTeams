@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>SignalTeams</title>
+    <link rel="icon" href="./signalteams-logo.png" type="image/png" />
+    <style>
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        background: radial-gradient(ellipse at 30% 20%, #1f6feb18, transparent 55%),
+                    radial-gradient(ellipse at 70% 80%, #d4af3714, transparent 55%), #0d1117;
+        color: #e6edf3;
+        font: 16px "Segoe UI", Arial, sans-serif;
+      }
+      main { display: grid; justify-items: center; gap: 10px; padding: 24px; text-align: center; }
+      h1 { display: flex; align-items: center; gap: 16px; margin: 0 0 10px; font-size: clamp(28px, 6vw, 42px); letter-spacing: -.03em; }
+      h1 img { width: clamp(42px, 9vw, 56px); height: auto; border-radius: 12px; box-shadow: 0 6px 22px rgba(232, 181, 74, .22); flex-shrink: 0; }
+      h1 .word { font-family: Georgia, "Times New Roman", serif; font-style: italic; color: #d4af37; }
+      .status { display: flex; align-items: center; gap: 12px; font-weight: 600; color: #e6edf3; }
+      p { max-width: 360px; margin: 0; color: #8b949e; font-size: 12.5px; line-height: 1.4; }
+      #status { min-height: 16px; }
+      .spinner {
+        width: 18px;
+        height: 18px;
+        border: 2px solid #d4af3740;
+        border-top-color: #d4af37;
+        border-radius: 50%;
+        animation: spin .8s linear infinite;
+      }
+      .boot-bar {
+        position: fixed;
+        inset: auto 0 0;
+        height: 6px;
+        overflow: hidden;
+        border-top: 1px solid #d4af3740;
+        background: linear-gradient(#d4af3724, #d4af370d);
+        mask-image: linear-gradient(90deg, transparent, black 7%, black 93%, transparent);
+      }
+      .boot-fill {
+        width: 26%;
+        height: 100%;
+        border-radius: 999px;
+        background: linear-gradient(90deg, transparent, #d4af37 55%, #ffe699 80%, transparent);
+        filter: drop-shadow(0 0 5px #d4af37);
+        animation: sweep 1.15s ease-in-out infinite alternate;
+      }
+      body[data-startup-error] .spinner,
+      body[data-startup-error] .boot-bar,
+      body[data-startup-error] .hint { display: none; }
+      @keyframes spin { to { transform: rotate(360deg); } }
+      @keyframes sweep { from { transform: translateX(-40%); } to { transform: translateX(290%); } }
+      @media (prefers-reduced-motion: reduce) {
+        .spinner, .boot-fill { animation: none; }
+        .boot-fill { margin-inline: auto; }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>
+        <img src="./signalteams-logo.png" alt="SignalTeams" width="56" height="56" />
+        <span>Signal<span class="word">Teams</span></span>
+      </h1>
+      <div class="status"><span class="spinner" aria-hidden="true"></span><span id="startup-label">Starting SignalTeams…</span></div>
+      <p id="status" role="status">Connecting to your local AgentHive server…</p>
+      <p class="hint">Hang tight while the local FastAPI hub warms up on :8075.</p>
+    </main>
+    <div class="boot-bar" role="progressbar" aria-label="Startup progress"><div class="boot-fill"></div></div>
+  </body>
+</html>
