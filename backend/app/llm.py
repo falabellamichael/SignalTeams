@@ -11,10 +11,7 @@ import os
 import time
 import urllib.request
 
-LMSTUDIO = os.environ.get("AGENTHIVE_LMSTUDIO", "http://127.0.0.1:1234")
-OLLAMA = os.environ.get("AGENTHIVE_OLLAMA", "http://127.0.0.1:11434")
-MODELDIR = os.environ.get("AGENTHIVE_MODELDIR", "D:/AI-Models")
-TIMEOUT = float(os.environ.get("AGENTHIVE_LLM_TIMEOUT", "90"))
+from .config import LMSTUDIO, MODELDIR, OLLAMA, LLM_TIMEOUT as TIMEOUT
 
 _dir_cache = {"t": 0.0, "models": []}
 

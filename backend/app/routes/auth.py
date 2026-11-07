@@ -1,6 +1,5 @@
 """Auth + account endpoints."""
 import json
-import os
 import re
 import secrets
 import time
@@ -9,6 +8,7 @@ import urllib.request
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import Response
+from .. import config as _cfg
 from ..auth import create_session, current_user, get_token, hash_password, verify_password
 from ..db import db, now, row_to_dict
 
@@ -48,10 +48,8 @@ def login(body: LoginIn):
         return {"token": token, "user": public_user(u)}
 
 
-SUPABASE_URL = os.environ.get("SUPABASE_URL", "").rstrip("/")
-
-
-SUPABASE_ANON = os.environ.get("SUPABASE_ANON_KEY", "")
+SUPABASE_URL = _cfg.SUPABASE_URL
+SUPABASE_ANON = _cfg.SUPABASE_ANON_KEY
 
 
 @router.get("/api/auth/config")

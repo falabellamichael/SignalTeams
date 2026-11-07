@@ -1,11 +1,11 @@
 """Shared serializers, lookups, and pure helpers."""
 import html
 import json
-import os
 import re
 import urllib.error
 import urllib.request
 
+from .config import ENV_LLM as _ENV_LLM
 from .db import now, row_to_dict
 
 AVATAR_COLORS = ["#4da3ff", "#3fb950", "#d29922", "#f85149", "#a371f7", "#14b8a6", "#e85d75", "#d4af37"]
@@ -407,14 +407,6 @@ def _split_model(spec):
         if p in ("ollama", "lmstudio", "custom") and m:
             return p, m
     return None, (spec or None)
-
-
-_ENV_LLM = None
-if os.environ.get("AGENTHIVE_LLM_URL"):
-    _ENV_LLM = {"url": os.environ["AGENTHIVE_LLM_URL"].rstrip("/"),
-                "key": os.environ.get("AGENTHIVE_LLM_KEY", ""),
-                "model": os.environ.get("AGENTHIVE_LLM_MODEL", ""),
-                "kind": os.environ.get("AGENTHIVE_LLM_KIND", "openai")}
 
 
 def _pub_server(d):

@@ -1,14 +1,10 @@
 """SQLite layer for SignalTeams. WAL mode, foreign keys on, stdlib sqlite3."""
 import json
-import os
 import sqlite3
 import time
 from contextlib import contextmanager
 
-DB_PATH = os.environ.get(
-    "AGENTHIVE_DB",
-    os.path.join(os.path.dirname(__file__), "..", "agenthive.db"),
-)
+from .config import DB_PATH
 
 SCHEMA = """
 PRAGMA journal_mode=WAL;
