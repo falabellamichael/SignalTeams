@@ -24,6 +24,8 @@
 - Frontend modals live in `frontend/src/components/modals/*.jsx` — shared bits
   (`Modal`, `ModelField`, `useLlmProviders`, presets/consts) in `_shared.jsx`;
   `components/Modals.jsx` is just a re-export barrel (import sites unchanged).
+  Chat pieces live in `components/chat/` (`Message`, `ChannelTools`, `ThreadPanel`,
+  `consts.js`); `ChatView.jsx` is the orchestrator that imports them.
 - QA scripts/screenshots live under `qa/`.
 - Uploads live in `backend/uploads/` — served at `/api/files/{id}?token=` (auth via query
   for `<img>` tags). `agent_history` snapshots the previous agent on every PATCH.
