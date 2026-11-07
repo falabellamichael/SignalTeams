@@ -17,7 +17,9 @@
   `AGENTHIVE_OLLAMA` / `AGENTHIVE_LMSTUDIO`. `AGENTHIVE_MODELDIR` (default
   `D:/AI-Models`) is scanned for .gguf/HF models → `/api/llm/providers` returns
   them as the `modeldir` provider (bare model names, 60s cache).
-- Backend layout: `app/main.py` is a thin factory; request models in
+- Backend layout: `app/config.py` holds every env tunable (`AGENTHIVE_*`,
+  `SUPABASE_*`) and loads `backend/.env`; `app/main.py` is a thin factory;
+  request models in
   `app/schemas.py`, serializers/lookups in `app/helpers.py`, async bot/starboard/
   agent-reply/reminder tasks in `app/services.py`, endpoints by domain in
   `app/routes/{auth,friends,servers,dms,messages,engage,agents,playground,packs,misc,ws}.py`.
@@ -47,5 +49,6 @@
 - Directed buzz events (`payload.to`) reach the target even when the actor isn't a
   friend (that's how bot-mention pings reach the asker through /api/buzz).
 - QA: `node <browser-automation-skill>/browser.mjs http://localhost:5175 --script qa.mjs`.
+- Backend smoke test (zero deps, temp DB): `cd backend && .venv/Scripts/python.exe -m unittest tests.test_smoke`.
 - Conventions mirror MedicalApp: same CSS vars (--bg/--panel/--accent/--honey),
   dark default + warm light theme via `[data-theme]` on `<html>`.
