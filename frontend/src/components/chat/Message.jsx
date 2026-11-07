@@ -70,6 +70,9 @@ export function Message({ m, grouped, me, members, agents, emojis, roles, channe
             <span className="author" style={{ color: topRole(m.author)?.color || m.author?.avatar_color }}
               title={nickOf(m.author) !== m.author?.display_name ? `@${m.author?.username}` : undefined}>
               {nickOf(m.author)}</span>
+            {m.author?.status === "bot" && <span className="bot-tag">BOT</span>}
+            {m.hook && m.author_name &&
+              <span className="via-tag" title={`posted via the "${m.hook}" webhook`}>via {m.hook}</span>}
             <span className="time">{timeAgo(m.created_at)}</span>
             {m.edited_at && <span className="edited" title={new Date(m.edited_at * 1000).toLocaleString()}>(edited)</span>}
             {m.pinned ? <span className="pin-flag" title="Pinned">📌</span> : null}

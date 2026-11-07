@@ -22,7 +22,11 @@
   request models in
   `app/schemas.py`, serializers/lookups in `app/helpers.py`, async bot/starboard/
   agent-reply/reminder tasks in `app/services.py`, endpoints by domain in
-  `app/routes/{auth,friends,servers,dms,messages,engage,agents,playground,packs,misc,ws}.py`.
+  `app/routes/{auth,friends,servers,dms,messages,engage,agents,playground,packs,hooks,misc,ws}.py`.
+- Incoming webhooks live in `app/routes/hooks.py` — `channel_hooks` rows mint
+  `/api/hooks/{token}` URLs (owner-only CRUD via `/api/channels/{cid}/webhooks`
+  and `/api/webhooks/{wid}`); posts land as `hook:<id>` bot users with optional
+  `author_name` overrides + `allowed_mentions` gating (8 posts/10s per hook).
 - Frontend modals live in `frontend/src/components/modals/*.jsx` — shared bits
   (`Modal`, `ModelField`, `useLlmProviders`, presets/consts) in `_shared.jsx`;
   `components/Modals.jsx` is just a re-export barrel (import sites unchanged).

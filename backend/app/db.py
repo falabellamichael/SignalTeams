@@ -240,6 +240,19 @@ CREATE TABLE IF NOT EXISTS blocks (                      -- user_id blocked bloc
     created_at REAL NOT NULL,
     UNIQUE(user_id, blocked_id)
 );
+
+CREATE TABLE IF NOT EXISTS channel_hooks (               -- incoming webhooks per channel
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    channel_id INTEGER NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
+    name       TEXT NOT NULL,
+    icon       TEXT NOT NULL DEFAULT '🪝',
+    token      TEXT NOT NULL UNIQUE,
+    creator_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    uses       INTEGER NOT NULL DEFAULT 0,
+    last_used  REAL,
+    created_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_hooks_channel ON channel_hooks(channel_id);
 """
 
 
@@ -315,6 +328,8 @@ def init():
             ("agents.api_key", "ALTER TABLE agents ADD COLUMN api_key TEXT NOT NULL DEFAULT ''"),
             ("agents.api_headers", "ALTER TABLE agents ADD COLUMN api_headers TEXT"),
             ("agents.context_headers", "ALTER TABLE agents ADD COLUMN context_headers TEXT"),
+            ("messages.webhook_id", "ALTER TABLE messages ADD COLUMN webhook_id INTEGER"),
+            ("messages.author_name", "ALTER TABLE messages ADD COLUMN author_name TEXT"),
         ]:
             table, c = col.split(".")
             try:

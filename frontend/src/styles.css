@@ -383,6 +383,10 @@ a { color: var(--accent); text-decoration: none; }
   padding: 10px; box-shadow: 0 10px 30px var(--shadow); }
 .ch-panel input { width: 100%; }
 .pin-flag { font-size: 10px; margin-left: 4px; color: var(--honey); display: inline-flex; align-items: center; }
+.bot-tag { font-size: 9px; font-weight: 700; letter-spacing: .4px; margin-left: 5px;
+  padding: 1px 5px; border-radius: 4px; vertical-align: 1px;
+  background: var(--accent); color: #fff; }
+.via-tag { font-size: 10px; margin-left: 5px; color: var(--dim); font-style: italic; }
 
 /* attachments */
 .att-img { max-width: 340px; max-height: 240px; border-radius: 8px; margin-top: 5px;

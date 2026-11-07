@@ -161,6 +161,12 @@ def pack_json(conn, p, uid):
 def message_json(conn, m, viewer_id=None):
     d = row_to_dict(m)
     d["author"] = public_user(conn.execute("SELECT * FROM users WHERE id=?", (m["author_id"],)).fetchone())
+    if "webhook_id" in m.keys() and m["webhook_id"]:
+        h = conn.execute("SELECT name FROM channel_hooks WHERE id=?",
+                         (m["webhook_id"],)).fetchone()
+        d["hook"] = h["name"] if h else "webhook"
+        if "author_name" in m.keys() and m["author_name"]:
+            d["author"]["display_name"] = m["author_name"]
     if m["agent_id"]:
         a = conn.execute("SELECT * FROM agents WHERE id=?", (m["agent_id"],)).fetchone()
         d["agent"] = agent_json(conn, a, viewer_id or m["author_id"]) if a else None
@@ -284,6 +290,25 @@ def agent_bot_user(conn, a):
 
 
 STAR_EMOJI = "⭐"
+
+
+def hook_bot_user(conn, hook):
+    """Get-or-create the synthetic chat user a webhook posts as (hook:<id>)."""
+    uname = f"hook:{hook['id']}"
+    u = conn.execute("SELECT * FROM users WHERE username=?", (uname,)).fetchone()
+    if not u:
+        conn.execute(
+            "INSERT INTO users(username, display_name, password_hash, avatar_color, "
+            "avatar_emoji, bio, status, created_at) VALUES (?,?,?,?,?,?,?,?)",
+            (uname, hook["name"], "!", "#8b949e", hook["icon"] or "🪝",
+             "Incoming webhook — external services post through it.", "bot", now()))
+        u = conn.execute("SELECT * FROM users WHERE username=?", (uname,)).fetchone()
+    else:
+        conn.execute(
+            "UPDATE users SET display_name=?, avatar_emoji=? WHERE id=?",
+            (hook["name"], hook["icon"] or "🪝", u["id"]))
+        u = conn.execute("SELECT * FROM users WHERE id=?", (u["id"],)).fetchone()
+    return u
 
 
 def starboard_bot_user(conn):

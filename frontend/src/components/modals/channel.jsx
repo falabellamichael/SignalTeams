@@ -1,7 +1,124 @@
 import React, { useState, useEffect } from "react";
 import Ico from "../Ico";
 import { api } from "../../api";
-import { Modal } from "./_shared.jsx";
+import { EMOJI_CHOICES, Modal } from "./_shared.jsx";
+
+
+function WebhookSection({ channel }) {
+  const [hooks, setHooks] = useState(null);
+  const [name, setName] = useState("");
+  const [icon, setIcon] = useState("🪝");
+  const [copied, setCopied] = useState(0);
+  const [showCurl, setShowCurl] = useState(0);
+  const [err, setErr] = useState("");
+
+  useEffect(() => {
+    api.webhooks(channel.id).then(setHooks).catch((e) => setErr(e.message));
+  }, [channel.id]);
+
+  const urlFor = (h) => `${location.origin}/api/hooks/${h.token}`;
+
+  async function add() {
+    const n = name.trim();
+    if (!n) return;
+    const h = await api.createWebhook(channel.id, n, icon).catch((e) => (setErr(e.message), null));
+    if (h) { setHooks((hs) => [...(hs || []), h]); setName(""); setErr(""); }
+  }
+
+  async function rotate(h) {
+    const r = await api.editWebhook(h.id, { rotate: true }).catch((e) => (setErr(e.message), null));
+    if (r) setHooks((hs) => hs.map((x) => (x.id === h.id ? r : x)));
+  }
+
+  async function remove(h) {
+    if (!confirm(`Delete webhook "${h.name}"? Its URL stops working immediately.`)) return;
+    await api.delWebhook(h.id).catch((e) => (setErr(e.message), null));
+    setHooks((hs) => hs.filter((x) => x.id !== h.id));
+  }
+
+  return (
+    <>
+      <label><Ico n="link" s={12} /> Incoming webhooks{" "}
+        <span style={{ color: "var(--dim)", fontWeight: 400 }}>
+          ({(hooks || []).length}/10 — external services POST into #{channel.name})</span></label>
+      {(hooks || []).length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 8 }}>
+          {hooks.map((h) => (
+            <div key={h.id} style={{
+              padding: "7px 10px", borderRadius: 8, background: "var(--panel2)",
+              border: "1px solid var(--border)", fontSize: 12
+            }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+                <span style={{ fontSize: 15 }}>{h.icon}</span>
+                <b style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>{h.name}</b>
+                <span style={{ color: "var(--dim)", fontSize: 11 }}>
+                  {h.uses} post{h.uses === 1 ? "" : "s"}</span>
+                <button type="button" className="ghost" style={{ fontSize: 11, padding: "2px 7px" }}
+                  title="Copy hook URL"
+                  onClick={() => {
+                    navigator.clipboard?.writeText(urlFor(h));
+                    setCopied(h.id); setTimeout(() => setCopied(0), 1500);
+                  }}>
+                  <Ico n="copy" s={11} /> {copied === h.id ? "copied!" : "URL"}
+                </button>
+                <button type="button" className="ghost" style={{ fontSize: 11, padding: "2px 7px" }}
+                  title="Rotate token — old URL dies" onClick={() => rotate(h)}>
+                  <Ico n="refresh" s={11} />
+                </button>
+                <button type="button" className="ghost" style={{ fontSize: 11, padding: "2px 7px", color: "var(--bad)" }}
+                  title="Delete webhook" onClick={() => remove(h)}>
+                  <Ico n="trash" s={11} />
+                </button>
+              </div>
+              <div style={{ display: "flex", gap: 8, marginTop: 4, alignItems: "center" }}>
+                <span style={{ color: "var(--dim)", fontSize: 10.5, fontFamily: "ui-monospace, Consolas, monospace", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {urlFor(h)}</span>
+                <button type="button" className="ghost" style={{ fontSize: 10.5, padding: "1px 6px" }}
+                  onClick={() => setShowCurl(showCurl === h.id ? 0 : h.id)}>
+                  {showCurl === h.id ? "hide" : "curl"}
+                </button>
+              </div>
+              {showCurl === h.id && (
+                <pre style={{
+                  margin: "6px 0 0", padding: "7px 9px", borderRadius: 7, fontSize: 10.5,
+                  background: "var(--bg)", border: "1px solid var(--border)",
+                  whiteSpace: "pre-wrap", wordBreak: "break-all", color: "var(--dim)"
+                }}>{`curl -X POST "${urlFor(h)}" \\
+  -H "Content-Type: application/json" \\
+  -d '{"content": "hello from CI 🚀"}'`}</pre>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+      {hooks && hooks.length === 0 && (
+        <div className="idehint" style={{ marginBottom: 8 }}>
+          None yet — mint one and your CI / monitors / scripts can post straight into this channel.
+          Discord {`{content}`} and Slack {`{text}`} payloads both work.
+        </div>
+      )}
+      {err && <div className="idehint" style={{ color: "var(--bad)" }}>{err}</div>}
+      <div className="mrow">
+        <div>
+          <input value={name} maxLength={48} onChange={(e) => setName(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); add(); } }}
+            placeholder="new hook name — e.g. deploy-bot" />
+        </div>
+        <div style={{ maxWidth: 76 }}>
+          <select value={icon} onChange={(e) => setIcon(e.target.value)}>
+            <option value="🪝">🪝</option>
+            {EMOJI_CHOICES.map((e) => <option key={e} value={e}>{e}</option>)}
+          </select>
+        </div>
+        <div style={{ maxWidth: 86 }}>
+          <button type="button" onClick={add} disabled={!name.trim() || (hooks || []).length >= 10}>
+            <Ico n="plus" s={12} /> Add
+          </button>
+        </div>
+      </div>
+    </>
+  );
+}
 
 
 export function ChannelModal({ kind, channel, me, roles, onClose, onDone, onDelete }) {
@@ -41,6 +158,7 @@ export function ChannelModal({ kind, channel, me, roles, onClose, onDone, onDele
             onChange={(e) => setVcap(Math.max(0, Math.min(+e.target.value || 0, 99)))} />
         </>
       )}
+      {editing && <WebhookSection channel={channel} />}
       {(roles || []).length > 0 && (
         <>
           <label><Ico n="lock" s={12} /> Visible to <span style={{ color: "var(--dim)", fontWeight: 400 }}>(role-gated — owner always gets in)</span></label>

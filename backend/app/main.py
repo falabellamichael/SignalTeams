@@ -10,7 +10,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .db import init
-from .routes import agents, auth, dms, engage, friends, messages, misc, packs, playground, servers, ws
+from .routes import agents, auth, dms, engage, friends, hooks, messages, misc, packs, playground, servers, ws
 from .services import reminder_loop
 
 init()
@@ -23,7 +23,7 @@ app.add_middleware(
 )
 
 for mod in (auth, friends, servers, dms, messages, engage,
-            agents, playground, packs, misc, ws):
+            agents, playground, packs, hooks, misc, ws):
     app.include_router(mod.router)
 
 
