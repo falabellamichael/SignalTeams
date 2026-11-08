@@ -9,10 +9,26 @@ from ..db import db, now
 from ..hub import hub
 
 from ..helpers import _fmt_due, _gated_channel, audit, can_see_agent, channel_member_ids, public_user
-from ..schemas import KnockIn, ReminderIn, SummarizeIn
+from ..schemas import EventIn, KnockIn, ReminderIn, SummarizeIn
 from ..services import REMIND_BOT, _agent_cool, _summarize_task, agent_reply, bot_post
 
 router = APIRouter()
+
+
+def _event_json(conn, e, uid):
+    d = dict(e)
+    d["interested"] = json.loads(d["interested"] or "[]")
+    d["me_interested"] = uid in d["interested"]
+    d["interested_count"] = len(d["interested"])
+    c = conn.execute("SELECT * FROM users WHERE id=?", (e["creator_id"],)).fetchone()
+    d["creator"] = public_user(c) if c else None
+    if e["channel_id"]:
+        ch = conn.execute("SELECT name FROM channels WHERE id=?",
+                          (e["channel_id"],)).fetchone()
+        d["channel_name"] = ch["name"] if ch else "?"
+    else:
+        d["channel_name"] = None
+    return d
 
 
 @router.post("/api/channels/{cid}/summarize")
@@ -132,6 +148,136 @@ def del_reminder(rid: int, user=Depends(current_user)):
             raise HTTPException(404, "No such reminder")
         conn.execute("DELETE FROM reminders WHERE id=?", (rid,))
         return {"ok": True}
+
+
+@router.get("/api/servers/{sid}/events")
+def list_events(sid: int, user=Depends(current_user)):
+    """Upcoming + recently-started events for a server (member-gated)."""
+    with db() as conn:
+        if not conn.execute(
+                "SELECT 1 FROM server_members WHERE server_id=? AND user_id=?",
+                (sid, user["id"])).fetchone():
+            raise HTTPException(404, "No such server")
+        rows = conn.execute(
+            "SELECT * FROM events WHERE server_id=? AND status!='cancelled' "
+            "AND starts_at > ? ORDER BY starts_at LIMIT 100",
+            (sid, now() - 4 * 3600)).fetchall()   # keep live events visible 4h past start
+        return [_event_json(conn, r, user["id"]) for r in rows]
+
+
+@router.post("/api/servers/{sid}/events")
+async def add_event(sid: int, body: EventIn, user=Depends(current_user)):
+    with db() as conn:
+        s = conn.execute("SELECT * FROM servers WHERE id=?", (sid,)).fetchone()
+        if not s or not conn.execute(
+                "SELECT 1 FROM server_members WHERE server_id=? AND user_id=?",
+                (sid, user["id"])).fetchone():
+            raise HTTPException(404, "No such server")
+        if body.starts_at <= now() - 60:
+            raise HTTPException(400, "Start time must be in the future")
+        if conn.execute("SELECT COUNT(*) c FROM events WHERE server_id=? "
+                        "AND status='scheduled'", (sid,)).fetchone()["c"] >= 25:
+            raise HTTPException(400, "25 upcoming events max")
+        cid = body.channel_id
+        if cid is not None:
+            ch = conn.execute("SELECT * FROM channels WHERE id=? AND server_id=?",
+                              (cid, sid)).fetchone()
+            if not ch or ch["kind"] not in ("text", "forum"):
+                raise HTTPException(400, "Pick a text channel for announcements")
+        else:
+            ch = conn.execute(
+                "SELECT * FROM channels WHERE server_id=? AND kind IN ('text','forum') "
+                "ORDER BY position, id LIMIT 1", (sid,)).fetchone()
+            cid = ch["id"] if ch else None
+        cur = conn.execute(
+            "INSERT INTO events(server_id, channel_id, name, description, starts_at, "
+            "creator_id, interested, created_at) VALUES (?,?,?,?,?,?,?,?)",
+            (sid, cid, body.name.strip(), body.description.strip()[:400],
+             body.starts_at, user["id"], json.dumps([user["id"]]), now()))
+        eid = cur.lastrowid
+        audit(conn, sid, user["id"], "event.create", body.name.strip(),
+              f"starts {time.strftime('%Y-%m-%d %H:%M', time.localtime(body.starts_at))}")
+        ev = _event_json(conn, conn.execute(
+            "SELECT * FROM events WHERE id=?", (eid,)).fetchone(), user["id"])
+        members = [r["user_id"] for r in conn.execute(
+            "SELECT user_id FROM server_members WHERE server_id=?", (sid,)).fetchall()]
+    await hub.send_many(members, {"type": "event", "server_id": sid, "event": ev})
+    return ev
+
+
+@router.patch("/api/events/{eid}")
+async def edit_event(eid: int, body: EventIn, user=Depends(current_user)):
+    with db() as conn:
+        e = conn.execute("SELECT * FROM events WHERE id=?", (eid,)).fetchone()
+        if not e or e["status"] == "cancelled":
+            raise HTTPException(404, "No such event")
+        s = conn.execute("SELECT * FROM servers WHERE id=?", (e["server_id"],)).fetchone()
+        if user["id"] not in (e["creator_id"], s["owner_id"]):
+            raise HTTPException(403, "Only the creator or server owner can edit")
+        if body.starts_at <= now() - 60:
+            raise HTTPException(400, "Start time must be in the future")
+        cid = body.channel_id
+        if cid is not None and not conn.execute(
+                "SELECT 1 FROM channels WHERE id=? AND server_id=? AND kind IN ('text','forum')",
+                (cid, e["server_id"])).fetchone():
+            raise HTTPException(400, "Pick a text channel for announcements")
+        conn.execute(
+            "UPDATE events SET name=?, description=?, channel_id=?, starts_at=? WHERE id=?",
+            (body.name.strip(), body.description.strip()[:400],
+             cid if cid is not None else e["channel_id"], body.starts_at, eid))
+        ev = _event_json(conn, conn.execute(
+            "SELECT * FROM events WHERE id=?", (eid,)).fetchone(), user["id"])
+        members = [r["user_id"] for r in conn.execute(
+            "SELECT user_id FROM server_members WHERE server_id=?",
+            (e["server_id"],)).fetchall()]
+    await hub.send_many(members, {"type": "event", "server_id": e["server_id"],
+                                  "event": ev})
+    return ev
+
+
+@router.post("/api/events/{eid}/interested")
+async def toggle_interested(eid: int, user=Depends(current_user)):
+    with db() as conn:
+        e = conn.execute("SELECT * FROM events WHERE id=?", (eid,)).fetchone()
+        if not e or e["status"] == "cancelled" or not conn.execute(
+                "SELECT 1 FROM server_members WHERE server_id=? AND user_id=?",
+                (e["server_id"], user["id"])).fetchone():
+            raise HTTPException(404, "No such event")
+        interested = json.loads(e["interested"] or "[]")
+        if user["id"] in interested:
+            interested.remove(user["id"])
+        else:
+            interested.append(user["id"])
+        conn.execute("UPDATE events SET interested=? WHERE id=?",
+                     (json.dumps(interested), eid))
+        ev = _event_json(conn, conn.execute(
+            "SELECT * FROM events WHERE id=?", (eid,)).fetchone(), user["id"])
+        members = [r["user_id"] for r in conn.execute(
+            "SELECT user_id FROM server_members WHERE server_id=?",
+            (e["server_id"],)).fetchall()]
+    await hub.send_many(members, {"type": "event", "server_id": e["server_id"],
+                                  "event": ev})
+    return ev
+
+
+@router.delete("/api/events/{eid}")
+async def del_event(eid: int, user=Depends(current_user)):
+    """Cancel an event — creator or server owner."""
+    with db() as conn:
+        e = conn.execute("SELECT * FROM events WHERE id=?", (eid,)).fetchone()
+        if not e or e["status"] == "cancelled":
+            raise HTTPException(404, "No such event")
+        s = conn.execute("SELECT * FROM servers WHERE id=?", (e["server_id"],)).fetchone()
+        if user["id"] not in (e["creator_id"], s["owner_id"]):
+            raise HTTPException(403, "Only the creator or server owner can cancel")
+        conn.execute("UPDATE events SET status='cancelled' WHERE id=?", (eid,))
+        audit(conn, e["server_id"], user["id"], "event.cancel", e["name"])
+        members = [r["user_id"] for r in conn.execute(
+            "SELECT user_id FROM server_members WHERE server_id=?",
+            (e["server_id"],)).fetchall()]
+    await hub.send_many(members, {"type": "event", "server_id": e["server_id"],
+                                  "event": {"id": eid, "status": "cancelled"}})
+    return {"ok": True}
 
 
 @router.post("/api/channels/{cid}/huddle")

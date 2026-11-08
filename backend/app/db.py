@@ -274,6 +274,20 @@ CREATE TABLE IF NOT EXISTS digest_jobs (                 -- scheduled agent chan
     created_by    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     created_at    REAL NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS events (                      -- scheduled server events
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    server_id   INTEGER NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+    channel_id  INTEGER REFERENCES channels(id) ON DELETE SET NULL,  -- announce spot
+    name        TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    starts_at   REAL NOT NULL,                          -- epoch seconds
+    creator_id  INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    status      TEXT NOT NULL DEFAULT 'scheduled',      -- scheduled | live | cancelled
+    interested  TEXT NOT NULL DEFAULT '[]',             -- JSON [user_id]
+    created_at  REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_events_server ON events(server_id, starts_at);
 """
 
 

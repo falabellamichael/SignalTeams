@@ -11,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .db import init
 from .routes import agents, auth, dms, engage, friends, hooks, messages, misc, packs, playground, servers, ws
-from .services import digest_loop, reminder_loop
+from .services import digest_loop, event_loop, reminder_loop
 
 init()
 app = FastAPI(title="SignalTeams", version="0.1.0")
@@ -31,6 +31,7 @@ for mod in (auth, friends, servers, dms, messages, engage,
 async def _start_reminder_loop():
     asyncio.create_task(reminder_loop())
     asyncio.create_task(digest_loop())
+    asyncio.create_task(event_loop())
 
 
 # LAN / single-port mode: serve the built frontend if dist exists

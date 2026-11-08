@@ -30,6 +30,7 @@ const PulseModal = lazy(() => import("./components/modals/pulse.jsx").then((m) =
 const ShortcutsModal = lazy(() => import("./components/modals/shortcuts.jsx").then((m) => ({ default: m.ShortcutsModal })));
 const PickAgentModal = lazy(() => import("./components/modals/pickagent.jsx").then((m) => ({ default: m.PickAgentModal })));
 const SettingsModal = lazy(() => import("./components/modals/settings.jsx").then((m) => ({ default: m.SettingsModal })));
+const EventsModal = lazy(() => import("./components/modals/events.jsx").then((m) => ({ default: m.EventsModal })));
 
 export default function App() {
   const [me, setMe] = useState(null);
@@ -74,6 +75,7 @@ export default function App() {
   const navRef = useRef({});
   const typingTimers = useRef({});           // "cid:uid" -> timeout id
   const [dmTyping, setDmTyping] = useState({});   // channelId -> {uid: name}
+  const [events, setEvents] = useState([]);            // upcoming events for `server`
   const chanServer = useRef({});                       // channelId -> serverId
   channelRef.current = channel;
   serverRef.current = server;
@@ -309,6 +311,15 @@ export default function App() {
         setRefresh((r) => r + 1);
       } else if (evt.type === "status") {
         setOnlineIds((ids) => evt.status === "offline" ? ids.filter((i) => i !== evt.user_id) : ids);
+      } else if (evt.type === "event") {
+        if (serverRef.current?.id === evt.server_id) {
+          const ev = evt.event;
+          setEvents((list) => {
+            const rest = list.filter((x) => x.id !== ev.id);
+            return ev.status === "cancelled" ? rest
+              : [...rest, ev].sort((a, b) => a.starts_at - b.starts_at);
+          });
+        }
       } else if (evt.type === "server_deleted" || evt.type === "server_left") {
         setServers((sv) => sv.filter((s) => s.id !== evt.server_id));
         if (serverRef.current?.id === evt.server_id) goHome();
@@ -389,6 +400,7 @@ export default function App() {
     if (!full) return;
     full.channels.forEach((c) => { chanServer.current[c.id] = id; });
     setServer(full);
+    api.serverEvents(id).then(setEvents).catch(() => setEvents([]));
     setView("server");
     const firstUnread = full.channels.find((c) => visUnread[c.id] > 0) || full.channels[0];
     selectChannel(firstUnread || null);
@@ -658,6 +670,8 @@ export default function App() {
               const u = await api.updateMe({ server_muted: [...cur] }).catch(() => null);
               if (u) setMe(u);
             }}
+            onEvents={() => setModal({ kind: "events", server })}
+            evCount={events.filter((e) => e.status !== "cancelled").length}
             onServerSettings={(s) => setModal({ kind: "srvsettings", server: s })} />
         ) : (
           <HomeSidebar view={view} setView={(v) => { setView(v); closeSide(); }} dms={dms}
@@ -858,6 +872,9 @@ export default function App() {
             await api.addFriend(u.username).catch((e) => alert(e.message));
             setModal(null); setRefresh((r) => r + 1);
           }} />
+      )}
+      {modal?.kind === "events" && (
+        <EventsModal server={modal.server} me={me} onClose={() => setModal(null)} />
       )}
       {modal?.kind === "pulse" && server && (
         <PulseModal server={server} onClose={() => setModal(null)}

@@ -165,6 +165,13 @@ class KnockIn(BaseModel):
     approve: bool = True
 
 
+class EventIn(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+    description: str = Field(default="", max_length=400)
+    channel_id: int | None = None                       # announce channel (default: first text)
+    starts_at: float                                    # epoch seconds
+
+
 class ReminderIn(BaseModel):
     channel_id: int
     seconds: int = Field(ge=10, le=604800)               # 10s … 7d

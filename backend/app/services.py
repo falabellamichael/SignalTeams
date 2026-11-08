@@ -1,5 +1,6 @@
 """Async background services: bot posts, starboard, agent replies, reminders."""
 import asyncio
+import json
 import queue
 import re
 import threading
@@ -264,6 +265,53 @@ async def digest_loop():
                                  (now(), j["id"]))
             for j in due:
                 await _run_digest(dict(j))
+        except Exception:
+            pass
+
+
+async def event_loop():
+    """Flip due scheduled events to 'live' — announce in-channel + buzz interested."""
+    while True:
+        await asyncio.sleep(20)
+        try:
+            with db() as conn:
+                due = conn.execute(
+                    "SELECT * FROM events WHERE status='scheduled' AND starts_at<=?",
+                    (now(),)).fetchall()
+                for e in due:
+                    conn.execute("UPDATE events SET status='live' WHERE id=?",
+                                 (e["id"],))
+            for e in due:
+                cid = e["channel_id"]
+                if not cid:
+                    with db() as conn:
+                        ch = conn.execute(
+                            "SELECT id FROM channels WHERE server_id=? "
+                            "AND kind IN ('text','forum') ORDER BY position, id LIMIT 1",
+                            (e["server_id"],)).fetchone()
+                    cid = ch["id"] if ch else None
+                interested = json.loads(e["interested"] or "[]")
+                if cid:
+                    desc = f" — {e['description']}" if e["description"] else ""
+                    await bot_post(cid, "bot:events", "Events", "📅",
+                                   f"📅 **{e['name']}** is starting!{desc} "
+                                   f"({len(interested)} interested)")
+                with db() as conn:
+                    for uid in interested:
+                        u = conn.execute("SELECT id FROM users WHERE id=?",
+                                         (uid,)).fetchone()
+                        if u:
+                            emit_buzz(conn, e["creator_id"], "event",
+                                      {"to": uid, "event": e["name"]})
+                    members = [r["user_id"] for r in conn.execute(
+                        "SELECT user_id FROM server_members WHERE server_id=?",
+                        (e["server_id"],)).fetchall()]
+                    ev = dict(e); ev["status"] = "live"
+                    ev["interested"] = interested
+                    ev["me_interested"] = False; ev["interested_count"] = len(interested)
+                await hub.send_many(members, {"type": "event",
+                                              "server_id": e["server_id"],
+                                              "event": ev})
         except Exception:
             pass
 

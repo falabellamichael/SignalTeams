@@ -104,7 +104,7 @@ function MuteBtn({ state = 0, onToggle }) {
   );
 }
 
-export function ServerSidebar({ server, channel, me, onChannel, onAddChannel, onEditChannel, onServerSettings, onMoveChannel, onToggleSrvMute, srvMuted, unread = {}, mentions = {}, muted, mentionsOnly, onToggleMute, voiceRosters = {} }) {
+export function ServerSidebar({ server, channel, me, onChannel, onAddChannel, onEditChannel, onServerSettings, onMoveChannel, onToggleSrvMute, srvMuted, onEvents, evCount = 0, unread = {}, mentions = {}, muted, mentionsOnly, onToggleMute, voiceRosters = {} }) {
   const text = server.channels.filter((c) => c.kind === "text" || c.kind === "forum");
   const agentCh = server.channels.filter((c) => c.kind === "agents");
   const [copied, setCopied] = React.useState(false);
@@ -184,6 +184,11 @@ export function ServerSidebar({ server, channel, me, onChannel, onAddChannel, on
         </div>
       </div>
       <div className="side-body">
+        <div className="nav-item" onClick={() => onEvents?.(server)} title="Scheduled events">
+          <span className="ch-hash">📅</span>
+          <span className="txt">Events</span>
+          {evCount > 0 && <span className="cnt">{evCount}</span>}
+        </div>
         <div className="side-group">Text channels
           <span className="ch-cnt">{text.length}</span>
           <span className="add" onClick={() => onAddChannel("text")}><Ico n="plus" s={13} /></span></div>
