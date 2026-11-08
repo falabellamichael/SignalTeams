@@ -22,7 +22,7 @@ function _nonLatin(s) {
   return latin / t.length < 0.5;
 }
 
-export default function ChatView({ channel, server, onDm, members, me, emojis, roles, channels = [], onAgentOpen, onPackOpen, onShareAgent, onUserOpen, onForward, onFwdJump, focusMsg, newSince = 0, onGroupAdd, onGroupRename, blocked, onMarkUnread, onWorkspace }) {
+export default function ChatView({ channel, server, onDm, members, me, emojis, roles, channels = [], onAgentOpen, onPackOpen, onShareAgent, onUserOpen, onForward, onFwdJump, focusMsg, newSince = 0, onGroupAdd, onGroupRename, blocked, onMarkUnread, onWorkspace, onEditChannel }) {
   const [msgs, setMsgs] = useState([]);
   const [draft, setDraft] = useState("");
   const [atts, setAtts] = useState([]);
@@ -456,6 +456,19 @@ export default function ChatView({ channel, server, onDm, members, me, emojis, r
     }
   }
 
+  function handleWave(targetUser) {
+    playCue("pop");
+    playCue("send");
+    const greeting = targetUser
+      ? `👋 Welcome to the server, @${targetUser.username}!`
+      : `👋 Hello everyone!`;
+    api.send(channel.id, greeting)
+      .then((m) => {
+        setMsgs((prev) => prev.some((p) => p.id === m.id) ? prev : [...prev, m]);
+      })
+      .catch((e) => setSendErr(e.message || "Wave failed"));
+  }
+
   function onReply(m) {
     setReplyTo(m);
     inputRef.current?.focus();
@@ -693,12 +706,9 @@ export default function ChatView({ channel, server, onDm, members, me, emojis, r
           </>) : (<>
           {hasMore && <div className="idehint" style={{ textAlign: "center", padding: "4px 0" }}>
             scroll up for earlier messages…</div>}
-          {msgs.length === 0 && (
-            <div className="empty">
-              <div className="big">{channel.kind === "agents" ? "✦" : "💬"}</div>
-              <div className="serif">Quiet in here.</div>
-              <div>Say something — or drop an agent with the ✦ button.</div>
-            </div>
+          {!hasMore && (
+            <ChannelGreeting channel={channel} me={me} onWave={handleWave}
+              onEditChannel={onEditChannel} owner={me?.id === server?.owner_id} />
           )}
           {msgs.map((m, i) => {
             const day = msgDay(m.created_at);
@@ -717,7 +727,7 @@ export default function ChatView({ channel, server, onDm, members, me, emojis, r
                   onAgentOpen={onAgentOpen} onPackOpen={onPackOpen}
                   onDelete={onDelete} onReact={onReact} onPin={onPin}
                   onImgLoad={scrollToEnd} onReply={onReply} onUserOpen={onUserOpen}
-                  onFwdJump={onFwdJump}
+                  onFwdJump={onFwdJump} onWave={handleWave}
                   onThread={openThread} onMenu={openMenu} onLightbox={setLightbox} />
                 {channel.kind === "dm" && m.id === lastOwn?.id && (
                   <div className="seen-tag"
@@ -1105,6 +1115,58 @@ export default function ChatView({ channel, server, onDm, members, me, emojis, r
         </>
       )}
 
+    </div>
+  );
+}
+
+
+function ChannelGreeting({ channel, me, onWave, onEditChannel, owner }) {
+  const isDm = channel.kind === "dm";
+  const other = channel.other;
+  const isAgent = channel.kind === "agents";
+  const isVoice = channel.kind === "voice";
+  const isForum = channel.kind === "forum";
+
+  return (
+    <div className="channel-greeting">
+      <div className="cg-icon-wrap">
+        {isDm ? (
+          other ? <Avatar user={other} size="lg" /> : <span className="cg-hash">@</span>
+        ) : (
+          <span className="cg-hash">
+            {channel.workspace ? "🗂" : isAgent ? "✦" : isVoice ? "🔊" : isForum ? "📋" : "#"}
+          </span>
+        )}
+      </div>
+      <h2 className="cg-title">
+        {isDm
+          ? (channel.name || `Direct message with ${other?.display_name || "Friend"}`)
+          : `Welcome to #${channel.name}!`}
+      </h2>
+      <div className="cg-sub">
+        {isDm
+          ? `This is the start of your direct message history with @${other?.username || other?.display_name || "this user"}. Say hello!`
+          : channel.topic
+          ? channel.topic
+          : `This is the start of the #${channel.name} channel.`}
+      </div>
+      <div className="cg-actions">
+        {isDm && other?.id !== me?.id && (
+          <button className="ghost cg-btn wave-btn" onClick={() => onWave(other)}>
+            👋 Wave to {other?.display_name?.split(" ")[0] || "them"}
+          </button>
+        )}
+        {!isDm && (
+          <button className="ghost cg-btn wave-btn" onClick={() => onWave(null)}>
+            👋 Wave hello
+          </button>
+        )}
+        {!isDm && owner && onEditChannel && (
+          <button className="ghost cg-btn" onClick={() => onEditChannel(channel)}>
+            <Ico n="edit" s={13} /> Edit Channel
+          </button>
+        )}
+      </div>
     </div>
   );
 }

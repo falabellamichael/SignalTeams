@@ -305,9 +305,24 @@ a { color: var(--accent); text-decoration: none; }
   border: 1px dashed var(--border); color: var(--dim); cursor: pointer; }
 .lurk-chip.on { border: 1px solid var(--honey); color: var(--honey);
   background: color-mix(in srgb, var(--honey) 12%, transparent); }
-.sysmsg { text-align: center; color: var(--dim); font-size: 12px;
-  padding: 6px 0; }
-.sysmsg-time { font-size: 10px; margin-left: 8px; opacity: .7; }
+.sysmsg { display: flex; align-items: center; justify-content: center; gap: 8px; color: var(--dim); font-size: 12.5px; padding: 6px 12px; margin: 4px 0; border-radius: 6px; }
+.sysmsg-join { background: color-mix(in srgb, var(--accent) 5%, transparent); }
+.sysmsg-ic { font-size: 14px; }
+.sysmsg-time { font-size: 10.5px; margin-left: 6px; opacity: .65; }
+.sysmsg-wave-btn { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; font-size: 11.5px; font-weight: 500; border-radius: 12px; background: var(--panel2); border: 1px solid var(--border); color: var(--fg); cursor: pointer; transition: all .15s; }
+.sysmsg-wave-btn:hover { background: var(--sel2); border-color: var(--accent); color: var(--accent); transform: scale(1.05); }
+
+/* Discord Channel Greeting Header */
+.channel-greeting { padding: 28px 16px 20px 16px; margin-bottom: 12px; border-bottom: 1px solid color-mix(in srgb, var(--border) 50%, transparent); animation: fadeIn 0.25s ease; }
+.cg-icon-wrap { width: 68px; height: 68px; border-radius: 50%; background: var(--panel2); border: 2px solid var(--border); display: flex; align-items: center; justify-content: center; margin-bottom: 14px; box-shadow: 0 4px 14px var(--shadow); }
+.cg-icon-wrap .cg-hash { font-size: 34px; font-weight: 700; color: var(--fg); line-height: 1; }
+.cg-title { font-size: 28px; font-weight: 800; color: var(--fg); margin: 0 0 6px 0; line-height: 1.2; letter-spacing: -0.3px; }
+.cg-sub { font-size: 13.5px; color: var(--dim); line-height: 1.45; max-width: 650px; margin-bottom: 14px; }
+.cg-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.cg-btn { display: inline-flex; align-items: center; gap: 6px; padding: 6px 14px; font-size: 12.5px; font-weight: 600; border-radius: 8px; background: var(--panel2); border: 1px solid var(--border); color: var(--fg); cursor: pointer; transition: all .15s; }
+.cg-btn:hover { background: var(--hover); border-color: var(--selb); transform: translateY(-1px); }
+.cg-btn.wave-btn { background: var(--accent); color: #fff; border-color: transparent; }
+.cg-btn.wave-btn:hover { filter: brightness(1.1); box-shadow: 0 2px 10px color-mix(in srgb, var(--accent) 40%, transparent); }
 .ev-list { display: flex; flex-direction: column; gap: 6px; max-height: 320px;
   overflow-y: auto; }
 .ev-row { display: flex; gap: 10px; align-items: center; background: var(--panel);

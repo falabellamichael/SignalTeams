@@ -688,6 +688,7 @@ export default function App() {
       onPackOpen={openPack}
       onShareAgent={() => setModal({ kind: "share", agent: null })}
       onForward={(m) => setModal({ kind: "forward", msg: m })}
+      onEditChannel={(c) => setModal({ kind: "channel", channel: c })}
       onFwdJump={openChannelById}
       focusMsg={focusMsg}
       blocked={blocked}
