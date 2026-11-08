@@ -33,3 +33,5 @@ qa/*.png
 
 # blender render output (regenerable via qa/blender_icon.py)
 qa/icon_render/
+*.msi
+nul
