@@ -10,6 +10,7 @@ import { ChannelTools } from "./chat/ChannelTools";
 import { ThreadPanel } from "./chat/ThreadPanel";
 import { ForumFeed } from "./chat/ForumView";
 import { MessageAiModal } from "./modals/aimessage";
+import { playCue } from "../audioCues";
 
 export default function ChatView({ channel, server, onDm, members, me, emojis, roles, channels = [], onAgentOpen, onPackOpen, onShareAgent, onUserOpen, onForward, onFwdJump, focusMsg, newSince = 0, onGroupAdd, onGroupRename, blocked, onMarkUnread, onWorkspace }) {
   const [msgs, setMsgs] = useState([]);
@@ -175,6 +176,7 @@ export default function ChatView({ channel, server, onDm, members, me, emojis, r
   // live message events are pushed in by App via this prop registration
   useEffect(() => {
     channel._onMsg = (m) => {
+      if (m.author?.id !== me?.id) { playCue("receive"); }
       if (m.thread_root) {
         // thread reply — bump the root's chip, feed the open panel
         setMsgs((prev) => prev.map((p) =>
@@ -237,6 +239,7 @@ export default function ChatView({ channel, server, onDm, members, me, emojis, r
   }
 
   async function onReact(m, emoji) {
+    playCue("pop");
     await api.react(m.id, emoji).catch(() => {});
   }
 
@@ -384,6 +387,7 @@ export default function ChatView({ channel, server, onDm, members, me, emojis, r
     const payload = atts;
     const r = replyTo;
     setDraft(""); setAtts([]); setReplyTo(null);
+    playCue("send");
     sendWS({ type: "typing", channel_id: channel.id, on: false });
     try {
       const m = await api.send(channel.id, content, null, payload, null, r?.id || null);
@@ -456,6 +460,8 @@ export default function ChatView({ channel, server, onDm, members, me, emojis, r
     : [];
 
   function key(e) {
+    playCue("key", { key: e.key });
+    if (e.key === "Backspace" && !draft && replyTo) { setReplyTo(null); return; }
     if (mention && matches.length) {
       if (e.key === "ArrowDown") { e.preventDefault(); setMention({ ...mention, sel: (mention.sel + 1) % matches.length }); return; }
       if (e.key === "ArrowUp") { e.preventDefault(); setMention({ ...mention, sel: (mention.sel + matches.length - 1) % matches.length }); return; }

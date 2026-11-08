@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import Ico from "../Ico";
 import { api } from "../../api";
 import { COLORS, EMOJI_CHOICES, Modal, ModelField, NotifCtl, STATUSES } from "./_shared.jsx";
+import { audioConfig, playCue } from "../../audioCues";
 
 
 export function SettingsModal({ me, theme, onTheme, onClose, onSaved, onLogout }) {
@@ -15,7 +16,10 @@ export function SettingsModal({ me, theme, onTheme, onClose, onSaved, onLogout }
   });
   const [acct, setAcct] = useState(me);        // fresh flags from /api/me
   const [density, setDensity] = useState(localStorage.getItem("st.density") || "cozy");
-  const [sound, setSound] = useState(localStorage.getItem("st.sound") || "1");
+  const [audioEnabled, setAudioEnabled] = useState(audioConfig.enabled);
+  const [audioVol, setAudioVol] = useState(audioConfig.volume);
+  const [audioTyping, setAudioTyping] = useState(audioConfig.typing);
+  const [audioProfile, setAudioProfile] = useState(audioConfig.profile);
   const [pwCur, setPwCur] = useState("");
   const [pwNext, setPwNext] = useState("");
   const [acctMsg, setAcctMsg] = useState("");
@@ -122,15 +126,64 @@ export function SettingsModal({ me, theme, onTheme, onClose, onSaved, onLogout }
         <NotifCtl />
       </div>
       <div className="set-row">
-        <div className="lab">Ping sound
-          <div className="d">A soft 880 Hz blip when a mention or DM lands.</div></div>
+        <div className="lab">Tactile Audio Cues
+          <div className="d">VS Code style soothing clicks, thocks, and soft harmonic chimes.</div></div>
         <div className="seg">
-          {[["1", "On"], ["0", "Off"]].map(([v, l]) => (
-            <button key={v} className={sound === v ? "on" : ""}
-              onClick={() => { setSound(v); localStorage.setItem("st.sound", v); }}>{l}</button>
-          ))}
+          <button className={audioEnabled ? "on" : ""}
+            onClick={() => { setAudioEnabled(true); audioConfig.enabled = true; playCue("click"); }}>On</button>
+          <button className={!audioEnabled ? "on" : ""}
+            onClick={() => { setAudioEnabled(false); audioConfig.enabled = false; }}>Off</button>
         </div>
       </div>
+      {audioEnabled && (
+        <>
+          <div className="set-row">
+            <div className="lab">Sound Profile
+              <div className="d">Acoustic timbre for buttons, channels, and clicks.</div></div>
+            <div className="seg" style={{ flexWrap: "wrap" }}>
+              <button className={audioProfile === "thock" ? "on" : ""}
+                onClick={() => { setAudioProfile("thock"); audioConfig.profile = "thock"; playCue("click", { profile: "thock" }); }}>
+                🪵 Soothing Thock
+              </button>
+              <button className={audioProfile === "crisp" ? "on" : ""}
+                onClick={() => { setAudioProfile("crisp"); audioConfig.profile = "crisp"; playCue("click", { profile: "crisp" }); }}>
+                ⌨️ Crisp Tactile
+              </button>
+              <button className={audioProfile === "bubble" ? "on" : ""}
+                onClick={() => { setAudioProfile("bubble"); audioConfig.profile = "bubble"; playCue("click", { profile: "bubble" }); }}>
+                🫧 Soft Bubble
+              </button>
+            </div>
+          </div>
+          <div className="set-row">
+            <div className="lab">Audio Volume ({Math.round(audioVol * 100)}%)
+              <div className="d">Subtle and pleasant volume level.</div></div>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <input type="range" min="0.05" max="1" step="0.05" value={audioVol}
+                onChange={(e) => {
+                  const val = parseFloat(e.target.value);
+                  setAudioVol(val);
+                  audioConfig.volume = val;
+                  playCue("click", { vol: val });
+                }} style={{ width: 140, cursor: "pointer" }} />
+              <button className="ghost" style={{ fontSize: 11.5, padding: "2px 7px" }}
+                onClick={() => { playCue("receive"); setTimeout(() => playCue("click"), 150); }}>
+                🔊 Test Sound
+              </button>
+            </div>
+          </div>
+          <div className="set-row">
+            <div className="lab">Keystroke Cues
+              <div className="d">Satisfying micro-thock when typing in chat and code editor.</div></div>
+            <div className="seg">
+              <button className={audioTyping ? "on" : ""}
+                onClick={() => { setAudioTyping(true); audioConfig.typing = true; playCue("key", { key: "a" }); }}>On</button>
+              <button className={!audioTyping ? "on" : ""}
+                onClick={() => { setAudioTyping(false); audioConfig.typing = false; }}>Off</button>
+            </div>
+          </div>
+        </>
+      )}
       <div className="set-row">
         <div className="lab">Status<div className="d">Shown to friends and server members.</div></div>
         <div className="seg">

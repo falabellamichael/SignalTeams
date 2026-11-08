@@ -1,4 +1,5 @@
 import { onWS, sendWS } from "./ws";
+import { playCue } from "./audioCues";
 
 let me = null, channelId = 0, localStream = null, muted = false, deafened = false, joined = false;
 let screenTrack = null, screenStream = null, sharing = false;
@@ -173,12 +174,14 @@ export async function joinVoice(cid, user) {
     watchAudio("me", localStream);
   } catch { /* ignore */ }
   channelId = cid; joined = true; muted = false; deafened = false;
+  playCue("join");
   sendWS({ type: "voice_join", channel_id: cid });
   notify();
 }
 
 export function leaveVoice() {
   if (!joined) return;
+  playCue("leave");
   sendWS({ type: "voice_leave", channel_id: channelId });
   for (const uid of [...peers.keys()]) dropPeer(uid);
   localStream?.getTracks().forEach((t) => t.stop());
@@ -275,6 +278,7 @@ export function toggleCam() {
 export function toggleVoiceMute() {
   if (!muted && deafened) { toggleDeafen(); return deafened; }
   muted = !muted;
+  playCue(muted ? "mute" : "unmute");
   localStream?.getAudioTracks().forEach((t) => { t.enabled = !muted; });
   sendWS({ type: "voice_mute", channel_id: channelId, muted });
   notify();
@@ -283,6 +287,7 @@ export function toggleVoiceMute() {
 
 export function toggleDeafen() {
   deafened = !deafened;
+  playCue(deafened ? "mute" : "unmute");
   if (deafened && !muted) {
     muted = true;
     localStream?.getAudioTracks().forEach((t) => { t.enabled = false; });

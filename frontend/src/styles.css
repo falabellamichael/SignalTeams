@@ -480,6 +480,31 @@ a { color: var(--accent); text-decoration: none; }
   background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
   padding: 10px; box-shadow: 0 10px 30px var(--shadow); }
 .ch-panel input { width: 100%; }
+
+/* AI dropdown — split caret button on the right of the channel toolbar,
+   opening a matching-width panel of AI capability toggles */
+.ai-split { position: relative; display: inline-flex; }
+.ai-split .ghost { display: inline-flex; align-items: center; gap: 1px; }
+.ai-split .ai-caret { color: var(--dim); margin-left: -2px; margin-top: 1px; }
+.ai-split .ghost.on .ai-caret { color: var(--accent); }
+.ai-panel { top: 30px; right: 0; width: 268px; padding: 10px 8px 8px; }
+.ai-list { display: flex; flex-direction: column; margin-top: 6px; }
+.ai-item { display: flex; align-items: center; gap: 9px; width: 100%; text-align: left;
+  background: transparent; border: 0; border-radius: 8px; cursor: pointer;
+  padding: 7px 8px; color: var(--fg); }
+.ai-item:hover { background: var(--sel); }
+.ai-item .ai-ico { font-size: 15px; width: 20px; text-align: center; flex-shrink: 0; }
+.ai-item .ai-txt { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.ai-item .ai-txt b { font-size: 12.5px; font-weight: 600; }
+.ai-item .ai-txt small { font-size: 10.5px; color: var(--dim); line-height: 1.35; }
+.ai-item .ai-sw { flex-shrink: 0; width: 26px; height: 15px; border-radius: 999px;
+  background: var(--border); position: relative; transition: background .15s; }
+.ai-item .ai-sw::after { content: ""; position: absolute; top: 2px; left: 2px;
+  width: 11px; height: 11px; border-radius: 50%; background: var(--panel);
+  transition: transform .15s; box-shadow: 0 1px 2px var(--shadow); }
+.ai-item.on .ai-sw { background: var(--accent); }
+.ai-item.on .ai-sw::after { transform: translateX(11px); }
+.ai-item.on .ai-txt b { color: var(--accent); }
 .pin-flag { font-size: 10px; margin-left: 4px; color: var(--honey); display: inline-flex; align-items: center; }
 .bot-tag { font-size: 9px; font-weight: 700; letter-spacing: .4px; margin-left: 5px;
   padding: 1px 5px; border-radius: 4px; vertical-align: 1px;

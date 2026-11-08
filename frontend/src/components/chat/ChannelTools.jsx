@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import Ico from "../Ico";
 import { api } from "../../api";
 import { timeAgo, hasSearchQuery } from "../../util";
@@ -10,6 +10,38 @@ export function ChannelTools({ channel, me, onAgentOpen, onPackOpen, onJump, voi
   const [hits, setHits] = useState([]);
   const [pins, setPins] = useState([]);
   const [exporting, setExporting] = useState(false);
+  const [aiOpen, setAiOpen] = useState(false);
+  const aiRef = useRef(null);
+
+  // per-channel AI capability toggles, persisted locally
+  const AI_KEY = `signalteams.ai.${channel.id}`;
+  const [ai, setAi] = useState(() => {
+    try { return JSON.parse(localStorage.getItem(AI_KEY) || "{}"); } catch { return {}; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem(AI_KEY, JSON.stringify(ai)); } catch { /* ignore */ }
+  }, [ai, AI_KEY]);
+
+  // close the AI dropdown on outside click / Escape
+  useEffect(() => {
+    if (!aiOpen) return;
+    const onDown = (e) => { if (aiRef.current && !aiRef.current.contains(e.target)) setAiOpen(false); };
+    const onKey = (e) => { if (e.key === "Escape") setAiOpen(false); };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => { document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey); };
+  }, [aiOpen]);
+
+  const AI_ITEMS = [
+    { id: "web", icon: "🌐", label: "Web search", hint: "agents can pull fresh pages into replies" },
+    { id: "stt", icon: "🎙", label: "Speech to text", hint: "dictate messages with your voice" },
+    { id: "tts", icon: "🔊", label: "Text to speech", hint: "read agent replies aloud" },
+    { id: "vision", icon: "👁", label: "Vision", hint: "let agents read images & screenshots" },
+    { id: "translate", icon: "🌍", label: "Translate", hint: "auto-translate incoming messages" },
+    { id: "summarize", icon: "✂️", label: "Auto-summarize", hint: "condense long threads into a recap" },
+  ];
+  const aiOn = Object.values(ai).filter(Boolean).length;
 
   useEffect(() => { setOpen(null); setQ(""); setHits([]); }, [channel.id]);
 
@@ -74,6 +106,34 @@ export function ChannelTools({ channel, me, onAgentOpen, onPackOpen, onJump, voi
             a.click(); URL.revokeObjectURL(a.href);
           } finally { setExporting(false); }
         }}><Ico n="fileDl" /></button>
+      <div className="ai-split" ref={aiRef}>
+        <button className={`ghost ${aiOpen ? "on" : ""}`} title="AI options"
+          onClick={() => setAiOpen((o) => !o)}>
+          <Ico n="sparkle" /> <Ico n="caretD" s={9} className="ai-caret" />
+        </button>
+        {aiOpen && (
+          <div className="ch-panel ai-panel" role="menu">
+            <label style={{ fontSize: 10.5, textTransform: "uppercase", color: "var(--dim)",
+                display: "flex", alignItems: "center", gap: 6 }}>
+              ✨ AI in this channel
+              {aiOn > 0 && <span style={{ textTransform: "none", color: "var(--accent)" }}>
+                {aiOn} on</span>}
+            </label>
+            <div className="ai-list">
+              {AI_ITEMS.map((it) => (
+                <button key={it.id} role="menuitemcheckbox" aria-checked={!!ai[it.id]}
+                  className={`ai-item ${ai[it.id] ? "on" : ""}`}
+                  onClick={() => setAi((s) => ({ ...s, [it.id]: !s[it.id] }))}>
+                  <span className="ai-ico">{it.icon}</span>
+                  <span className="ai-txt"><b>{it.label}</b>
+                    <small>{it.hint}</small></span>
+                  <span className="ai-sw" />
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
       {open === "search" && (
         <div className="ch-panel">
           <input autoFocus placeholder={`Search ${channel.kind === "dm" ? "@…" : "#" + channel.name}…`}

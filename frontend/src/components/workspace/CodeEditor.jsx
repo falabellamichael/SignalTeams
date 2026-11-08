@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import Ico from "../Ico";
 import { highlight, langFor, matchBracket } from "./highlight";
+import { playCue } from "../../audioCues";
 
 const INDENT = "  ";
 const PAIRS = { "(": ")", "[": "]", "{": "}", '"': '"', "'": "'", "`": "`" };
@@ -106,7 +107,7 @@ export default function CodeEditor({ path, value, onChange, readOnly, onSave, on
     const s = ta.selectionStart, t = ta.selectionEnd;
     const mod = e.ctrlKey || e.metaKey;
 
-    if (mod && e.key.toLowerCase() === "s") { e.preventDefault(); onSave?.(); return; }
+    if (mod && e.key.toLowerCase() === "s") { e.preventDefault(); playCue("send"); onSave?.(); return; }
     if (mod && e.key.toLowerCase() === "f") {
       e.preventDefault();
       setFind((f) => ({ q: f?.q || "", replace: f?.replace || "", idx: 0, matches: [] }));
@@ -117,6 +118,7 @@ export default function CodeEditor({ path, value, onChange, readOnly, onSave, on
     }
     if (e.key === "Escape" && (find || goto)) { setFind(null); setGoto(null); return; }
     if (readOnly) return;
+    playCue("key", { key: e.key });
 
     // Tab / Shift+Tab — indent or outdent the selected lines
     if (e.key === "Tab") {
