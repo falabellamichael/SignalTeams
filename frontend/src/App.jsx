@@ -902,6 +902,24 @@ export default function App() {
             const full = await api.server(modal.server.id).catch(() => null);
             if (full) { setServer(full); setModal({ kind: "srvsettings", server: full }); }
           }}
+          onBan={async (m) => {
+            const reason = prompt(`Ban ${m.display_name} from ${modal.server.name}? Reason (optional):`);
+            if (reason === null) return;
+            await api.banMember(modal.server.id, m.id, reason).catch((e) => (alert(e.message), null));
+            const full = await api.server(modal.server.id).catch(() => null);
+            if (full) { setServer(full); setModal({ kind: "srvsettings", server: full }); }
+          }}
+          onTimeout={async (m) => {
+            if (m.timeout_until && m.timeout_until > Date.now() / 1000) {
+              await api.timeoutMember(modal.server.id, m.id, 0).catch((e) => (alert(e.message), null));
+            } else {
+              const mins = parseInt(prompt(`Time out ${m.display_name} for how many minutes? (0 = cancel)`) || "0", 10);
+              if (!mins) return;
+              await api.timeoutMember(modal.server.id, m.id, mins).catch((e) => (alert(e.message), null));
+            }
+            const full = await api.server(modal.server.id).catch(() => null);
+            if (full) { setServer(full); setModal({ kind: "srvsettings", server: full }); }
+          }}
           onTransfer={async (m) => {
             if (!confirm(`Make ${m.display_name} the owner of ${modal.server.name}? You'll become a regular member.`)) return;
             await api.transferServer(modal.server.id, m.id).catch((e) => (alert(e.message), null));

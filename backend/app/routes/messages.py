@@ -113,6 +113,14 @@ async def post_message(cid: int, body: MessageIn, user=Depends(current_user)):
         ch = conn.execute("SELECT * FROM channels WHERE id=?", (cid,)).fetchone()
         if not ch or user["id"] not in channel_member_ids(conn, ch):
             raise HTTPException(404, "No such channel")
+        if ch["server_id"]:
+            mrow = conn.execute(
+                "SELECT timeout_until FROM server_members WHERE server_id=? AND user_id=?",
+                (ch["server_id"], user["id"])).fetchone()
+            if mrow and mrow["timeout_until"] and mrow["timeout_until"] > now():
+                left = int(mrow["timeout_until"] - now())
+                raise HTTPException(403,
+                    f"You're timed out — back in {left // 60 + 1}min")
         if ch["kind"] == "dm":
             others = [r["user_id"] for r in conn.execute(
                 "SELECT user_id FROM channel_members WHERE channel_id=? AND user_id != ?",

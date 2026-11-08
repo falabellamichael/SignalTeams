@@ -116,6 +116,14 @@ class ServerPatch(BaseModel):
     automod: dict | None = None                   # word/link/caps/mention rules
 
 
+class BanIn(BaseModel):
+    reason: str = Field(default="", max_length=200)
+
+
+class TimeoutIn(BaseModel):
+    minutes: int = Field(ge=0, le=40320)                # 0 clears · up to 28 days
+
+
 class NickIn(BaseModel):
     nickname: str = Field(default="", max_length=48)
 

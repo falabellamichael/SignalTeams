@@ -326,6 +326,8 @@ a { color: var(--accent); text-decoration: none; }
   border-radius: 7px; color: var(--dim); cursor: pointer; padding: 3px 8px;
   font-size: 14px; }
 .ev-star.on { color: var(--honey); border-color: var(--honey); }
+.to-badge { color: var(--honey); margin-left: 6px; font-size: 10px;
+  border: 1px solid var(--honey); border-radius: 5px; padding: 0 4px; }
 
 /* message context menu */
 .menu-scrim { position: fixed; inset: 0; z-index: 49; }

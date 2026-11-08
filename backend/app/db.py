@@ -51,6 +51,16 @@ CREATE TABLE IF NOT EXISTS server_members (
     user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     role       TEXT NOT NULL DEFAULT 'member',          -- owner | member
     joined_at  REAL NOT NULL,
+    timeout_until REAL,                                 -- posts blocked until this epoch
+    PRIMARY KEY (server_id, user_id)
+);
+
+CREATE TABLE IF NOT EXISTS server_bans (
+    server_id  INTEGER NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+    user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    reason     TEXT NOT NULL DEFAULT '',
+    banned_by  INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at REAL NOT NULL,
     PRIMARY KEY (server_id, user_id)
 );
 
@@ -369,6 +379,7 @@ def init():
             ("channels.lurkers", "ALTER TABLE channels ADD COLUMN lurkers TEXT NOT NULL DEFAULT '[]'"),
             ("servers.automod", "ALTER TABLE servers ADD COLUMN automod TEXT NOT NULL DEFAULT '{}'"),
             ("messages.system", "ALTER TABLE messages ADD COLUMN system TEXT NOT NULL DEFAULT ''"),
+            ("server_members.timeout_until", "ALTER TABLE server_members ADD COLUMN timeout_until REAL"),
         ]:
             table, c = col.split(".")
             try:

@@ -9,7 +9,7 @@ from ..db import db, emit_buzz, now
 from ..hub import hub
 
 from ..helpers import _clean_automod, _pub_server, _sys_post, audit, channel_json, public_user
-from ..schemas import ChannelIn, ChannelPatch, DigestIn, JoinIn, MemberRoleIn, NickIn, RoleIn, ServerIn, ServerPatch, TransferIn
+from ..schemas import BanIn, ChannelIn, ChannelPatch, DigestIn, JoinIn, MemberRoleIn, NickIn, RoleIn, ServerIn, ServerPatch, TimeoutIn, TransferIn
 from ..services import _server_changed
 
 router = APIRouter()
@@ -70,6 +70,9 @@ async def join_server(body: JoinIn, user=Depends(current_user)):
         s = conn.execute("SELECT * FROM servers WHERE invite_code=?", (body.invite_code,)).fetchone()
         if not s:
             raise HTTPException(404, "Bad invite code")
+        if conn.execute("SELECT 1 FROM server_bans WHERE server_id=? AND user_id=?",
+                        (s["id"], user["id"])).fetchone():
+            raise HTTPException(403, "You're banned from this server")
         if not conn.execute("SELECT 1 FROM server_members WHERE server_id=? AND user_id=?",
                             (s["id"], user["id"])).fetchone():
             conn.execute(
@@ -209,6 +212,87 @@ async def kick_member(sid: int, uid: int, user=Depends(current_user)):
     return {"ok": True}
 
 
+@router.post("/api/servers/{sid}/bans/{uid}")
+async def ban_member(sid: int, uid: int, body: BanIn, user=Depends(current_user)):
+    """Ban = remove + block rejoin. Owner only."""
+    with db() as conn:
+        s = conn.execute("SELECT * FROM servers WHERE id=?", (sid,)).fetchone()
+        if not s or s["owner_id"] != user["id"]:
+            raise HTTPException(403, "Only the owner can ban")
+        if uid == s["owner_id"]:
+            raise HTTPException(400, "Can't ban the owner")
+        if conn.execute("SELECT 1 FROM server_bans WHERE server_id=? AND user_id=?",
+                        (sid, uid)).fetchone():
+            raise HTTPException(400, "Already banned")
+        tgt = conn.execute("SELECT username FROM users WHERE id=?", (uid,)).fetchone()
+        if not tgt:
+            raise HTTPException(404, "No such user")
+        was_member = conn.execute(
+            "DELETE FROM server_members WHERE server_id=? AND user_id=?",
+            (sid, uid)).rowcount
+        conn.execute(
+            "INSERT INTO server_bans(server_id, user_id, reason, banned_by, created_at) "
+            "VALUES (?,?,?,?,?)",
+            (sid, uid, body.reason.strip()[:200], user["id"], now()))
+        audit(conn, sid, user["id"], "member.ban", f"@{tgt['username']}",
+              body.reason.strip()[:200])
+    if was_member:
+        await hub.send_many([uid], {"type": "server_left", "server_id": sid})
+        with db() as conn:
+            await _server_changed(conn, sid)
+    return {"ok": True}
+
+
+@router.get("/api/servers/{sid}/bans")
+def list_bans(sid: int, user=Depends(current_user)):
+    with db() as conn:
+        s = conn.execute("SELECT * FROM servers WHERE id=?", (sid,)).fetchone()
+        if not s or s["owner_id"] != user["id"]:
+            raise HTTPException(403, "Only the owner can see bans")
+        return [
+            {**public_user(r), "reason": r["reason"], "banned_at": r["created_at"]}
+            for r in conn.execute(
+                "SELECT u.*, b.reason, b.created_at FROM server_bans b "
+                "JOIN users u ON u.id=b.user_id WHERE b.server_id=? "
+                "ORDER BY b.created_at DESC", (sid,)).fetchall()]
+
+
+@router.delete("/api/servers/{sid}/bans/{uid}")
+async def unban_member(sid: int, uid: int, user=Depends(current_user)):
+    with db() as conn:
+        s = conn.execute("SELECT * FROM servers WHERE id=?", (sid,)).fetchone()
+        if not s or s["owner_id"] != user["id"]:
+            raise HTTPException(403, "Only the owner can unban")
+        tgt = conn.execute("SELECT username FROM users WHERE id=?", (uid,)).fetchone()
+        if not conn.execute("DELETE FROM server_bans WHERE server_id=? AND user_id=?",
+                            (sid, uid)).rowcount:
+            raise HTTPException(404, "Not banned")
+        audit(conn, sid, user["id"], "member.unban",
+              f"@{tgt['username']}" if tgt else str(uid))
+    return {"ok": True}
+
+
+@router.post("/api/servers/{sid}/members/{uid}/timeout")
+async def timeout_member(sid: int, uid: int, body: TimeoutIn, user=Depends(current_user)):
+    """Temporarily block a member's posts. minutes=0 clears."""
+    with db() as conn:
+        s = conn.execute("SELECT * FROM servers WHERE id=?", (sid,)).fetchone()
+        if not s or s["owner_id"] != user["id"]:
+            raise HTTPException(403, "Only the owner can time out")
+        if uid == s["owner_id"]:
+            raise HTTPException(400, "Can't time out the owner")
+        if not conn.execute("SELECT 1 FROM server_members WHERE server_id=? AND user_id=?",
+                            (sid, uid)).fetchone():
+            raise HTTPException(404, "Not a member")
+        until = now() + body.minutes * 60 if body.minutes else None
+        conn.execute("UPDATE server_members SET timeout_until=? "
+                     "WHERE server_id=? AND user_id=?", (until, sid, uid))
+        tgt = conn.execute("SELECT username FROM users WHERE id=?", (uid,)).fetchone()
+        audit(conn, sid, user["id"], "member.timeout", f"@{tgt['username']}" if tgt else str(uid),
+              f"{body.minutes}min" if body.minutes else "cleared")
+    return {"ok": True, "timeout_until": until}
+
+
 @router.post("/api/servers/{sid}/nick")
 async def set_nick(sid: int, body: NickIn, user=Depends(current_user)):
     with db() as conn:
@@ -258,11 +342,13 @@ def get_server(sid: int, user=Depends(current_user)):
             "SELECT * FROM channels WHERE server_id=? ORDER BY position, id", (sid,)).fetchall()]
         d["members"] = [
             {**public_user(r), "nickname": r["nickname"],
+             "timeout_until": r["timeout_until"],
              "role_ids": [x["role_id"] for x in conn.execute(
                  "SELECT role_id FROM member_roles WHERE server_id=? AND user_id=?",
                  (sid, r["id"])).fetchall()]}
             for r in conn.execute(
-                "SELECT u.*, m.nickname FROM users u JOIN server_members m ON m.user_id=u.id "
+                "SELECT u.*, m.nickname, m.timeout_until FROM users u "
+                "JOIN server_members m ON m.user_id=u.id "
                 "WHERE m.server_id=? ORDER BY u.username", (sid,)).fetchall()]
         d["emojis"] = [dict(r) for r in conn.execute(
             "SELECT id, name, file_id, uploader FROM emojis WHERE server_id=? ORDER BY name",

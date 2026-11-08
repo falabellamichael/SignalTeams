@@ -7,6 +7,8 @@ import { EMOJI_CHOICES, Modal, ModelField } from "./_shared.jsx";
 const AUDIT_LABEL = {
   "server.update": "edited the server", "invite.rotate": "rotated the invite",
   "member.kick": "kicked", "member.leave": "left the team",
+  "member.ban": "banned", "member.unban": "unbanned",
+  "member.timeout": "timed out",
   "member.nick": "changed nickname on", "member.roles": "updated roles on",
   "member.approve": "let into", "member.deny": "denied a knock in",
   "owner.transfer": "handed ownership to",
@@ -19,7 +21,7 @@ const AUDIT_LABEL = {
   "message.delete": "deleted a message in",
 };
 
-export function ServerSettingsModal({ server, me, onClose, onSaved, onDeleted, onLeft, onKick, onTransfer }) {
+export function ServerSettingsModal({ server, me, onClose, onSaved, onDeleted, onLeft, onKick, onBan, onTimeout, onTransfer }) {
   const owner = server.owner_id === me?.id;
   const [name, setName] = useState(server.name);
   const [icon, setIcon] = useState(server.icon);
@@ -53,6 +55,8 @@ export function ServerSettingsModal({ server, me, onClose, onSaved, onDeleted, o
   const [audit, setAudit] = useState(null);
   const [auditOpen, setAuditOpen] = useState(false);
   const [auditMore, setAuditMore] = useState(false);
+  const [bans, setBans] = useState(null);
+  const [bansOpen, setBansOpen] = useState(false);
   const [am, setAm] = useState({
     words: (server.automod?.words || []).join(", "),
     block_links: !!server.automod?.block_links,
@@ -68,6 +72,11 @@ export function ServerSettingsModal({ server, me, onClose, onSaved, onDeleted, o
         .catch(() => setAudit([]));
     }
   }, [owner, auditOpen, audit, server.id]);
+  useEffect(() => {
+    if (owner && bansOpen && bans === null) {
+      api.serverBans(server.id).then(setBans).catch(() => setBans([]));
+    }
+  }, [owner, bansOpen, bans, server.id]);
   useEffect(() => {
     if (!server.llm_url) return;
     api.serverLlmTest(server.id)
@@ -328,13 +337,22 @@ export function ServerSettingsModal({ server, me, onClose, onSaved, onDeleted, o
                 <div style={{ flex: 1 }}>
                   <b>{m.display_name}</b>
                   <div style={{ fontSize: 11, color: "var(--dim)" }}>
-                    @{m.username}{m.id === server.owner_id ? " · owner" : ""}</div>
+                    @{m.username}{m.id === server.owner_id ? " · owner" : ""}
+                    {m.timeout_until > Date.now() / 1000 &&
+                      <span className="to-badge" title="Timed out — can't post">
+                        ⏱ {Math.ceil((m.timeout_until - Date.now() / 1000) / 60)}min</span>}
+                  </div>
                 </div>
                 {m.id !== server.owner_id && <>
                   <span className="stat xfer" title={`Make ${m.display_name} the owner`}
                     onClick={() => onTransfer(m)}><Ico n="swap" s={13} /></span>
                   <span className="stat kick" title={`Kick ${m.display_name}`}
                     onClick={() => onKick(m)}><Ico n="x" s={11} /> kick</span>
+                  <span className="stat kick" title={m.timeout_until > Date.now() / 1000
+                        ? "Clear timeout" : `Time out ${m.display_name}`}
+                    onClick={() => onTimeout(m)}>⏱</span>
+                  <span className="stat kick" title={`Ban ${m.display_name} — blocks rejoin`}
+                    onClick={() => onBan(m)}>🚫</span>
                 </>}
                 {roles.length > 0 && (
                   <div className="role-chips">
@@ -361,6 +379,33 @@ export function ServerSettingsModal({ server, me, onClose, onSaved, onDeleted, o
               </div>
             ))}
           </div>
+          <label style={{ cursor: "pointer", userSelect: "none" }}
+            onClick={() => setBansOpen((o) => !o)}>
+            <Ico n={bansOpen ? "caretD" : "caretR"} s={11} /> Bans{" "}
+            <span style={{ color: "var(--dim)", fontWeight: 400 }}>
+              (banned users can't rejoin)</span></label>
+          {bansOpen && (
+            <div style={{ maxHeight: 140, overflowY: "auto", marginBottom: 8 }}>
+              {bans === null && <div className="idehint">Loading…</div>}
+              {(bans || []).length === 0 && bans !== null && (
+                <div className="idehint">Nobody's banned — keep it that way.</div>)}
+              {(bans || []).map((b) => (
+                <div key={b.id} className="pack-agent" style={{ cursor: "default" }}>
+                  <span className="pk-ico big">{b.avatar_emoji}</span>
+                  <div style={{ flex: 1 }}>
+                    <b>{b.display_name}</b>
+                    <div style={{ fontSize: 11, color: "var(--dim)" }}>
+                      @{b.username}{b.reason ? ` · ${b.reason}` : ""}</div>
+                  </div>
+                  <span className="stat xfer" title={`Unban ${b.display_name}`}
+                    onClick={async () => {
+                      await api.unbanMember(server.id, b.id).catch((e) => (setMsg(e.message), null));
+                      setBans((x) => (x || []).filter((z) => z.id !== b.id));
+                    }}><Ico n="plus" s={11} /> unban</span>
+                </div>
+              ))}
+            </div>
+          )}
           <label style={{ cursor: "pointer", userSelect: "none" }}
             onClick={() => setAuditOpen((o) => !o)}>
             <Ico n={auditOpen ? "caretD" : "caretR"} s={11} /> Audit log{" "}
