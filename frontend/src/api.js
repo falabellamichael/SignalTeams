@@ -151,6 +151,8 @@ export const api = {
   createWebhook: (cid, name, icon) => req("POST", `/api/channels/${cid}/webhooks`, { name, icon }),
   editWebhook: (wid, p) => req("PATCH", `/api/webhooks/${wid}`, p),
   delWebhook: (wid) => req("DELETE", `/api/webhooks/${wid}`),
+  setDigest: (cid, p) => req("PUT", `/api/channels/${cid}/digest`, p),
+  delDigest: (cid) => req("DELETE", `/api/channels/${cid}/digest`),
   pins: (cid) => req("GET", `/api/channels/${cid}/pins`),
   searchChannel: (cid, q) => req("GET", `/api/channels/${cid}/search?q=${encodeURIComponent(q)}`),
   searchAll: (q) => req("GET", `/api/search?q=${encodeURIComponent(q)}`),

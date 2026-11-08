@@ -190,6 +190,83 @@ async def _summarize_task(cid: int, asker_id: int, count: int):
 
 REMIND_BOT = ("bot:reminders", "Reminders", "⏰")
 
+DIGEST_BOT = ("bot:digest", "Digest", "📅")
+
+
+def _fmt_span(secs: int) -> str:
+    if secs < 3600:
+        return f"{max(1, secs // 60)}-minute"
+    if secs == 3600:
+        return "hourly"
+    if secs == 86400:
+        return "daily"
+    if secs == 604800:
+        return "weekly"
+    if secs % 3600 == 0:
+        return f"{secs // 3600}-hour"
+    return f"{secs // 60}-minute"
+
+
+async def _run_digest(job):
+    """Fire one scheduled digest: recap the interval's messages as the agent."""
+    from .llm import chat as llm_chat
+    cid, since = job["channel_id"], job["last_run"]
+    with db() as conn:
+        ch = conn.execute("SELECT * FROM channels WHERE id=?", (cid,)).fetchone()
+        if not ch:
+            return
+        rows = conn.execute(
+            "SELECT m.content, u.display_name dn, u.username un FROM messages m "
+            "JOIN users u ON u.id=m.author_id WHERE m.channel_id=? "
+            "AND m.created_at>? AND m.thread_root IS NULL ORDER BY m.id LIMIT 60",
+            (cid, since)).fetchall()
+        a = conn.execute("SELECT * FROM agents WHERE id=?",
+                         (job["agent_id"],)).fetchone() if job["agent_id"] else None
+        bot = agent_bot_user(conn, a) if a else None
+        ep = (_agent_llm(a) if a else None) \
+            or (_server_llm(conn, ch["server_id"]) if ch["server_id"] else None) \
+            or _user_llm(conn, job["created_by"])
+    history = [{"role": "user", "content": f"{r['dn'] or r['un']}: {r['content']}"}
+               for r in rows
+               if not (r["un"] or "").startswith(("bot:", "agent:", "hook:"))]
+    if len(history) < 4:
+        return  # quiet interval — a digest that says "nothing happened" is spam
+    span = _fmt_span(job["interval_secs"])
+    sysp = (f"{_sysprompt(a)}\n\nYou are posting the scheduled {span} digest of "
+            f"#{ch['name']}." if a else
+            f"You are Digest, posting the scheduled {span} recap of #{ch['name']}.")
+    try:
+        summary, _prov, _model = await asyncio.to_thread(
+            llm_chat, sysp, history[:-1],
+            f"Recap these {len(history)} messages as a {span} digest: 3-6 tight "
+            "bullets — decisions, plans, who's doing what, open questions. "
+            "Keep names and numbers. No preamble.",
+            endpoint=ep)
+    except Exception:
+        return  # brain offline — skip this run instead of spamming a fallback
+    key, name, icon = (bot["username"], bot["display_name"], bot["avatar_emoji"]) \
+        if bot else DIGEST_BOT
+    await bot_post(cid, key, name, icon,
+                   f"📅 **{span} digest — #{ch['name']}**\n{summary[:3000]}")
+
+
+async def digest_loop():
+    """Poll scheduled channel digests — an agent recaps each interval's messages."""
+    while True:
+        await asyncio.sleep(30)
+        try:
+            with db() as conn:
+                due = conn.execute(
+                    "SELECT * FROM digest_jobs WHERE last_run + interval_secs <= ?",
+                    (now(),)).fetchall()
+                for j in due:
+                    conn.execute("UPDATE digest_jobs SET last_run=? WHERE id=?",
+                                 (now(), j["id"]))
+            for j in due:
+                await _run_digest(dict(j))
+        except Exception:
+            pass
+
 
 async def reminder_loop():
     """Poll for due reminders and deliver them as bot posts that @ping the user."""

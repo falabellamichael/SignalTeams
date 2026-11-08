@@ -9,7 +9,7 @@ from ..db import db, emit_buzz, now
 from ..hub import hub
 
 from ..helpers import _pub_server, audit, channel_json, public_user
-from ..schemas import ChannelIn, ChannelPatch, JoinIn, MemberRoleIn, NickIn, RoleIn, ServerIn, ServerPatch, TransferIn
+from ..schemas import ChannelIn, ChannelPatch, DigestIn, JoinIn, MemberRoleIn, NickIn, RoleIn, ServerIn, ServerPatch, TransferIn
 from ..services import _server_changed
 
 router = APIRouter()
@@ -468,6 +468,54 @@ async def edit_channel(cid: int, body: ChannelPatch, user=Depends(current_user))
         await _server_changed(conn, sid)
         return channel_json(conn, conn.execute(
             "SELECT * FROM channels WHERE id=?", (cid,)).fetchone(), user["id"])
+
+
+@router.put("/api/channels/{cid}/digest")
+async def set_digest(cid: int, body: DigestIn, user=Depends(current_user)):
+    """Schedule (or reschedule) an agent recap for a channel — owner only."""
+    with db() as conn:
+        ch = conn.execute(
+            "SELECT c.*, s.owner_id so FROM channels c JOIN servers s ON s.id=c.server_id "
+            "WHERE c.id=?", (cid,)).fetchone()
+        if not ch or ch["so"] != user["id"]:
+            raise HTTPException(404, "No such channel")
+        if ch["kind"] == "dm":
+            raise HTTPException(400, "Digests are for server channels")
+        if body.agent_id and not conn.execute(
+                "SELECT 1 FROM agents WHERE id=?", (body.agent_id,)).fetchone():
+            raise HTTPException(404, "No such agent")
+        conn.execute(
+            "INSERT INTO digest_jobs(channel_id, agent_id, interval_secs, last_run, created_by, created_at) "
+            "VALUES (?,?,?,?,?,?) "
+            "ON CONFLICT(channel_id) DO UPDATE SET agent_id=excluded.agent_id, "
+            "interval_secs=excluded.interval_secs, last_run=excluded.last_run, "
+            "created_by=excluded.created_by",
+            (cid, body.agent_id, int(body.interval_secs), now(), user["id"], now()))
+        audit(conn, ch["server_id"], user["id"], "channel.digest",
+              f"#{ch['name']}", f"every {int(body.interval_secs)}s")
+        sid = ch["server_id"]
+    with db() as conn:
+        await _server_changed(conn, sid)
+        return channel_json(conn, conn.execute(
+            "SELECT * FROM channels WHERE id=?", (cid,)).fetchone(), user["id"])
+
+
+@router.delete("/api/channels/{cid}/digest")
+async def del_digest(cid: int, user=Depends(current_user)):
+    with db() as conn:
+        ch = conn.execute(
+            "SELECT c.*, s.owner_id so FROM channels c JOIN servers s ON s.id=c.server_id "
+            "WHERE c.id=?", (cid,)).fetchone()
+        if not ch or ch["so"] != user["id"]:
+            raise HTTPException(404, "No such channel")
+        had = conn.execute("DELETE FROM digest_jobs WHERE channel_id=?", (cid,)).rowcount
+        if had:
+            audit(conn, ch["server_id"], user["id"], "channel.digest",
+                  f"#{ch['name']}", "removed")
+        sid = ch["server_id"]
+    with db() as conn:
+        await _server_changed(conn, sid)
+        return {"ok": True}
 
 
 @router.post("/api/servers/{sid}/channels/order")

@@ -121,6 +121,63 @@ function WebhookSection({ channel }) {
 }
 
 
+const DIGEST_IVS = [[900, "every 15 min"], [3600, "hourly"], [21600, "every 6 hours"],
+  [86400, "daily"], [604800, "weekly"]];
+const ivLabel = (s) => (DIGEST_IVS.find(([v]) => v === s) || [0, `every ${Math.round(s / 60)}m`])[1];
+
+function DigestSection({ channel }) {
+  const [dj, setDj] = useState(channel.digest || null);
+  const [agents, setAgents] = useState([]);
+  const [aid, setAid] = useState(channel.digest?.agent_id || 0);
+  const [iv, setIv] = useState(channel.digest?.interval_secs || 86400);
+  const [err, setErr] = useState("");
+  useEffect(() => { api.agents({ sort: "name" }).then(setAgents).catch(() => {}); }, []);
+
+  async function save() {
+    const c = await api.setDigest(channel.id, { agent_id: aid || null, interval_secs: +iv })
+      .catch((e) => (setErr(e.message), null));
+    if (c) { setDj(c.digest || null); setErr(""); }
+  }
+
+  async function remove() {
+    await api.delDigest(channel.id).catch((e) => setErr(e.message));
+    setDj(null);
+  }
+
+  const next = dj ? Math.max(0, Math.round((dj.last_run + dj.interval_secs - Date.now() / 1000) / 60)) : 0;
+  return (
+    <>
+      <label>📅 Agent digest{" "}
+        <span style={{ color: "var(--dim)", fontWeight: 400 }}>
+          (scheduled recap posted as the agent — quiet intervals are skipped)</span></label>
+      {dj && (
+        <div className="idehint" style={{ marginBottom: 6 }}>
+          On — {dj.agent_icon || "📅"} <b>{dj.agent_name || "Digest bot"}</b> · {ivLabel(dj.interval_secs)}
+          · next in ~{next < 60 ? `${next}m` : next < 1440 ? `${Math.round(next / 60)}h` : `${Math.round(next / 1440)}d`}
+        </div>
+      )}
+      {err && <div className="idehint" style={{ color: "var(--bad)" }}>{err}</div>}
+      <div className="mrow">
+        <div>
+          <select value={aid} onChange={(e) => setAid(+e.target.value)}>
+            <option value={0}>📅 Digest bot</option>
+            {agents.map((a) => <option key={a.id} value={a.id}>{a.icon || "🤖"} {a.name}</option>)}
+          </select>
+        </div>
+        <div style={{ maxWidth: 130 }}>
+          <select value={iv} onChange={(e) => setIv(+e.target.value)}>
+            {DIGEST_IVS.map(([s, l]) => <option key={s} value={s}>{l}</option>)}
+          </select>
+        </div>
+        <div style={{ maxWidth: 96, display: "flex", gap: 4 }}>
+          <button type="button" onClick={save}>{dj ? "Update" : "Enable"}</button>
+          {dj && <button type="button" className="danger" onClick={remove}>Off</button>}
+        </div>
+      </div>
+    </>
+  );
+}
+
 export function ChannelModal({ kind, channel, me, roles, onClose, onDone, onDelete }) {
   const editing = !!channel;
   const [selKind, setSelKind] = useState(channel?.kind || kind);
@@ -171,6 +228,7 @@ export function ChannelModal({ kind, channel, me, roles, onClose, onDone, onDele
         </>
       )}
       {editing && <WebhookSection channel={channel} />}
+      {editing && <DigestSection channel={channel} />}
       {(roles || []).length > 0 && (
         <>
           <label><Ico n="lock" s={12} /> Visible to <span style={{ color: "var(--dim)", fontWeight: 400 }}>(role-gated — owner always gets in)</span></label>

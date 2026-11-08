@@ -264,6 +264,16 @@ CREATE TABLE IF NOT EXISTS audit_log (                   -- who did what, per se
     created_at REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_audit_server ON audit_log(server_id, id DESC);
+
+CREATE TABLE IF NOT EXISTS digest_jobs (                 -- scheduled agent channel recaps
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    channel_id    INTEGER NOT NULL UNIQUE REFERENCES channels(id) ON DELETE CASCADE,
+    agent_id      INTEGER REFERENCES agents(id) ON DELETE SET NULL,  -- NULL => plain digest bot
+    interval_secs INTEGER NOT NULL,
+    last_run      REAL NOT NULL,
+    created_by    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at    REAL NOT NULL
+);
 """
 
 

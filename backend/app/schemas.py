@@ -61,6 +61,11 @@ class MessageIn(BaseModel):
     title: str | None = Field(default=None, max_length=120)   # forum post title
 
 
+class DigestIn(BaseModel):
+    agent_id: int | None = None                        # NULL => plain digest bot
+    interval_secs: int = Field(ge=300, le=604800)      # 5 min .. 7 days
+
+
 class PackIn(BaseModel):
     name: str = Field(min_length=1, max_length=64)
     icon: str = Field(default="📦", max_length=8)

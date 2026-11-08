@@ -146,6 +146,14 @@ def channel_json(conn, ch, uid=None):
         d["knocked"] = bool(conn.execute(
             "SELECT 1 FROM channel_knocks WHERE channel_id=? AND user_id=?",
             (d["id"], uid)).fetchone())
+    dj = conn.execute(
+        "SELECT d.*, a.name aname, a.icon aicon FROM digest_jobs d "
+        "LEFT JOIN agents a ON a.id=d.agent_id WHERE d.channel_id=?",
+        (d["id"],)).fetchone()
+    if dj:
+        d["digest"] = {"agent_id": dj["agent_id"], "interval_secs": dj["interval_secs"],
+                       "last_run": dj["last_run"],
+                       "agent_name": dj["aname"], "agent_icon": dj["aicon"]}
     return d
 
 
