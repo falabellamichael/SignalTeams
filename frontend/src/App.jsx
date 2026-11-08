@@ -9,33 +9,48 @@ import Rail from "./components/Rail";
 import { HomeSidebar, ServerSidebar, MeBar, VoiceConnectedBar } from "./components/Sidebar";
 import Bell from "./components/Bell";
 
-const Login = lazy(() => import("./components/Login"));
-const ChatView = lazy(() => import("./components/ChatView"));
-const VoiceRoom = lazy(() => import("./components/VoiceRoom"));
-const Library = lazy(() => import("./components/Library"));
-const Buzz = lazy(() => import("./components/Buzz"));
-const Friends = lazy(() => import("./components/Friends"));
-const Saved = lazy(() => import("./components/Saved"));
-const AgentModal = lazy(() => import("./components/modals/agent/index.jsx").then((m) => ({ default: m.AgentModal })));
-const PublishModal = lazy(() => import("./components/modals/publish.jsx").then((m) => ({ default: m.PublishModal })));
-const ShareModal = lazy(() => import("./components/modals/share.jsx").then((m) => ({ default: m.ShareModal })));
-const ServerModal = lazy(() => import("./components/modals/server.jsx").then((m) => ({ default: m.ServerModal })));
-const ServerSettingsModal = lazy(() => import("./components/modals/serversettings.jsx").then((m) => ({ default: m.ServerSettingsModal })));
-const ChannelModal = lazy(() => import("./components/modals/channel.jsx").then((m) => ({ default: m.ChannelModal })));
-const PackModal = lazy(() => import("./components/modals/packs.jsx").then((m) => ({ default: m.PackModal })));
-const PackCreateModal = lazy(() => import("./components/modals/packs.jsx").then((m) => ({ default: m.PackCreateModal })));
-const ProfileModal = lazy(() => import("./components/modals/profile.jsx").then((m) => ({ default: m.ProfileModal })));
-const GlobalSearchModal = lazy(() => import("./components/modals/search.jsx").then((m) => ({ default: m.GlobalSearchModal })));
-const ForwardModal = lazy(() => import("./components/modals/forward.jsx").then((m) => ({ default: m.ForwardModal })));
-const GroupDmModal = lazy(() => import("./components/modals/groupdm.jsx").then((m) => ({ default: m.GroupDmModal })));
-const InboxModal = lazy(() => import("./components/modals/inbox.jsx").then((m) => ({ default: m.InboxModal })));
-const PulseModal = lazy(() => import("./components/modals/pulse.jsx").then((m) => ({ default: m.PulseModal })));
-const ShortcutsModal = lazy(() => import("./components/modals/shortcuts.jsx").then((m) => ({ default: m.ShortcutsModal })));
-const PickAgentModal = lazy(() => import("./components/modals/pickagent.jsx").then((m) => ({ default: m.PickAgentModal })));
-const SettingsModal = lazy(() => import("./components/modals/settings.jsx").then((m) => ({ default: m.SettingsModal })));
-const EventsModal = lazy(() => import("./components/modals/events.jsx").then((m) => ({ default: m.EventsModal })));
-const WorkspaceModal = lazy(() => import("./components/modals/workspace.jsx").then((m) => ({ default: m.WorkspaceModal })));
-const Workspace = lazy(() => import("./components/Workspace"));
+// Lazy chunks go stale when dist is rebuilt under an open tab — clicking a
+// modal or page then throws "Failed to fetch dynamically imported module" and
+// unmounts the whole app. Reload once to fetch fresh chunks; the flag stops
+// a reload loop if the chunk still 404s after the reload.
+function lazyRetry(factory) {
+  return lazy(() => factory()
+    .then((m) => { sessionStorage.removeItem("st.chunkfix"); return m; })
+    .catch((err) => {
+      if (sessionStorage.getItem("st.chunkfix")) throw err;
+      sessionStorage.setItem("st.chunkfix", "1");
+      location.reload();
+      return new Promise(() => {});
+    }));
+}
+
+const Login = lazyRetry(() => import("./components/Login"));
+const ChatView = lazyRetry(() => import("./components/ChatView"));
+const VoiceRoom = lazyRetry(() => import("./components/VoiceRoom"));
+const Library = lazyRetry(() => import("./components/Library"));
+const Buzz = lazyRetry(() => import("./components/Buzz"));
+const Friends = lazyRetry(() => import("./components/Friends"));
+const Saved = lazyRetry(() => import("./components/Saved"));
+const AgentModal = lazyRetry(() => import("./components/modals/agent/index.jsx").then((m) => ({ default: m.AgentModal })));
+const PublishModal = lazyRetry(() => import("./components/modals/publish.jsx").then((m) => ({ default: m.PublishModal })));
+const ShareModal = lazyRetry(() => import("./components/modals/share.jsx").then((m) => ({ default: m.ShareModal })));
+const ServerModal = lazyRetry(() => import("./components/modals/server.jsx").then((m) => ({ default: m.ServerModal })));
+const ServerSettingsModal = lazyRetry(() => import("./components/modals/serversettings.jsx").then((m) => ({ default: m.ServerSettingsModal })));
+const ChannelModal = lazyRetry(() => import("./components/modals/channel.jsx").then((m) => ({ default: m.ChannelModal })));
+const PackModal = lazyRetry(() => import("./components/modals/packs.jsx").then((m) => ({ default: m.PackModal })));
+const PackCreateModal = lazyRetry(() => import("./components/modals/packs.jsx").then((m) => ({ default: m.PackCreateModal })));
+const ProfileModal = lazyRetry(() => import("./components/modals/profile.jsx").then((m) => ({ default: m.ProfileModal })));
+const GlobalSearchModal = lazyRetry(() => import("./components/modals/search.jsx").then((m) => ({ default: m.GlobalSearchModal })));
+const ForwardModal = lazyRetry(() => import("./components/modals/forward.jsx").then((m) => ({ default: m.ForwardModal })));
+const GroupDmModal = lazyRetry(() => import("./components/modals/groupdm.jsx").then((m) => ({ default: m.GroupDmModal })));
+const InboxModal = lazyRetry(() => import("./components/modals/inbox.jsx").then((m) => ({ default: m.InboxModal })));
+const PulseModal = lazyRetry(() => import("./components/modals/pulse.jsx").then((m) => ({ default: m.PulseModal })));
+const ShortcutsModal = lazyRetry(() => import("./components/modals/shortcuts.jsx").then((m) => ({ default: m.ShortcutsModal })));
+const PickAgentModal = lazyRetry(() => import("./components/modals/pickagent.jsx").then((m) => ({ default: m.PickAgentModal })));
+const SettingsModal = lazyRetry(() => import("./components/modals/settings.jsx").then((m) => ({ default: m.SettingsModal })));
+const EventsModal = lazyRetry(() => import("./components/modals/events.jsx").then((m) => ({ default: m.EventsModal })));
+const WorkspaceModal = lazyRetry(() => import("./components/modals/workspace.jsx").then((m) => ({ default: m.WorkspaceModal })));
+const Workspace = lazyRetry(() => import("./components/Workspace"));
 
 export default function App() {
   const [me, setMe] = useState(null);
@@ -53,6 +68,25 @@ export default function App() {
   const [focusMsg, setFocusMsg] = useState(null);  // {id, ch, n} — ChatView scrolls+flashes
   const [sideOpen, setSideOpen] = useState(
     () => !window.matchMedia?.("(max-width: 760px)").matches);
+  const [sideW, setSideW] = useState(() => +(localStorage.getItem("st.sidew") || 232));
+
+  // drag the channel sidebar's right edge to resize it (desktop only; the
+  // footer/me-bar are untouched — only the panel above them resizes)
+  function startSideDrag(e) {
+    e.preventDefault();
+    if (window.matchMedia?.("(max-width: 760px)").matches) return; // drawer mode
+    const startX = e.clientX, startW = sideW;
+    document.body.classList.add("col-resizing");
+    const move = (ev) =>
+      setSideW(Math.min(480, Math.max(160, startW + ev.clientX - startX)));
+    const up = () => {
+      document.body.classList.remove("col-resizing");
+      window.removeEventListener("mousemove", move);
+      window.removeEventListener("mouseup", up);
+    };
+    window.addEventListener("mousemove", move);
+    window.addEventListener("mouseup", up);
+  }
   const [modal, setModal] = useState(null);            // {kind, ...props}
   const [unread, setUnread] = useState({});            // channelId -> count
   const [mentions, setMentions] = useState({});        // channelId -> @me count
@@ -377,6 +411,7 @@ export default function App() {
   }, [me]);
 
   useEffect(() => { window.__st = { unread, me }; });
+  useEffect(() => { localStorage.setItem("st.sidew", String(sideW)); }, [sideW]);
 
   // ---- actions ----
 
@@ -758,7 +793,10 @@ export default function App() {
           api.updateMe({ server_order: next.map((s) => s.id) }).catch(() => {});
         }} />
       <div className={`side-wrap ${sideOpen ? "open" : ""}`}
-        style={{ display: "flex", flexDirection: "column", flexShrink: 0 }}>
+        style={{ display: "flex", flexDirection: "column", flexShrink: 0,
+                 width: sideW, minWidth: sideW }}>
+        <div className="side-drag" onMouseDown={startSideDrag}
+          title="Drag to resize the sidebar" />
         {server ? (
           <ServerSidebar server={server} channel={channel} me={me} voice={voice} onJoinVoice={(cid) => joinVoice(cid, me)}
             onChannel={(c) => { selectChannel(c); closeSide(); }} unread={visUnread}
