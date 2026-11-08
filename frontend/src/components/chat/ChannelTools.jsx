@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import Ico from "../Ico";
 import { api } from "../../api";
-import { localAi, setLocalAi, useAi } from "../../aiFlags";
+import { getAi, localAi, setLocalAi, useAi } from "../../aiFlags";
 import { timeAgo, hasSearchQuery } from "../../util";
 import { AgentShareCard, PackShareCard } from "../AgentCard";
 
@@ -21,11 +21,11 @@ export function ChannelTools({ channel, me, onAgentOpen, onPackOpen, onJump, voi
 
   async function toggleAi(id) {
     const next = { ...ai, [id]: !ai[id] };
-    setLocalAi(channel.id, next);                        // optimistic
+    setLocalAi(channel.id, next, channel);                               // optimistic
     try {
       const r = await api.channelAi(channel.id, { [id]: next[id] });
-      if (r?.ai) setLocalAi(channel.id, { ...localAi(channel.id), ...r.ai });
-    } catch { setLocalAi(channel.id, ai); }              // rollback
+      if (r?.ai) setLocalAi(channel.id, { ...getAi(channel), ...r.ai }, channel);
+    } catch { setLocalAi(channel.id, ai, channel); }                     // rollback
   }
 
   // close the AI dropdown on outside click / Escape

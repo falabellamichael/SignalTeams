@@ -1644,7 +1644,7 @@ body.col-resizing .ws-drag { pointer-events: auto !important; }
   padding: 10px 8px 10px 0; background: var(--bg2); border-right: 1px solid var(--border);
   font: 12.5px/1.6 ui-monospace, "Cascadia Code", Consolas, monospace;
   color: var(--dim); user-select: none; }
-.ce-ln { height: 20.8px; opacity: .55; }
+.ce-ln { height: 20px; line-height: 20px; font-size: 11px; opacity: .55; }
 .ce-ln.on { opacity: 1; color: var(--accent); }
 .ce-scroll { flex: 1; position: relative; min-width: 0; overflow: hidden; }
 /* Both layers are the SAME size and share identical metrics, so glyphs line

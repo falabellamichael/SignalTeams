@@ -853,7 +853,8 @@ def run_tool(conn, ws, uid, agent_id, name, args):
 _TOOL_NAMES = frozenset((
     "list_files", "read_file", "search_files", "file_info",
     "write_file", "edit_file", "delete_file", "move_file",
-    "make_dir", "run_command"))
+    "make_dir", "run_command",
+    "web_search", "web_fetch"))
 
 
 def _json_spans(text):
