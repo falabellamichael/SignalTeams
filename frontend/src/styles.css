@@ -1170,6 +1170,10 @@ button > svg { vertical-align: -2px; }
 .set-head h3 { margin: 0; font-size: 16px; }
 .set-head .msub { margin: 2px 0 0; }
 .set-body { flex: 1; min-height: 0; overflow-y: auto; padding: 6px 20px 18px; }
+.set-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
+  padding: 10px 20px; border-top: 1px solid var(--border); flex-shrink: 0; }
+.set-foot button { display: inline-flex; align-items: center; gap: 5px;
+  white-space: nowrap; font-size: 12px; padding: 5px 9px; }
 .set-row { display: flex; align-items: center; justify-content: space-between;
   padding: 10px 0; border-bottom: 1px solid var(--border); gap: 12px; }
 @media (max-width: 760px) {
