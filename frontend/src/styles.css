@@ -1392,6 +1392,11 @@ button > svg { vertical-align: -2px; }
 .ws-desk-body { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden;
   display: flex; flex-direction: column; gap: 6px; margin: 0 -4px 0 0;
   padding-right: 4px; }
+/* terminal footer — pins to the desk bottom once reached; steps/replies
+   scroll beneath it so the prompt is always reachable */
+.ws-desk-foot { position: sticky; bottom: -1px; margin-top: auto;
+  background: var(--bg2); padding: 6px 0 2px; z-index: 2;
+  border-top: 1px solid var(--border); box-shadow: 0 -8px 12px -8px var(--shadow, #0008); }
 .ws-agent > * { max-width: 100%; min-width: 0; box-sizing: border-box; }
 .ws-agent .idehint { white-space: normal; overflow-wrap: anywhere; line-height: 1.45;
   font-size: 11px; }

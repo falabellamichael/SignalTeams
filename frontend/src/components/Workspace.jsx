@@ -761,7 +761,7 @@ export default function Workspace({ workspace, me, members = [], agents = [], on
           )}
 
           {canAdmin && ws.exec_enabled && (
-            <>
+            <div className="ws-desk-foot">
               <div className="ws-sec">⌨ Terminal</div>
               <div className="ws-term">
                 <input value={term} placeholder="command…" title="Runs in the workspace root"
@@ -775,7 +775,7 @@ export default function Workspace({ workspace, me, members = [], agents = [], on
                     `$ ${termOut.cmd}\n${termOut.stdout || ""}${termOut.stderr ? "\n" + termOut.stderr : ""}\n[exit ${termOut.code}]`}
                 </pre>
               )}
-            </>
+            </div>
           )}
           </div>
         </div>
