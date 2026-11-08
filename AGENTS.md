@@ -52,7 +52,26 @@
   requires a local LLM up or the bot replies with an "offline" fallback line.
 - Directed buzz events (`payload.to`) reach the target even when the actor isn't a
   friend (that's how bot-mention pings reach the asker through /api/buzz).
+- Workspaces (`app/workspace.py` + `app/routes/workspaces.py`): a server can link a
+  folder on the host (`workspaces.root`) that members and their agents read/edit.
+  Every path is resolved inside the root (`norm_rel`/`resolve` reject `..`, absolute
+  paths and escaping symlinks); `.git`, `node_modules`, `.env` etc. are hidden.
+  Per-user grants `read|write|admin` (`workspace_grants`); the server owner is always
+  admin; **agents inherit the summoner's level**, so they can never exceed it.
+  Every write snapshots the old bytes into `workspace_revisions` (25/path) and every
+  action lands in `workspace_audit` with `agent_id` attached. `AGENTHIVE_WORKSPACE_ROOTS`
+  (comma list) allow-lists roots, `AGENTHIVE_WORKSPACE_EXEC=0` kills the terminal,
+  `AGENTHIVE_WORKSPACE_AGENT_TOOLS=0` disables agent file tools.
+  Channels wire to a workspace via `channels.workspace_id` (channel edit modal) —
+  agents summoned there get the tool prompt and run `read_file`/`write_file`/…
+  through `workspace.parse_tool_calls` (JSON `{"tool","args"}` replies).
+  Frontend: `components/Workspace.jsx` (tree/editor/diff/history/activity/access +
+  agent desk + terminal), `modals/workspace.jsx` (link a folder).
 - QA: `node <browser-automation-skill>/browser.mjs http://localhost:5175 --script qa.mjs`.
+  This box has Supabase configured, so QA scripts must click the "crew account" tab
+  before filling mike/password. `qa/agent_ws.py` drives the agent tool loop against
+  `qa/stub_llm.py` (a fake OpenAI endpoint) — no real model needed.
 - Backend smoke test (zero deps, temp DB): `cd backend && .venv/Scripts/python.exe -m unittest tests.test_smoke`.
+  Workspace suite: `-m unittest tests.test_workspaces`.
 - Conventions mirror MedicalApp: same CSS vars (--bg/--panel/--accent/--honey),
   dark default + warm light theme via `[data-theme]` on `<html>`.

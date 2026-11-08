@@ -132,6 +132,7 @@ class TimeoutIn(BaseModel):
 
 class NickIn(BaseModel):
     nickname: str = Field(default="", max_length=48)
+    user_id: int | None = None
 
 
 class TransferIn(BaseModel):

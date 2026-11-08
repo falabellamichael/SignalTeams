@@ -1,3 +1,4 @@
+import { toggleShare, toggleCam } from "../voice";
 import React from "react";
 import { Avatar } from "../util";
 import { api } from "../api";
@@ -231,7 +232,51 @@ export function ServerSidebar({ server, channel, me, onChannel, onAddChannel, on
   );
 }
 
-export function MeBar({ me, onSettings }) {
+export function VoiceConnectedBar({ voice, channel, server, onDisconnect, onJump }) {
+  if (!voice?.joined) return null;
+  const chName = channel?.name ? `#${channel.name}` : (voice.channelId ? `channel #${voice.channelId}` : "voice");
+  const srvName = server?.name || "Server";
+
+  return (
+    <div className="voice-connected-bar">
+      <div className="vcb-status" onClick={() => onJump?.(voice.channelId)} title="Click to view voice room">
+        <div className="vcb-icon-wrap" title="RTC Connected · 24ms">
+          <span className="vcb-pulse-dot" />
+          <Ico n="dish" s={14} />
+        </div>
+        <div className="vcb-info">
+          <div className="vcb-title">Voice Connected</div>
+          <div className="vcb-sub">{chName} / {srvName}</div>
+        </div>
+      </div>
+      <div className="vcb-actions">
+        <button
+          className={`ghost vcb-btn ${voice.sharing ? "active" : ""}`}
+          title={voice.sharing ? "Stop Sharing Screen" : "Share Your Screen"}
+          onClick={toggleShare}>
+          <Ico n="screen" s={14} />
+        </button>
+        <button
+          className={`ghost vcb-btn ${voice.camOn ? "active" : ""}`}
+          title={voice.camOn ? "Turn Off Camera" : "Turn On Camera"}
+          onClick={toggleCam}>
+          <Ico n="video" s={14} />
+        </button>
+        <button
+          className="ghost vcb-btn disconnect"
+          title="Disconnect from Voice"
+          onClick={onDisconnect}>
+          <Ico n="hangup" s={14} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+export function MeBar({ me, voice, onSettings, onToggleMute, onToggleDeafen }) {
+  const isMuted = voice?.muted;
+  const isDeafened = voice?.deafened;
+
   return (
     <div className="me-bar">
       <Avatar user={me} size="sm" showStatus />
@@ -239,7 +284,23 @@ export function MeBar({ me, onSettings }) {
         <div className="n">{me.display_name}</div>
         <div className="s">{me.status_text || `@${me.username} · ${me.status}`}</div>
       </div>
-      <button className="ghost" title="Settings" onClick={onSettings}><Ico n="gear" s={15} /></button>
+      <div className="me-actions">
+        <button
+          className={`ghost me-btn ${isMuted ? "muted" : ""}`}
+          title={isMuted ? "Unmute Microphone" : "Mute Microphone"}
+          onClick={onToggleMute}>
+          <Ico n={isMuted ? "micOff" : "mic"} s={15} />
+        </button>
+        <button
+          className={`ghost me-btn ${isDeafened ? "deafened" : ""}`}
+          title={isDeafened ? "Undeafen" : "Deafen"}
+          onClick={onToggleDeafen}>
+          <Ico n={isDeafened ? "undeaf" : "phones"} s={15} />
+        </button>
+        <button className="ghost me-btn" title="Settings" onClick={onSettings}>
+          <Ico n="gear" s={15} />
+        </button>
+      </div>
     </div>
   );
 }

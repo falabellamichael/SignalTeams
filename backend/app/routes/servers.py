@@ -296,17 +296,20 @@ async def timeout_member(sid: int, uid: int, body: TimeoutIn, user=Depends(curre
 @router.post("/api/servers/{sid}/nick")
 async def set_nick(sid: int, body: NickIn, user=Depends(current_user)):
     with db() as conn:
+        s_row = conn.execute("SELECT owner_id FROM servers WHERE id=?", (sid,)).fetchone()
+        target_uid = body.user_id if (body.user_id and s_row and s_row["owner_id"] == user["id"]) else user["id"]
         if not conn.execute("SELECT 1 FROM server_members WHERE server_id=? AND user_id=?",
-                            (sid, user["id"])).fetchone():
+                            (sid, target_uid)).fetchone():
             raise HTTPException(404, "Not a member")
         nick = body.nickname.strip()[:48]
         conn.execute("UPDATE server_members SET nickname=? WHERE server_id=? AND user_id=?",
-                     (nick, sid, user["id"]))
+                     (nick, sid, target_uid))
+        tgt = conn.execute("SELECT username FROM users WHERE id=?", (target_uid,)).fetchone()
         audit(conn, sid, user["id"], "member.nick",
-              f"@{user['username']}", nick or "nickname cleared")
+              f"@{tgt['username']}" if tgt else str(target_uid), nick or "nickname cleared")
     with db() as conn:
         await _server_changed(conn, sid)
-        return {"nickname": nick}
+        return {"nickname": nick, "user_id": target_uid}
 
 
 @router.post("/api/servers/{sid}/transfer")

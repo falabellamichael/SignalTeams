@@ -2,9 +2,9 @@ import React, { Suspense, lazy, useCallback, useEffect, useRef, useState } from 
 import Ico from "./components/Ico";
 import { api, getToken, setToken } from "./api";
 import { connectWS, disconnectWS, onWS, sendWS } from "./ws";
-import { onVoice } from "./voice";
+import { onVoice, leaveVoice, toggleVoiceMute, toggleDeafen } from "./voice";
 import Rail from "./components/Rail";
-import { HomeSidebar, ServerSidebar, MeBar } from "./components/Sidebar";
+import { HomeSidebar, ServerSidebar, MeBar, VoiceConnectedBar } from "./components/Sidebar";
 import Bell from "./components/Bell";
 
 const Login = lazy(() => import("./components/Login"));
@@ -623,7 +623,7 @@ export default function App() {
       onOpenAgent={openAgent} />
   );
   else if (channel) main = (
-    <ChatView channel={channel} members={members} me={me} blocked={blocked}
+    <ChatView channel={channel} server={server} onDm={openDm} members={members} me={me} blocked={blocked}
       emojis={server?.emojis || []} roles={server?.roles || []}
       channels={server?.channels || []}
       focusMsg={focusMsg}
@@ -721,7 +721,24 @@ export default function App() {
             muted={mutedSet} mentionsOnly={mentionSet} onToggleMute={cycleNotify}
             voiceRosters={voice.rosters || {}} typingMap={dmTyping} />
         )}
-        <MeBar me={{ ...me, online: true }} onSettings={() => setModal({ kind: "settings" })} />
+        {voice?.joined && (
+          <VoiceConnectedBar
+            voice={voice}
+            channel={server?.channels?.find((c) => c.id === voice.channelId) || (channel?.id === voice.channelId ? channel : null)}
+            server={server}
+            onDisconnect={leaveVoice}
+            onJump={(cid) => {
+              if (server?.channels?.some((c) => c.id === cid)) openChannelById(cid, server.id);
+            }}
+          />
+        )}
+        <MeBar
+          me={{ ...me, online: true }}
+          voice={voice}
+          onSettings={() => setModal({ kind: "settings" })}
+          onToggleMute={toggleVoiceMute}
+          onToggleDeafen={toggleDeafen}
+        />
       </div>
       {sideOpen && <div className="side-scrim" onClick={() => setSideOpen(false)} />}
       <div className="main">
@@ -922,6 +939,11 @@ export default function App() {
       )}
       {modal?.kind === "srvsettings" && (
         <ServerSettingsModal server={modal.server} me={me} onClose={() => setModal(null)}
+          onOpenWorkspace={(w) => {
+            setModal(null); setWsOpen(w); setChannel(null);
+            api.agents({}).then(setWsAgents).catch(() => {});
+          }}
+          onNewWorkspace={() => setModal({ kind: "workspace", server: modal.server })}
           onSaved={async (s) => {
             const full = await api.server(s.id);
             setServer(full); refreshLists(); setModal(null);

@@ -86,7 +86,7 @@ export const api = {
   pulse: (sid) => req("GET", `/api/servers/${sid}/pulse`),
   kickMember: (sid, uid) => req("DELETE", `/api/servers/${sid}/members/${uid}`),
   transferServer: (sid, user_id) => req("POST", `/api/servers/${sid}/transfer`, { user_id }),
-  setNick: (sid, nickname) => req("POST", `/api/servers/${sid}/nick`, { nickname }),
+  setNick: (sid, nickname, uid = null) => req("POST", `/api/servers/${sid}/nick`, { nickname, ...(uid ? { user_id: uid } : {}) }),
   addChannel: (sid, name, kind, topic, roster, category, slowmode_secs = 0, role_id = 0, voice_cap = 0, lurkers = [], forum_tags = []) =>
     req("POST", `/api/servers/${sid}/channels`, { name, kind, topic, roster, category, slowmode_secs, role_id, voice_cap, lurkers, forum_tags }),
 

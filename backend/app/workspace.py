@@ -88,7 +88,7 @@ def norm_rel(path: str) -> str:
 
 def _hidden(rel: str) -> bool:
     parts = rel.split("/")
-    if any(p in HIDDEN_DIRS for p in parts[:-1]):
+    if any(p in HIDDEN_DIRS for p in parts):
         return True
     return parts[-1] in HIDDEN_FILES
 

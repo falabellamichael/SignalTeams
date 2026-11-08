@@ -339,6 +339,7 @@ async def agent_work(wid: int, body: WorkspaceAgentIn, user=Depends(current_user
         history = []
         steps = []
         reply = ""
+        done = set()          # (tool, path) pairs that already succeeded
         for _ in range(4):
             try:
                 reply, _prov, _model = await asyncio.to_thread(
@@ -348,9 +349,21 @@ async def agent_work(wid: int, body: WorkspaceAgentIn, user=Depends(current_user
             calls = wsx.parse_tool_calls(reply)
             if not calls:
                 break
-            for c in calls[:4]:
+            fresh = [c for c in calls[:4]
+                     if (c["name"], (c["args"] or {}).get("path") or
+                         (c["args"] or {}).get("query") or
+                         (c["args"] or {}).get("cmd")) not in done]
+            if not fresh:
+                # the model is repeating itself — stop instead of looping
+                reply = ""
+                break
+            for c in fresh:
                 res = wsx.run_tool(conn, ws, user["id"], a["id"], c["name"], c["args"])
                 steps.append({"tool": c["name"], "args": c["args"], "result": res})
+                if res.get("ok"):
+                    done.add((c["name"], (c["args"] or {}).get("path") or
+                              (c["args"] or {}).get("query") or
+                              (c["args"] or {}).get("cmd")))
                 history.append({"role": "assistant", "content": reply})
                 history.append({"role": "user", "content":
                                 f"TOOL RESULT {c['name']}: "

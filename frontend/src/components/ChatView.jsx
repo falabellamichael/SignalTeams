@@ -4,14 +4,14 @@ import { api } from "../api";
 import { sendWS } from "../ws";
 import { Avatar, Md, agentSlug, msgDay } from "../util";
 import { onVoice, joinVoice, leaveVoice, toggleVoiceMute, toggleDeafen, toggleShare, toggleCam, askVoiceRoster } from "../voice";
-import { QUICK, EMOJI_PICK, SLASH_COMMANDS } from "./chat/consts";
+import { QUICK, EMOJI_PICK, SLASH_COMMANDS, STANDARD_EMOJIS } from "./chat/consts";
 import { Message } from "./chat/Message";
 import { ChannelTools } from "./chat/ChannelTools";
 import { ThreadPanel } from "./chat/ThreadPanel";
 import { ForumFeed } from "./chat/ForumView";
 import { MessageAiModal } from "./modals/aimessage";
 
-export default function ChatView({ channel, members, me, emojis, roles, channels = [], onAgentOpen, onPackOpen, onShareAgent, onUserOpen, onForward, onFwdJump, focusMsg, newSince = 0, onGroupAdd, onGroupRename, blocked, onMarkUnread, onWorkspace }) {
+export default function ChatView({ channel, server, onDm, members, me, emojis, roles, channels = [], onAgentOpen, onPackOpen, onShareAgent, onUserOpen, onForward, onFwdJump, focusMsg, newSince = 0, onGroupAdd, onGroupRename, blocked, onMarkUnread, onWorkspace }) {
   const [msgs, setMsgs] = useState([]);
   const [draft, setDraft] = useState("");
   const [atts, setAtts] = useState([]);
@@ -26,6 +26,7 @@ export default function ChatView({ channel, members, me, emojis, roles, channels
   const [agents, setAgents] = useState([]);
   const [thread, setThread] = useState(null);   // {root, replies} | null
   const [menu, setMenu] = useState(null);       // {x, y, m, setEditing} — right-click / long-press
+  const [userMenu, setUserMenu] = useState(null); // {x, y, u}
   const [aiModalMsg, setAiModalMsg] = useState(null); // {msg, initialOp}
   const [hasMore, setHasMore] = useState(false);
   const [savedIds, setSavedIds] = useState(new Set());
@@ -261,7 +262,7 @@ export default function ChatView({ channel, members, me, emojis, roles, channels
     if (!mention) return;
     const v = inputRef.current.value;
     const caret = inputRef.current.selectionStart;
-    const ins = mention.sym === ":" ? ":" + o.insert + ":"
+    const ins = mention.sym === ":" ? (o.char ? o.char : ":" + o.insert + ":")
       : mention.sym === "/" ? "/" + o.insert : "@" + o.insert;
     const next = v.slice(0, mention.start) + ins + " " + v.slice(caret);
     setDraft(next); setMention(null);
@@ -786,7 +787,16 @@ export default function ChatView({ channel, members, me, emojis, roles, channels
           {members.filter((m) => m.online).map((m) => {
             const mRoles = (roles || []).filter((r) => (m.role_ids || []).includes(r.id));
             return (
-              <div className="mrow" key={m.id} style={{ cursor: "pointer" }} onClick={() => onUserOpen?.(m)}>
+              <div className="mrow" key={m.id} style={{ cursor: "pointer" }}
+                onClick={() => onUserOpen?.(m)}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  setUserMenu({
+                    x: Math.min(e.clientX, window.innerWidth - 220),
+                    y: Math.min(e.clientY, window.innerHeight - 300),
+                    u: m
+                  });
+                }}>
                 <Avatar user={m} size="sm" showStatus />
                 <span className="n" style={mRoles[0] ? { color: mRoles[0].color } : undefined}
                   title={m.nickname ? `@${m.username}` : undefined}>
@@ -804,7 +814,16 @@ export default function ChatView({ channel, members, me, emojis, roles, channels
           {members.filter((m) => !m.online).map((m) => {
             const mRoles = (roles || []).filter((r) => (m.role_ids || []).includes(r.id));
             return (
-              <div className="mrow off" key={m.id} style={{ cursor: "pointer" }} onClick={() => onUserOpen?.(m)}>
+              <div className="mrow off" key={m.id} style={{ cursor: "pointer" }}
+                onClick={() => onUserOpen?.(m)}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  setUserMenu({
+                    x: Math.min(e.clientX, window.innerWidth - 220),
+                    y: Math.min(e.clientY, window.innerHeight - 300),
+                    u: m
+                  });
+                }}>
                 <Avatar user={{ ...m, status: "offline" }} size="sm" showStatus />
                 <span className="n" style={mRoles[0] ? { color: mRoles[0].color } : undefined}>
                   {m.nickname || m.display_name}</span>
@@ -904,6 +923,85 @@ export default function ChatView({ channel, members, me, emojis, roles, channels
           }}
         />
       )}
+    
+      {userMenu && (
+        <>
+          <div className="menu-scrim" onClick={() => setUserMenu(null)}
+            onContextMenu={(e) => { e.preventDefault(); setUserMenu(null); }} />
+          <div className="msg-menu user-ctx-menu" style={{ left: userMenu.x, top: userMenu.y }}>
+            <div className="ucm-header" onClick={() => { onUserOpen?.(userMenu.u); setUserMenu(null); }}>
+              <Avatar user={userMenu.u} size="sm" showStatus />
+              <div className="ucm-who">
+                <div className="ucm-name">{userMenu.u.nickname || userMenu.u.display_name}</div>
+                <div className="ucm-handle">@{userMenu.u.username}</div>
+              </div>
+            </div>
+            <div className="mm-item" onClick={() => { onUserOpen?.(userMenu.u); setUserMenu(null); }}>
+              <Ico n="user" s={14} /> Profile
+            </div>
+            <div className="mm-item" onClick={() => {
+              const ins = `@${userMenu.u.username} `;
+              setDraft((d) => d + ins);
+              setUserMenu(null);
+              inputRef.current?.focus();
+            }}>
+              <Ico n="at" s={14} /> Mention
+            </div>
+            {onDm && userMenu.u.id !== me?.id && (
+              <div className="mm-item" onClick={() => { onDm(userMenu.u); setUserMenu(null); }}>
+                <Ico n="chat" s={14} /> Message
+              </div>
+            )}
+            <div className="mm-item" onClick={() => {
+              navigator.clipboard?.writeText(String(userMenu.u.id));
+              setUserMenu(null);
+            }}>
+              <Ico n="copy" s={14} /> Copy User ID
+            </div>
+            {server && (server.owner_id === me?.id || me?.is_admin) && userMenu.u.id !== me?.id && (
+              <>
+                <div className="mm-sep" />
+                <div className="mm-item" onClick={async () => {
+                  const curr = userMenu.u.nickname || "";
+                  const n = prompt(`Change nickname for ${userMenu.u.display_name}:`, curr);
+                  if (n !== null) {
+                    await api.setNick(server.id, n.trim(), userMenu.u.id).catch((e) => alert(e.message));
+                    setUserMenu(null);
+                  }
+                }}>
+                  <Ico n="edit" s={14} /> Change Nickname
+                </div>
+                <div className="mm-item warn" onClick={async () => {
+                  if (confirm(`Timeout ${userMenu.u.display_name} for 5 minutes?`)) {
+                    await api.timeoutMember(server.id, userMenu.u.id, 5).catch((e) => alert(e.message));
+                    setUserMenu(null);
+                  }
+                }}>
+                  <Ico n="clock" s={14} /> Timeout (5m)
+                </div>
+                <div className="mm-item danger" onClick={async () => {
+                  if (confirm(`Kick ${userMenu.u.display_name} from ${server.name}?`)) {
+                    await api.kickMember(server.id, userMenu.u.id).catch((e) => alert(e.message));
+                    setUserMenu(null);
+                  }
+                }}>
+                  <Ico n="userMinus" s={14} /> Kick Member
+                </div>
+                <div className="mm-item danger" onClick={async () => {
+                  const reason = prompt(`Ban ${userMenu.u.display_name} from ${server.name}? Reason:`);
+                  if (reason !== null) {
+                    await api.banMember(server.id, userMenu.u.id, reason).catch((e) => alert(e.message));
+                    setUserMenu(null);
+                  }
+                }}>
+                  <Ico n="ban" s={14} /> Ban Member
+                </div>
+              </>
+            )}
+          </div>
+        </>
+      )}
+
     </div>
   );
 }
