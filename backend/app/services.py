@@ -402,15 +402,20 @@ def _ai_web_tool(name, args):
                 html = r.read(300_000).decode("utf-8", "replace")
             hits = []
             for m_ in re.finditer(
-                    r"<a[^>]+class=['\"]result-link['\"][^>]+href=['\"]([^'\"]+)['\"][^>]*>(.*?)</a>",
+                    r"<a[^>]*class=['\"]result-link['\"][^>]*>(.*?)</a>",
                     html, re.S):
-                title = re.sub(r"<[^>]+>", "", m_.group(2)).strip()
+                hm = re.search(r"href=['\"]([^'\"]+)['\"]", m_.group(0))
+                title = re.sub(r"<[^>]+>", "", m_.group(1)).strip()
+                href = hm.group(1) if hm else ""
+                ud = re.search(r"[?&]uddg=([^&]+)", href)   # DDG redirect → real URL
+                if ud:
+                    href = _up.unquote(ud.group(1))
                 if title:
-                    hits.append(f"{title} — {m_.group(1)}")
+                    hits.append(f"{title} — {href}")
                 if len(hits) >= 6:
                     break
             if not hits:  # layout drift fallback: any outbound link
-                for m_ in re.finditer(r'href="(https?://[^"]+)"', html):
+                for m_ in re.finditer(r"href=[\"'](https?://[^\"']+)[\"']", html):
                     if "duckduckgo" not in m_.group(1):
                         hits.append(m_.group(1))
                     if len(hits) >= 6:
