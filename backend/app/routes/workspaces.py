@@ -465,7 +465,9 @@ async def agent_work(wid: int, request: Request, body: WorkspaceAgentIn,
             # all 8 hops spent on tools — the work may not be finished
             hit_cap = bool(steps)
         if not reply:
-            reply = "Done — see the tool steps above."
+            bad = any(not s["result"].get("ok") for s in steps)
+            reply = ("Finished, but some steps failed — see the tool steps "
+                     "above." if bad else "Done — see the tool steps above.")
         if hit_cap:
             reply += "\n\n⏸ stopped at the 8-step tool cap — ask me to continue."
         with db() as conn2:

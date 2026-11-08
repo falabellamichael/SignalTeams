@@ -865,8 +865,12 @@ def run_tool(conn, ws, uid, agent_id, name, args):
                                          uid=uid, agent_id=agent_id)}
         if name == "run_command":
             require(conn, ws, uid, "admin")
-            return {"ok": True, **run_command(conn, ws, str(_arg(args, "cmd")),
-                                              uid=uid, agent_id=agent_id)}
+            r = run_command(conn, ws, str(_arg(args, "cmd")),
+                            uid=uid, agent_id=agent_id)
+            out = {"ok": r["code"] == 0, **r}
+            if r["code"] != 0:
+                out["error"] = f"exited with code {r['code']}"
+            return out
         return {"ok": False, "error": f"unknown tool {name}"}
     except WorkspaceError as e:
         audit(conn, ws["id"], name.replace("_file", ""), args.get("path") or "",
@@ -921,6 +925,14 @@ _ARG_ALIASES = {
 }
 _CALL_KEYS = ("tool", "name", "function", "args", "arguments",
               "parameters", "input")
+# when a model sends a bare string for args — {"tool":"x","args":"git status"}
+# — it almost always means the tool's one required arg
+_PRIMARIES = {
+    "read_file": "path", "search_files": "query", "file_info": "path",
+    "write_file": "path", "edit_file": "path", "delete_file": "path",
+    "move_file": "path", "make_dir": "path", "run_command": "cmd",
+    "web_search": "query", "web_fetch": "url",
+}
 
 
 def _arg(args, key):
@@ -950,8 +962,9 @@ def _call_items(d, out):
         if not isinstance(it, dict):
             continue
         name = it.get("tool") or it.get("name") or it.get("function")
-        args = it.get("args") or it.get("arguments") or it.get("parameters") \
+        raw = it.get("args") or it.get("arguments") or it.get("parameters") \
             or it.get("input") or {}
+        args = raw
         if isinstance(args, str):
             try:
                 args = json.loads(args)
@@ -959,6 +972,10 @@ def _call_items(d, out):
                 args = {}
         if not isinstance(args, dict):
             args = {}
+        if not args and isinstance(raw, str) and raw.strip():
+            prim = _PRIMARIES.get(name)
+            if prim:
+                args = {prim: raw.strip()}
         # models often hoist arg keys up next to "tool" — anything that isn't
         # part of the call envelope becomes an arg
         extras = {k: v for k, v in it.items() if k not in _CALL_KEYS}

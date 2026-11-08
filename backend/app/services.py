@@ -683,6 +683,7 @@ async def agent_reply(cid, aid, asker_id, msg_id, depth=0, ping=True):
         if not errored and not stopped and reply and \
                 (ws or ai_web or wsx.parse_tool_calls(reply)):
             done_calls = set()    # (tool, args-json) — identical repeats don't re-run
+            nudged = False        # one "write the summary" nudge per reply
             for _ in range(8):
                 if _stop_hit():
                     stopped = True
@@ -694,8 +695,28 @@ async def agent_reply(cid, aid, asker_id, msg_id, depth=0, ping=True):
                          if (c["name"], json.dumps(c["args"] or {},
                              sort_keys=True)) not in done_calls]
                 if not fresh:
-                    # the model is repeating itself — stop instead of looping
-                    break
+                    # the model repeated a call or emitted nothing runnable —
+                    # ask it once for a plain-text summary instead of silently
+                    # landing on the generic "Done" fallback
+                    if nudged or _stop_hit():
+                        break
+                    nudged = True
+                    reply, err2, stopped = await _round(
+                        history[-1]["content"]
+                        + "\n\nThat exact tool call already ran — its result "
+                          "is above. Now reply with a plain-text summary of "
+                          "what you did and what the output showed. No tool "
+                          "JSON.")
+                    if stopped:
+                        break
+                    if err2:
+                        reply = (reply.strip() + "\n\n" if reply.strip()
+                                 else "") + \
+                            "*(the model went quiet — say \"continue\" to retry)*"
+                        break
+                    reply = _strip_echo_prefix(reply, asker["username"],
+                                               asker["display_name"], a["name"])
+                    continue
                 results = []
                 for c in fresh[:3]:
                     if _stop_hit():
@@ -740,7 +761,10 @@ async def agent_reply(cid, aid, asker_id, msg_id, depth=0, ping=True):
             else:
                 hit_cap = bool(tool_steps)   # loop exhausted mid-work
             if tool_steps and not wsx.strip_tool_calls(reply):
-                reply = "Done — see the tool steps above."
+                bad = any(not s["result"].get("ok") for s in tool_steps)
+                reply = ("Finished, but some steps failed — see the ⚙ lines "
+                         "above." if bad else
+                         "Done — see the tool steps above.")
         # always scrub tool-call JSON — a model that emits {"tool":…} for an
         # OFF/unavailable tool would otherwise paint raw JSON as the reply
         _pre_strip = reply
