@@ -27,3 +27,9 @@ backend/uploads/
 # qa
 qa-*.png
 qa/*.png
+
+# editor
+.vscode/
+
+# blender render output (regenerable via qa/blender_icon.py)
+qa/icon_render/
