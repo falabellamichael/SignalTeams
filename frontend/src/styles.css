@@ -443,13 +443,20 @@ a { color: var(--accent); text-decoration: none; }
 
 /* screen-share stage — tiles under the voice bar */
 .voice-stage { display: flex; gap: 8px; padding: 8px 12px; overflow-x: auto;
-  background: #000; border-bottom: 1px solid var(--border); }
+  background: var(--bg); border-bottom: 1px solid var(--border); }
 .vs-tile { position: relative; flex: 0 0 auto; }
 .vs-tile video { display: block; max-height: 190px; max-width: 340px;
-  border-radius: 8px; border: 1px solid var(--border); background: #111; }
+  border-radius: 8px; border: 1px solid var(--border); background: var(--bg2);
+  transition: opacity .18s ease; }
+.vs-tile video.off { position: absolute; inset: 0; width: 100%; height: 100%;
+  max-width: none; max-height: none; object-fit: cover; opacity: 0; pointer-events: none; }
 .vs-name { position: absolute; left: 6px; bottom: 6px; font-size: 10.5px;
   padding: 2px 7px; border-radius: 999px; background: rgba(0,0,0,.72);
   color: #e6edf3; pointer-events: none; }
+.vs-flip, .tile-flip { position: absolute; top: 6px; right: 6px; z-index: 2;
+  border: none; border-radius: 999px; background: rgba(0,0,0,.72); color: #e6edf3;
+  padding: 4px 7px; display: inline-flex; align-items: center; line-height: 1; }
+.vs-flip:hover, .tile-flip:hover { background: rgba(0,0,0,.92); color: #fff; }
 .mention-pop .aicon { width: 20px; text-align: center; font-size: 15px; }
 .msg .del-msg { visibility: hidden; border: none; background: none; color: var(--dim);
   font-size: 11px; padding: 0 4px; }
@@ -2019,10 +2026,14 @@ body.col-resizing .ws-drag { pointer-events: auto !important; }
   transform: scale(1.08);
 }
 .voice-tile.video-tile video {
+  position: absolute;
+  inset: 0;
   width: 100%;
   height: 100%;
   object-fit: cover;
+  transition: opacity .2s ease;
 }
+.voice-tile.video-tile video.off { opacity: 0; pointer-events: none; }
 .tile-footer {
   position: absolute;
   bottom: 10px;
@@ -2052,6 +2063,7 @@ body.col-resizing .ws-drag { pointer-events: auto !important; }
   padding: 3px 6px;
   border-radius: 4px;
 }
+.tile-flip { top: 10px; right: 10px; }
 .live-badge {
   position: absolute;
   top: 10px;
