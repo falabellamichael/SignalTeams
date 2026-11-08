@@ -117,6 +117,15 @@ async def ws_endpoint(ws: WebSocket, token: str = ""):
                     await hub.send(to, {
                         "type": "voice_signal", "channel_id": cid,
                         "from": uid, "data": evt.get("data")})
+            elif t == "soundboard":
+                cid = int(evt.get("channel_id", 0))
+                sound = str(evt.get("sound", ""))[:32]
+                room = hub.voice.get(cid, {})
+                if uid in room and sound:
+                    await hub.send_many(list(room.keys()), {
+                        "type": "soundboard", "channel_id": cid,
+                        "sound": sound, "from": uid,
+                        "from_name": u["display_name"]})
     except WebSocketDisconnect:
         pass
     finally:

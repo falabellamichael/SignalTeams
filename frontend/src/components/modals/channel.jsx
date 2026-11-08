@@ -203,19 +203,20 @@ export function ChannelModal({ kind, channel, me, roles, workspaces = [], onClos
     <Modal title={editing ? `Edit ${selKind === "agents" ? "✦" : selKind === "forum" ? "📋" : "#"}${channel.name}`
         : `New ${selKind === "agents" ? "agent" : selKind === "forum" ? "forum" : "text"} channel`} onClose={onClose}
       sub={selKind === "agents" ? "Agent channels highlight shared agent cards — pick residents to pin."
-        : selKind === "forum" ? "Titled posts with threaded replies — like Discord forums." : "Plain talk."}>
+        : selKind === "voice" ? "Hang out together with voice, video, screen share, and soundboard." : selKind === "forum" ? "Titled posts with threaded replies — like Discord forums." : "Plain talk."}>
       {!editing && kind !== "agents" && (
         <>
           <label>Channel type</label>
           <div className="seg" style={{ marginBottom: 4 }}>
             <button className={selKind === "text" ? "on" : ""} onClick={() => setSelKind("text")}># Text</button>
+            <button className={selKind === "forum" ? "on" : ""} onClick={() => setSelKind("voice")}>🔊 Voice</button>
             <button className={selKind === "forum" ? "on" : ""} onClick={() => setSelKind("forum")}>📋 Forum</button>
           </div>
         </>
       )}
       <label>Name</label>
       <input value={name} onChange={(e) => setName(e.target.value)}
-        placeholder={selKind === "agents" ? "agent-drops" : selKind === "forum" ? "showcase" : "general"} />
+        placeholder={selKind === "agents" ? "agent-drops" : selKind === "voice" ? "General Voice" : selKind === "forum" ? "showcase" : "general"} />
       <label>Topic</label>
       <input value={topic} onChange={(e) => setTopic(e.target.value)} placeholder="optional" />
       <label>Category <span style={{ color: "var(--dim)", fontWeight: 400 }}>(optional — groups channels in the sidebar)</span></label>

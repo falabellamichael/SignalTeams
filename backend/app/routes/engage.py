@@ -10,7 +10,8 @@ from ..hub import hub
 
 from ..helpers import _fmt_due, _gated_channel, audit, can_see_agent, channel_member_ids, public_user
 from ..schemas import EventIn, KnockIn, ReminderIn, SummarizeIn
-from ..services import REMIND_BOT, _agent_cool, _summarize_task, agent_reply, bot_post
+from ..services import (REMIND_BOT, _agent_cool, _reply_cancel, _summarize_task,
+                        agent_reply, bot_post)
 
 router = APIRouter()
 
@@ -295,12 +296,17 @@ async def huddle(cid: int, user=Depends(current_user)):
                             "ORDER BY id DESC LIMIT 1", (cid,)).fetchone()
         if not last:
             raise HTTPException(400, "No messages yet — say something first")
-        visible = {a["id"] for a in conn.execute("SELECT * FROM agents").fetchall()
+        visible = {a["id"]: a["name"] for a in
+                   conn.execute("SELECT * FROM agents").fetchall()
                    if can_see_agent(conn, a, user["id"])}
     summoned = []
     for i, aid in enumerate([a for a in roster if a in visible]):
         k = (aid, cid)
         if time.time() - _agent_cool.get(k, 0) < 8:
+            await hub.send_many(members, {
+                "type": "typing", "channel_id": cid, "on": True,
+                "user": {"id": f"agent:{aid}", "display_name": visible.get(aid) or "agent",
+                         "bot": True, "phase": "cooling down"}})
             continue
         _agent_cool[k] = time.time()
         summoned.append(aid)
@@ -309,3 +315,22 @@ async def huddle(cid: int, user=Depends(current_user)):
             await agent_reply(cid, a, user["id"], last["id"])
         asyncio.create_task(delayed())
     return {"summoned": summoned}
+
+
+@router.post("/api/channels/{cid}/agents/stop")
+def stop_channel_agents(cid: int, body: dict, user=Depends(current_user)):
+    """Cancel in-flight agent replies in a channel — the typing-row ✕.
+    Any member can stop a runaway reply; `bot_id` targets one typer."""
+    with db() as conn:
+        ch = conn.execute("SELECT * FROM channels WHERE id=?", (cid,)).fetchone()
+        if not ch:
+            raise HTTPException(404, "No such channel")
+        if user["id"] not in channel_member_ids(conn, ch):
+            raise HTTPException(403, "Not a member")
+    try:
+        bid = int((body or {}).get("bot_id") or 0)
+    except (TypeError, ValueError):
+        bid = 0
+    if bid:
+        _reply_cancel.add((cid, bid))
+    return {"ok": True}

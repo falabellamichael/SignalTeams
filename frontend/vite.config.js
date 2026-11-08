@@ -8,6 +8,7 @@ export default defineConfig({
   define: { __APP_BUILD__: JSON.stringify(new Date().toISOString()) },
   server: {
     port: 5175,
+    watch: { ignored: ["**/src-tauri/target/**"] },
     proxy: {
       "/api": { target: apiTarget, changeOrigin: true },
       "/ws": { target: apiTarget.replace("http", "ws"), ws: true },

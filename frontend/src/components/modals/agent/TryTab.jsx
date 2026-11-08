@@ -42,7 +42,7 @@ export function TryTab({ agent, onOpenConnect }) {
       if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
       const reader = res.body.getReader();
       const dec = new TextDecoder();
-      let buf = "", reply = "";
+      let buf = "", reply = "", provMeta = "";
       const patch = (fn) => setHistory((h) => {
         const c = [...h]; c[c.length - 1] = { ...c[c.length - 1], ...fn(c[c.length - 1]) }; return c;
       });
@@ -54,8 +54,9 @@ export function TryTab({ agent, onOpenConnect }) {
         for (const line of lines) {
           if (!line.trim()) continue;
           let evt; try { evt = JSON.parse(line); } catch { continue; }
-          if (evt.t === "meta") patch(() => ({ meta: `${evt.provider} · ${evt.model}` }));
-          else if (evt.t === "token") { reply += evt.c; patch(() => ({ content: reply })); }
+          if (evt.t === "meta") { provMeta = `${evt.provider} · ${evt.model}`; patch(() => ({ meta: provMeta })); }
+          else if (evt.t === "thinking") patch(() => ({ meta: `💭 thinking… (${evt.n})` }));
+          else if (evt.t === "token") { reply += evt.c; patch(() => ({ content: reply, meta: provMeta })); }
           else if (evt.t === "error") throw new Error(evt.message);
         }
       }

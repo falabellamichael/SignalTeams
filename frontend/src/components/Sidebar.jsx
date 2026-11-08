@@ -77,7 +77,8 @@ export function HomeSidebar({ view, setView, dms, onOpenDm, onNewGroupDm, onLeav
               </div>
             )}
             {Object.keys(typingMap[d.id] || {}).length > 0 && (() => {
-              const names = Object.values(typingMap[d.id]);
+              const names = Object.values(typingMap[d.id])
+                .map((u) => (u && typeof u === "object") ? (u.display_name || u.username) : u);
               return (
                 <div className="ch-voice dm-ty">
                   <span className="ch-vm ty">
@@ -105,9 +106,11 @@ function MuteBtn({ state = 0, onToggle }) {
   );
 }
 
-export function ServerSidebar({ server, channel, me, onChannel, onAddChannel, onEditChannel, onServerSettings, onMoveChannel, onToggleSrvMute, srvMuted, onEvents, evCount = 0, unread = {}, mentions = {}, muted, mentionsOnly, onToggleMute, voiceRosters = {}, workspaces = [], activeWs, onWorkspace, onNewWorkspace }) {
-  const text = server.channels.filter((c) => c.kind === "text" || c.kind === "forum");
-  const agentCh = server.channels.filter((c) => c.kind === "agents");
+export function ServerSidebar({ server, channel, me, voice, onJoinVoice, onChannel, onAddChannel, onEditChannel, onServerSettings, onMoveChannel, onToggleSrvMute, srvMuted, onEvents, evCount = 0, unread = {}, mentions = {}, muted, mentionsOnly, onToggleMute, voiceRosters = {}, workspaces = [], activeWs, onWorkspace, onNewWorkspace, typingMap = {} }) {
+  const text = server.channels.filter((c) => c.kind === "text" || c.kind === "forum" || c.kind === "voice");
+  // workspace chat channels are scoped to their workspace — they get there via
+  // the workspace's own chat tab, not the generic agent-channel list
+  const agentCh = server.channels.filter((c) => c.kind === "agents" && !c.workspace);
   const [copied, setCopied] = React.useState(false);
   const [collapsed, setCollapsed] = React.useState(new Set());
   const [imgErr, setImgErr] = React.useState(false);
@@ -128,9 +131,23 @@ export function ServerSidebar({ server, channel, me, onChannel, onAddChannel, on
     return (
       <React.Fragment key={c.id}>
         <div className={`nav-item ${agent ? "ch-agent" : ""} ${channel?.id === c.id ? "on" : ""}`}
-          onClick={() => onChannel(c)}>
-          <span className="ch-hash">{c.locked ? <Ico n="lock" s={13} /> : agent ? "✦" : c.kind === "forum" ? "📋" : "#"}</span>
+          onClick={() => {
+            onChannel(c);
+            if (c.kind === "voice" && (!voice?.joined || voice?.channelId !== c.id)) {
+              onJoinVoice?.(c.id);
+            }
+          }}>
+          <span className="ch-hash">{c.locked ? <Ico n="lock" s={13} /> : c.workspace ? "🗂" : agent ? "✦" : c.kind === "voice" ? "🔊" : c.kind === "forum" ? "📋" : "#"}</span>
           <span className="txt" title={c.topic || c.name}>{c.name}</span>
+          {(() => {
+            const bots = Object.values(typingMap[c.id] || {})
+              .filter((u) => u && typeof u === "object" && (u.bot || /^[a-z-]+:/.test(String(u.id || ""))));
+            if (!bots.length) return null;
+            const names = bots.map((u) => u.display_name || u.username).join(", ");
+            const phase = bots.map((u) => u.phase).filter(Boolean)[0];
+            return <img className="ch-knot" src="/brand/knot-loop.png" alt=""
+              title={`${names} ${phase || "working"}…`} />;
+          })()}
           {localStorage.getItem("st.draft." + c.id) &&
             <span className="ch-draft" title="You have an unsent draft here"><Ico n="edit" s={11} /></span>}
           {mentions[c.id] > 0

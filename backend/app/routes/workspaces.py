@@ -3,14 +3,20 @@ their agents can browse and edit, gated by per-user read/write/admin grants."""
 import asyncio
 import json
 import os
+import queue
+import re
+import threading
+import time
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.responses import Response, StreamingResponse
 from ..auth import current_user
 from ..config import WORKSPACE_AGENT_TOOLS, WORKSPACE_EXEC, WORKSPACE_MAX_BYTES, WORKSPACE_ROOTS
 from ..db import db, now
 from ..hub import hub
 
-from ..helpers import _agent_llm, _server_llm, _user_llm, audit as server_audit, can_see_agent
+from ..helpers import (_agent_llm, _server_llm, _user_llm, audit as server_audit,
+                       can_see_agent, channel_json)
 from ..schemas import (WorkspaceAgentIn, WorkspaceExecIn, WorkspaceFileIn, WorkspaceGrantIn,
                        WorkspaceIn, WorkspaceMoveIn, WorkspacePatch, WorkspacePathIn)
 from .. import workspace as wsx
@@ -167,6 +173,32 @@ def get_file(wid: int, path: str = Query(...), user=Depends(current_user)):
         return _guard(wsx.read_file, conn, ws, path, uid=user["id"])
 
 
+@router.get("/api/workspaces/{wid}/meta")
+def get_meta(wid: int, path: str = Query(...), user=Depends(current_user)):
+    """Stat a file — the editor polls this to spot outside changes."""
+    with db() as conn:
+        ws = _ws_or_404(conn, wid)
+        _guard(wsx.require, conn, ws, user["id"], "read")
+        return _guard(wsx.file_meta, conn, ws, path)
+
+
+@router.get("/api/workspaces/{wid}/raw")
+def get_raw(wid: int, path: str = Query(...), user=Depends(current_user)):
+    """Raw bytes — image preview and download (auth via ?token= for <img>)."""
+    with db() as conn:
+        ws = _ws_or_404(conn, wid)
+        _guard(wsx.require, conn, ws, user["id"], "read")
+        data, name = _guard(wsx.read_bytes, conn, ws, path, uid=user["id"])
+    ext = os.path.splitext(name)[1].lower()
+    mime = {'.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
+            '.gif': 'image/gif', '.webp': 'image/webp', '.bmp': 'image/bmp',
+            '.ico': 'image/x-icon', '.svg': 'image/svg+xml'}.get(ext,
+           'application/octet-stream')
+    return Response(content=data, media_type=mime, headers={
+        "Content-Disposition": f'inline; filename="{name.replace(chr(34), "")}"',
+        "Cache-Control": "no-cache"})
+
+
 @router.put("/api/workspaces/{wid}/file")
 async def put_file(wid: int, body: WorkspaceFileIn, user=Depends(current_user)):
     with db() as conn:
@@ -174,7 +206,8 @@ async def put_file(wid: int, body: WorkspaceFileIn, user=Depends(current_user)):
         _guard(wsx.require, conn, ws, user["id"], "write")
         r = _guard(wsx.write_file, conn, ws, body.path, body.content,
                    uid=user["id"], source="human", note=body.note,
-                   create_only=body.create_only)
+                   create_only=body.create_only, base_mtime=body.base_mtime,
+                   force=body.force)
         await _notify(conn, ws, {"action": "file", "path": r["path"],
                                  "by": user["display_name"]})
         return r
@@ -300,15 +333,29 @@ async def set_grant(wid: int, body: WorkspaceGrantIn, user=Depends(current_user)
 
 # ---------------------------------------------------------------- agent bridge
 
+_desk_cancel = set()    # (wid, uid, run_id) — stop requests pending pickup
+
+
+@router.post("/api/workspaces/{wid}/agent/stop")
+def agent_stop(wid: int, body: dict, user=Depends(current_user)):
+    """Cancel a running desk agent run. The run id must match — prevents a
+    stale flag from killing the user's *next* run."""
+    rid = str((body or {}).get("run_id") or "")
+    if rid:
+        _desk_cancel.add((wid, user["id"], rid))
+    return {"ok": True}
+
+
 @router.post("/api/workspaces/{wid}/agent")
-async def agent_work(wid: int, body: WorkspaceAgentIn, user=Depends(current_user)):
+async def agent_work(wid: int, request: Request, body: WorkspaceAgentIn,
+                     user=Depends(current_user)):
     """Let an agent work inside the workspace with tool calls.
 
     The agent inherits the caller's permission level, so it can never read or
     write more than the person asking. Every tool call lands in the workspace
     audit log with the agent's id attached.
     """
-    from ..llm import chat as llm_chat
+    from ..llm import chat_stream as llm_stream
     with db() as conn:
         ws = _ws_or_404(conn, wid)
         _guard(wsx.require, conn, ws, user["id"], "read")
@@ -316,36 +363,71 @@ async def agent_work(wid: int, body: WorkspaceAgentIn, user=Depends(current_user
         if not a or not can_see_agent(conn, a, user["id"]):
             raise HTTPException(404, "No such agent")
         ep = _agent_llm(a) or _server_llm(conn, ws["server_id"]) or _user_llm(conn, user["id"])
-        lvl = wsx.level_of(conn, ws, user["id"])
-        tools = wsx.agent_tools(conn, ws, user["id"]) if WORKSPACE_AGENT_TOOLS else []
-        focus = body.path or ""
-        if focus:
-            try:
-                f = wsx.read_file(conn, ws, focus, uid=user["id"], record=False)
-                focus_txt = f"\n\nOpen file `{focus}`:\n```\n{f['content'][:6000]}\n```"
-            except wsx.WorkspaceError:
-                focus_txt = ""
-        else:
-            focus_txt = ""
-        sysp = (a["system_prompt"] or f"You are {a['name']}, a coding agent.") + (
-            f"\n\nYou are working inside the shared workspace \"{ws['name']}\" "
-            f"(folder: {ws['root']}). Your access level is {lvl}. "
-            "Use the tools to inspect and edit files. Prefer reading before writing, "
-            "keep edits minimal, and summarize what you changed at the end.\n"
-            "To call a tool, reply with ONLY a JSON object like "
-            '{"tool": "read_file", "args": {"path": "README.md"}} — one call per reply. '
-            "Available tools: " + ", ".join(t["function"]["name"] for t in tools)
-            + focus_txt)
+        sysp = (a["system_prompt"] or f"You are {a['name']}, a coding agent.") + "\n\n" \
+            + wsx.agent_prompt(conn, ws, user["id"], body.path or "")
+
+    run_key = (wid, user["id"], str(body.run_id or ""))
+
+    async def _stream():
+        def ev(**kw):
+            return (json.dumps(kw, ensure_ascii=False) + "\n").encode()
+
+        async def _killed():
+            # explicit stop clicked, or the client hung up mid-run
+            if run_key[2] and run_key in _desk_cancel:
+                _desk_cancel.discard(run_key)
+                return True
+            return await request.is_disconnected()
+
         history = []
         steps = []
         reply = ""
         done = set()          # (tool, path) pairs that already succeeded
-        for _ in range(4):
-            try:
-                reply, _prov, _model = await asyncio.to_thread(
-                    llm_chat, sysp, history, body.message, endpoint=ep)
-            except Exception as e:
-                raise HTTPException(502, f"Agent brain offline — {e}")
+        # 8 hops is enough for a real workflow (list → read → edit → verify)
+        # while still bounding a runaway model.
+        hit_cap = False
+        for _hop in range(8):
+            if await _killed():
+                yield ev(type="stopped")
+                return
+            yield ev(type="thinking", hop=_hop + 1)
+            q = queue.Queue()
+
+            def _pump():
+                try:
+                    for kind, data in llm_stream(
+                            sysp, history, body.message, endpoint=ep):
+                        q.put((kind, data))
+                except Exception as e:
+                    q.put(("error", str(e)))
+                finally:
+                    q.put(("done", None))
+
+            threading.Thread(target=_pump, daemon=True).start()
+            reply = ""
+            polls = 0
+            while True:
+                try:
+                    kind, data = q.get_nowait()
+                except queue.Empty:
+                    polls += 1
+                    if polls % 20 == 0 and await _killed():
+                        yield ev(type="stopped")
+                        return
+                    await asyncio.sleep(0.05)
+                    continue
+                if kind == "done":
+                    break
+                if kind == "error":
+                    yield ev(type="error", error=f"Agent brain offline — {data}")
+                    return
+                if kind == "token":
+                    reply += data
+                    yield ev(type="token", t=data)
+                if kind == "thinking":
+                    yield ev(type="thinking", n=data)
+                if kind == "meta":
+                    yield ev(type="meta", **data)
             calls = wsx.parse_tool_calls(reply)
             if not calls:
                 break
@@ -358,22 +440,110 @@ async def agent_work(wid: int, body: WorkspaceAgentIn, user=Depends(current_user
                 reply = ""
                 break
             for c in fresh:
-                res = wsx.run_tool(conn, ws, user["id"], a["id"], c["name"], c["args"])
+                if await _killed():
+                    yield ev(type="stopped")
+                    return
+                yield ev(type="step", tool=c["name"], args=c["args"])
+                t0 = time.time()
+                with db() as conn2:
+                    res = wsx.run_tool(conn2, ws, user["id"], a["id"], c["name"], c["args"])
                 steps.append({"tool": c["name"], "args": c["args"], "result": res})
+                yield ev(type="step_done", tool=c["name"], secs=round(time.time() - t0, 1),
+                         ok=bool(res.get("ok")), error=res.get("error") or "")
                 if res.get("ok"):
                     done.add((c["name"], (c["args"] or {}).get("path") or
                               (c["args"] or {}).get("query") or
                               (c["args"] or {}).get("cmd")))
-                history.append({"role": "assistant", "content": reply})
+                history.append({"role": "assistant", "content": "\n".join(
+                    l for l in reply.splitlines()
+                    if not l.lstrip().startswith("⚙"))})
                 history.append({"role": "user", "content":
                                 f"TOOL RESULT {c['name']}: "
                                 f"{json.dumps(res)[:6000]}\n\nContinue."})
             reply = ""
+        else:
+            # all 8 hops spent on tools — the work may not be finished
+            hit_cap = bool(steps)
         if not reply:
             reply = "Done — see the tool steps above."
-        out = wsx.workspace_json(conn, ws, user["id"])
-        await _notify(conn, ws, {"action": "agent", "by": a["name"]})
-        return {"reply": reply[:4000], "steps": steps, "workspace": out}
+        if hit_cap:
+            reply += "\n\n⏸ stopped at the 8-step tool cap — ask me to continue."
+        with db() as conn2:
+            out = wsx.workspace_json(conn2, ws, user["id"])
+            await _notify(conn2, ws, {"action": "agent", "by": a["name"]})
+        yield ev(type="done", reply=reply[:4000], steps=steps, workspace=out)
+
+    async def _guarded():
+        try:
+            async for chunk in _stream():
+                yield chunk
+        finally:
+            _desk_cancel.discard(run_key)
+
+    return StreamingResponse(_guarded(), media_type="application/x-ndjson")
+
+
+@router.get("/api/workspaces/{wid}/chat")
+async def workspace_chat(wid: int, user=Depends(current_user)):
+    """Find-or-create the workspace's shared chat channel — a normal agent
+    channel wired to the workspace, so every server member can talk there and
+    @mentions summon agents with file tools (at the summoner's access level)."""
+    from ..services import bot_post
+    created = False
+    members = []
+    cid = 0
+    with db() as conn:
+        ws = _ws_or_404(conn, wid)
+        _guard(wsx.require, conn, ws, user["id"], "read")
+        ch = None
+        ccid = ws["chat_channel_id"] if "chat_channel_id" in ws.keys() else None
+        if ccid:
+            ch = conn.execute("SELECT * FROM channels WHERE id=?",
+                              (ccid,)).fetchone()
+        if not ch:
+            slug = re.sub(r"[^a-z0-9]+", "-", (ws["name"] or "").lower()) \
+                .strip("-")[:40] or f"workspace-{wid}"
+            pos = conn.execute(
+                "SELECT COALESCE(MAX(position),0)+1 p FROM channels WHERE server_id=?",
+                (ws["server_id"],)).fetchone()["p"]
+            cur = conn.execute(
+                "INSERT INTO channels(server_id, kind, name, topic, position, "
+                "workspace_id, created_at) VALUES (?,?,?,?,?,?,?)",
+                (ws["server_id"], "agents", slug,
+                 f"Chat for the {ws['name']} workspace — @mention an agent and "
+                 "it can read & edit the files.", pos, wid, now()))
+            cid = cur.lastrowid
+            conn.execute("UPDATE workspaces SET chat_channel_id=? WHERE id=?",
+                         (cid, wid))
+            ch = conn.execute("SELECT * FROM channels WHERE id=?", (cid,)).fetchone()
+            created = True
+            server_audit(conn, ws["server_id"], user["id"], "workspace.chat",
+                         f"#{slug}")
+            members = [r["user_id"] for r in conn.execute(
+                "SELECT user_id FROM server_members WHERE server_id=?",
+                (ws["server_id"],)).fetchall()]
+        cid = ch["id"]
+        out = channel_json(conn, ch, user["id"])
+    if created:
+        await hub.send_many(members, {"type": "server_changed",
+                                      "server_id": ws["server_id"]})
+        await bot_post(cid, "bot:workspaces", "Workspace", "🗂",
+                       f"🗂 Shared chat for the **{ws['name']}** workspace — "
+                       "everyone in the server can talk here. @mention an agent "
+                       "and it can read & edit the files, working at the access "
+                       "level of whoever summoned it.")
+    return out
+
+
+@router.post("/api/workspaces/{wid}/focus")
+def set_focus(wid: int, body: WorkspacePathIn, user=Depends(current_user)):
+    """Record which file this user is looking at — chat summons use it as
+    context so an agent sees the same file the agent desk would."""
+    with db() as conn:
+        ws = _ws_or_404(conn, wid)
+        _guard(wsx.require, conn, ws, user["id"], "read")
+        wsx.touch_session(conn, wid, user["id"], body.path or "")
+        return {"ok": True, "path": body.path or ""}
 
 
 @router.get("/api/workspaces/{wid}/sessions")

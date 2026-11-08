@@ -407,6 +407,7 @@ def chat_stream(system_prompt, history, message, model=None, provider=None, temp
                 method="POST")
             emitted = False
             reasoning_buf = []
+            reasoning_n = think_sent = 0
             raw_lines = []
             with urllib.request.urlopen(req, timeout=TIMEOUT) as r:
                 for line in r:
@@ -432,7 +433,12 @@ def chat_stream(system_prompt, history, message, model=None, provider=None, temp
                             emitted = True
                             yield ("token", piece)
                     elif delta.get("reasoning") or delta.get("reasoning_content"):
-                        reasoning_buf.append(str(delta.get("reasoning") or delta.get("reasoning_content")))
+                        piece_r = str(delta.get("reasoning") or delta.get("reasoning_content"))
+                        reasoning_buf.append(piece_r)
+                        reasoning_n += len(piece_r)
+                        if reasoning_n - think_sent >= 160:
+                            think_sent = reasoning_n
+                            yield ("thinking", reasoning_n)
             if not emitted:
                 if reasoning_buf:
                     yield ("token", "".join(reasoning_buf).strip())
@@ -443,6 +449,8 @@ def chat_stream(system_prompt, history, message, model=None, provider=None, temp
             return
         except Exception:
             reply, _p, _m = _custom_chat(endpoint, model, msgs, temp, provider=provider)
+            if _m != use:
+                yield ("token", f"⚠ `{use}` unavailable on this endpoint — answered by `{_m}`:\n\n")
             yield ("token", reply.lstrip("\r\n"))
             yield ("done", {})
             return
@@ -469,6 +477,7 @@ def chat_stream(system_prompt, history, message, model=None, provider=None, temp
                              "options": {"temperature": temp}}).encode(),
             headers={"User-Agent": DEFAULT_UA, "Content-Type": "application/json"}, method="POST")
         with urllib.request.urlopen(req, timeout=TIMEOUT) as r:
+            othink_n = othink_sent = 0
             for line in r:
                 line = line.strip()
                 if not line:
@@ -477,9 +486,16 @@ def chat_stream(system_prompt, history, message, model=None, provider=None, temp
                     chunk = json.loads(line)
                 except Exception:
                     continue
-                piece = chunk.get("message", {}).get("content", "")
+                msg_o = chunk.get("message", {})
+                piece = msg_o.get("content", "")
                 if piece:
                     yield ("token", piece)
+                th = msg_o.get("thinking", "")
+                if th:
+                    othink_n += len(th)
+                    if othink_n - othink_sent >= 160:
+                        othink_sent = othink_n
+                        yield ("thinking", othink_n)
                 if chunk.get("done"):
                     break
         yield ("done", {})

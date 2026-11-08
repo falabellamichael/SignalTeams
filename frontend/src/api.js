@@ -115,6 +115,7 @@ export const api = {
   thread: (mid) => req("GET", `/api/messages/${mid}/thread`),
   markRead: (cid) => req("POST", `/api/channels/${cid}/read`, {}),
   huddle: (cid) => req("POST", `/api/channels/${cid}/huddle`),
+  agentStop: (cid, bot_id) => req("POST", `/api/channels/${cid}/agents/stop`, { bot_id }),
   summarize: (cid, count) => req("POST", `/api/channels/${cid}/summarize`, { count }),
   knock: (cid) => req("POST", `/api/channels/${cid}/knock`),
   knocks: (cid) => req("GET", `/api/channels/${cid}/knocks`),
@@ -218,8 +219,13 @@ export const api = {
     req("GET", `/api/workspaces/${wid}/tree?path=${encodeURIComponent(path)}&depth=${depth}`),
   wsFile: (wid, path) =>
     req("GET", `/api/workspaces/${wid}/file?path=${encodeURIComponent(path)}`),
-  wsSave: (wid, path, content, note = "", create_only = false) =>
-    req("PUT", `/api/workspaces/${wid}/file`, { path, content, note, create_only }),
+  wsSave: (wid, path, content, note = "", create_only = false, base_mtime = null, force = false) =>
+    req("PUT", `/api/workspaces/${wid}/file`,
+      { path, content, note, create_only, base_mtime, force }),
+  wsMeta: (wid, path) =>
+    req("GET", `/api/workspaces/${wid}/meta?path=${encodeURIComponent(path)}`),
+  wsRawUrl: (wid, path) =>
+    `/api/workspaces/${wid}/raw?path=${encodeURIComponent(path)}&token=${encodeURIComponent(getToken())}`,
   wsDelete: (wid, path) => req("POST", `/api/workspaces/${wid}/delete`, { path }),
   wsMove: (wid, path, to) => req("POST", `/api/workspaces/${wid}/move`, { path, to }),
   wsMkdir: (wid, path) => req("POST", `/api/workspaces/${wid}/mkdir`, { path }),
@@ -235,8 +241,47 @@ export const api = {
   wsExec: (wid, cmd) => req("POST", `/api/workspaces/${wid}/exec`, { cmd }),
   wsGrant: (wid, user_id, level) =>
     req("POST", `/api/workspaces/${wid}/grants`, { user_id, level }),
-  wsAgent: (wid, agent_id, message, path = "") =>
-    req("POST", `/api/workspaces/${wid}/agent`, { agent_id, message, path }),
+  wsAgentStop: (wid, run_id) =>
+    req("POST", `/api/workspaces/${wid}/agent/stop`, { run_id }),
+  wsAgent: async (wid, agent_id, message, path = "", onEvent, signal, run_id = "") => {
+    const res = await fetch(`/api/workspaces/${wid}/agent`, {
+      method: "POST",
+      signal,
+      headers: {
+        "Content-Type": "application/json",
+        ...(getToken() ? { Authorization: `Bearer ${getToken()}` } : {}),
+      },
+      body: JSON.stringify({ agent_id, message, path, run_id }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => null);
+      throw new Error(data?.detail || `HTTP ${res.status}`);
+    }
+    const reader = res.body.getReader();
+    const dec = new TextDecoder();
+    let buf = "", final = null;
+    const eat = (ln) => {
+      if (!ln.trim()) return;
+      try {
+        const ev = JSON.parse(ln);
+        onEvent?.(ev);
+        if (ev.type === "done") final = ev;
+      } catch { /* partial line */ }
+    };
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      const lines = buf.split("\n");
+      buf = lines.pop();
+      lines.forEach(eat);
+    }
+    eat(buf);
+    return final || { reply: "", steps: [] };
+  },
+  wsChat: (wid) => req("GET", `/api/workspaces/${wid}/chat`),
+  wsChatChannel: (wid) => req("GET", `/api/workspaces/${wid}/chat`),
   wsSessions: (wid) => req("GET", `/api/workspaces/${wid}/sessions`),
+  wsFocus: (wid, path) => req("POST", `/api/workspaces/${wid}/focus`, { path }),
   workspaceRoots: () => req("GET", "/api/workspace-roots"),
 };

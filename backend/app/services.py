@@ -21,6 +21,7 @@ async def _server_changed(conn, sid):
 
 
 _agent_cool = {}
+_reply_cancel = set()      # (cid, bot_user_id) — in-flight replies a member stopped
 
 
 async def starboard_check(mid: int):
@@ -170,7 +171,7 @@ async def _summarize_task(cid: int, asker_id: int, count: int):
                        "make some conversation first.", ping_uid=asker_id)
         return
     typing = {"type": "typing", "channel_id": cid,
-              "user": {"id": bot_u["id"], "display_name": SCRIBE_BOT[1]}}
+              "user": {"id": bot_u["id"], "display_name": SCRIBE_BOT[1], "bot": True}}
     await hub.send_many(members, {**typing, "on": True})
     try:
         summary, _prov, _model = await asyncio.to_thread(
@@ -351,6 +352,20 @@ def _strip_echo_prefix(text: str, asker_un: str, asker_dn: str = "", agent_name:
     return s
 
 
+def _scrub_echoes(text):
+    """Model-mimicked artifacts: fake ⚙ receipt lines and back-to-back
+    duplicated paragraphs (reasoning models sometimes repeat their preamble)."""
+    lines = [l for l in (text or "").splitlines()
+             if not l.lstrip().startswith("⚙")]
+    paras, prev = [], None
+    for p in "\n".join(lines).split("\n\n"):
+        if p.strip() and p == prev:
+            continue
+        prev = p
+        paras.append(p)
+    return "\n\n".join(paras).strip()
+
+
 def _workspace_for_channel(conn, ch, uid):
     """The workspace an agent channel is wired to (if any) + the asker's level."""
     if not ch or not ch["server_id"] or not WORKSPACE_AGENT_TOOLS:
@@ -365,12 +380,26 @@ def _workspace_for_channel(conn, ch, uid):
     return (ws, lvl) if lvl else (None, "")
 
 
+def _focus_for(conn, ws, uid):
+    """The file the asker last had open in the workspace editor (if any).
+
+    The frontend stamps this into workspace_sessions.path whenever a file tab
+    is active, so a chat summon can hand the agent the same context the agent
+    desk would."""
+    try:
+        r = conn.execute(
+            "SELECT path FROM workspace_sessions WHERE workspace_id=? AND user_id=? "
+            "AND last_seen > ?", (ws["id"], uid, now() - 600)).fetchone()
+        return (r["path"] or "") if r else ""
+    except Exception:
+        return ""
+
+
 async def agent_reply(cid, aid, asker_id, msg_id, depth=0, ping=True):
     """Generate a reply from an agent @mentioned in chat and post it in-channel.
     Bot replies may themselves @mention other agents — those get summoned too,
     bounded by depth (max 3 hops) + per-agent cooldown so convos can't runaway.
     ping=False makes it ambient (lurking) — no @prefix and no mention buzz."""
-    from .llm import chat as llm_chat_once
     from .llm import chat_stream as llm_stream
     try:
         with db() as conn:
@@ -407,6 +436,13 @@ async def agent_reply(cid, aid, asker_id, msg_id, depth=0, ping=True):
                     continue
                 if r["author_id"] == bot["id"]:
                     clean_bot = re.sub(r"^(?:@\S+\s+)+", "", c_txt).strip()
+                    # our own ⚙ tool receipts pollute the transcript — models
+                    # mimic them and hallucinate fake steps. Don't feed them back.
+                    clean_bot = "\n".join(
+                        l for l in clean_bot.splitlines()
+                        if not l.lstrip().startswith("⚙")).strip()
+                    clean_bot = re.sub(r"\s*\*\(interrupted\)\*\s*$", "",
+                                       clean_bot).strip()
                     if clean_bot:
                         history.append({"role": "assistant", "content": clean_bot})
                 else:
@@ -414,7 +450,7 @@ async def agent_reply(cid, aid, asker_id, msg_id, depth=0, ping=True):
             if not history:
                 history = [{"role": "user", "content": f"{asker['display_name'] or asker['username']}: {msg['content']}"}]
         typing = {"type": "typing", "channel_id": cid,
-                  "user": {"id": bot["id"], "display_name": a["name"]}}
+                  "user": {"id": bot["id"], "display_name": a["name"], "bot": True}}
         await hub.send_many(members, {**typing, "on": True})
         prefix = f"@{asker['username']} " if ping else ""
         with db() as conn:
@@ -428,113 +464,187 @@ async def agent_reply(cid, aid, asker_id, msg_id, depth=0, ping=True):
                     "message": message_json(conn, m2, asker_id)}
         await hub.send_many(members, seed)
 
-        ground_ctx = (await asyncio.to_thread(
-            _grounding, a["context_url"],
-            a["context_method"] if "context_method" in a.keys() else "GET",
-            history[-1]["content"] if history else "",
-            a["context_headers"] if "context_headers" in a.keys() else None)) \
-            if a["context_url"] else ""
+        async def _phase(ph, tool=""):
+            await hub.send_many(members, {**typing, "on": True,
+                "user": {**typing["user"], "phase": ph, "tool": tool}})
+
+        last_txt = None
+
+        async def _paint(content):
+            nonlocal last_txt
+            if content == last_txt:
+                return
+            last_txt = content
+            with db() as conn:
+                conn.execute("UPDATE messages SET content=? WHERE id=?",
+                             (content, mid))
+                mj = message_json(conn, conn.execute(
+                    "SELECT * FROM messages WHERE id=?", (mid,)).fetchone(), asker_id)
+            await hub.send_many(members, {
+                "type": "message_updated", "channel_id": cid, "message": mj})
+
+        def _steps_txt():
+            return ", ".join(
+                f"{s['tool']}{'✓' if s['result'].get('ok') else '✗'}"
+                for s in tool_steps)
+
+        if a["context_url"]:
+            await _phase("gathering context")
+            ground_ctx = (await asyncio.to_thread(
+                _grounding, a["context_url"],
+                a["context_method"] if "context_method" in a.keys() else "GET",
+                history[-1]["content"] if history else "",
+                a["context_headers"] if "context_headers" in a.keys() else None))
+        else:
+            ground_ctx = ""
         sysp = _sysprompt(a, ground_ctx)
         if ws:
-            sysp += (f"\n\nYou are working inside the shared workspace \"{ws['name']}\" "
-                     f"(folder: {ws['root']}). Your access level is {ws_lvl}. "
-                     "You can inspect and edit files with tools. To call one, reply with "
-                     "ONLY a JSON object like {\"tool\": \"read_file\", \"args\": "
-                     "{\"path\": \"README.md\"}} — one call per reply. Available tools: "
-                     + ", ".join(t["function"]["name"]
-                                 for t in wsx.agent_tools(conn, ws, asker_id)))
+            # Same prompt the agent desk uses, so chat and studio behave alike.
+            # The asker's open file travels along as focus context.
+            with db() as conn:
+                sysp += "\n\n" + wsx.agent_prompt(
+                    conn, ws, asker_id, _focus_for(conn, ws, asker_id))
         tool_steps = []
-        q = queue.Queue()
         _aprov, _amdl = _split_model(a["model"])
 
-        def _pump():
+        def _pump(user_msg, q):
             try:
                 for kind, data in llm_stream(
-                        sysp,
-                        history[:-1],
-                        history[-1]["content"],
-                        model=_amdl,
-                        provider=_aprov,
+                        sysp, history[:-1], user_msg,
+                        model=_amdl, provider=_aprov,
                         temperature=a["temperature"],
                         endpoint=asker_llm):
                     if kind == "token":
                         q.put(("TOK", data))
+                    elif kind == "thinking":
+                        q.put(("THINK", data))
             except Exception as e:
                 q.put(("ERR", str(e)))
             finally:
                 q.put(("DONE", ""))
 
-        threading.Thread(target=_pump, daemon=True).start()
+        def _stop_hit():
+            k = (cid, bot["id"])
+            if k in _reply_cancel:
+                _reply_cancel.discard(k)
+                return True
+            return False
 
-        reply, done, errored = "", False, False
-        while not done:
-            await asyncio.sleep(0.6)
-            buf = []
-            while True:
-                try:
-                    ev, item = q.get_nowait()
-                except queue.Empty:
-                    break
-                if ev == "DONE":
-                    done = True
-                elif ev == "ERR":
-                    errored, done = True, True
-                elif ev == "TOK":
-                    buf.append(item)
-            if buf and not errored:
-                reply += "".join(buf)
-                cleaned = _strip_echo_prefix(reply, asker["username"], asker["display_name"], a["name"])
-                with db() as conn:
-                    conn.execute("UPDATE messages SET content=? WHERE id=?",
-                                 (prefix + cleaned[:3600] + "▌", mid))
-                    mj = message_json(conn, conn.execute(
-                        "SELECT * FROM messages WHERE id=?", (mid,)).fetchone(), asker_id)
-                await hub.send_many(members, {
-                    "type": "message_updated", "channel_id": cid, "message": mj})
+        async def _round(user_msg):
+            """One streamed model turn — paints thinking/writing phases and
+            honours the stop flag. Returns (reply, errored, stopped)."""
+            q = queue.Queue()
+            threading.Thread(target=_pump, args=(user_msg, q), daemon=True).start()
+            reply, done, errored, think_n = "", False, False, 0
+            while not done:
+                await asyncio.sleep(0.6)
+                if _stop_hit():
+                    return reply, errored, True
+                buf = []
+                while True:
+                    try:
+                        ev, item = q.get_nowait()
+                    except queue.Empty:
+                        break
+                    if ev == "DONE":
+                        done = True
+                    elif ev == "ERR":
+                        errored, done = True, True
+                    elif ev == "TOK":
+                        buf.append(item)
+                    elif ev == "THINK":
+                        think_n = item
+                if buf and not errored:
+                    reply += "".join(buf)
+                    await _phase("writing")
+                    cleaned = _strip_echo_prefix(reply, asker["username"],
+                                                 asker["display_name"], a["name"])
+                    await _paint(prefix + cleaned[:3600] + "▌")
+                elif think_n and not reply and not errored:
+                    await _phase("thinking")
+                    await _paint(prefix + f"💭 thinking… ({think_n})▌")
+            return reply, errored, False
+
+        reply, errored, stopped = await _round(history[-1]["content"])
         await hub.send_many(members, {**typing, "on": False})
         reply = _strip_echo_prefix(reply, asker["username"], asker["display_name"], a["name"])
         # workspace tool calls — the agent acts on files, then answers for real
-        if ws and not errored and reply:
-            for _ in range(3):
+        hit_cap = False
+        if ws and not errored and not stopped and reply:
+            done_calls = set()    # (tool, args-json) — identical repeats don't re-run
+            for _ in range(8):
+                if _stop_hit():
+                    stopped = True
+                    break
                 calls = wsx.parse_tool_calls(reply)
                 if not calls:
                     break
+                fresh = [c for c in calls
+                         if (c["name"], json.dumps(c["args"] or {},
+                             sort_keys=True)) not in done_calls]
+                if not fresh:
+                    # the model is repeating itself — stop instead of looping
+                    break
                 results = []
-                for c in calls[:3]:
+                for c in fresh[:3]:
+                    if _stop_hit():
+                        stopped = True
+                        break
+                    done_calls.add((c["name"],
+                                    json.dumps(c["args"] or {}, sort_keys=True)))
+                    await _phase("tools", c["name"])
+                    done_txt = _steps_txt()
+                    await _paint(prefix + "⚙ " + (done_txt + " · " if done_txt else "")
+                                 + c["name"] + "…▌")
+                    t0 = time.time()
                     with db() as conn:
                         res = wsx.run_tool(conn, ws, asker_id, a["id"], c["name"], c["args"])
-                    tool_steps.append({"tool": c["name"], "args": c["args"], "result": res})
+                    tool_steps.append({"tool": c["name"], "args": c["args"], "result": res,
+                                       "secs": round(time.time() - t0, 1)})
                     results.append(f"TOOL RESULT {c['name']}: {json.dumps(res)[:4000]}")
-                with db() as conn:
-                    conn.execute("UPDATE messages SET content=? WHERE id=?",
-                                 (prefix + "⚙ " + ", ".join(s["tool"] for s in tool_steps)
-                                  + "…▌", mid))
-                try:
-                    reply, _p2, _m2 = await asyncio.to_thread(
-                        llm_chat_once, sysp, history[:-1],
-                        history[-1]["content"] + "\n\n" + "\n\n".join(results),
-                        endpoint=asker_llm)
-                except Exception:
-                    reply = ""
+                if stopped:
+                    break
+                await _paint(prefix + "⚙ " + _steps_txt() + "…▌")
+                await _phase("thinking")
+                # streamed too — a long think here used to freeze on the ⚙ line
+                # and a timeout silently emptied the whole reply
+                reply, err2, stopped = await _round(
+                    history[-1]["content"] + "\n\n" + "\n\n".join(results))
+                if stopped:
+                    break
+                if err2:
+                    reply = (reply.strip() + "\n\n" if reply.strip() else "") + \
+                        "*(the tool steps ran, then the model went quiet — " \
+                        "say \"continue\" to retry)*"
                     break
                 reply = _strip_echo_prefix(reply, asker["username"],
                                            asker["display_name"], a["name"])
+            else:
+                hit_cap = bool(tool_steps)   # loop exhausted mid-work
+            reply = wsx.strip_tool_calls(reply)
             if tool_steps and not reply:
-                reply = "⚙ " + ", ".join(f"{s['tool']}({s['args'].get('path') or s['args'].get('query') or s['args'].get('cmd') or ''})"
-                                          for s in tool_steps)
+                reply = "Done — see the tool steps above."
         if errored or not reply:
-            reply = "hmm, my brain's offline — no local LLM reachable right now"
+            reply = ("⏹ stopped before it could answer." if stopped
+                     else "hmm, my brain's offline — no local LLM reachable right now")
+        reply = _scrub_echoes(reply)
         text = prefix + reply[:3600]
+        if stopped and "⏹" not in text:
+            text += "\n\n⏹ *(stopped)*"
         if tool_steps:
             text += "\n\n" + "\n".join(
                 f"⚙ `{s['tool']}` {s['args'].get('path') or s['args'].get('query') or s['args'].get('cmd') or ''}"
                 + ("" if s["result"].get("ok") else f" — ✗ {s['result'].get('error', 'failed')}")
+                + (f" · {s['secs']}s" if s.get("secs") is not None else "")
                 for s in tool_steps)
+        if hit_cap:
+            text += "\n⏸ hit the 8-step tool cap — say \"continue\" to keep going."
         with db() as conn:
             conn.execute("UPDATE messages SET content=? WHERE id=?", (text, mid))
             m2 = conn.execute("SELECT * FROM messages WHERE id=?", (mid,)).fetchone()
             payload = {"type": "message_updated", "channel_id": cid,
                        "message": message_json(conn, m2, asker_id)}
+        with db() as conn:
             if ping:
                 emit_buzz(conn, bot["id"], "mentioned", {
                     "to": asker_id, "channel_id": cid, "server_id": ch["server_id"],
@@ -546,6 +656,9 @@ async def agent_reply(cid, aid, asker_id, msg_id, depth=0, ping=True):
                 "owner_id": a["owner_id"]})
             buzz_ids = set(friend_ids(conn, asker_id)) | {asker_id, a["owner_id"]}
         await hub.send_many(members, payload)
+        # the phase events re-arm typing during the tool loop — clear it now
+        # that the reply is final, or the indicator outlives the answer.
+        await hub.send_many(members, {**typing, "on": False})
         await hub.send_many(list(buzz_ids), {"type": "buzz"})
         # agent→agent: a bot reply that @names other agents summons them too
         if depth < 3:
@@ -564,4 +677,18 @@ async def agent_reply(cid, aid, asker_id, msg_id, depth=0, ping=True):
                     asyncio.create_task(
                         agent_reply(cid, naid, asker_id, m2["id"], depth + 1))
     except Exception:
-        pass
+        # never strand the seeded "▌" cursor / typing indicator on an unexpected crash
+        try:
+            if "mid" not in locals():
+                return
+            with db() as conn:
+                conn.execute("UPDATE messages SET content=? WHERE id=? AND content LIKE '%▌'",
+                             (prefix + "hmm, my brain's offline — no local LLM reachable right now",
+                              mid))
+                mj = message_json(conn, conn.execute(
+                    "SELECT * FROM messages WHERE id=?", (mid,)).fetchone(), asker_id)
+            await hub.send_many(members, {**typing, "on": False})
+            await hub.send_many(members, {
+                "type": "message_updated", "channel_id": cid, "message": mj})
+        except Exception:
+            pass

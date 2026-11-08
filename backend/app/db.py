@@ -463,6 +463,7 @@ def init():
             ("users.banner_color", "ALTER TABLE users ADD COLUMN banner_color TEXT NOT NULL DEFAULT ''"),
             ("users.pronouns", "ALTER TABLE users ADD COLUMN pronouns TEXT NOT NULL DEFAULT ''"),
             ("channels.workspace_id", "ALTER TABLE channels ADD COLUMN workspace_id INTEGER"),
+            ("workspaces.chat_channel_id", "ALTER TABLE workspaces ADD COLUMN chat_channel_id INTEGER"),
         ]:
             table, c = col.split(".")
             try:
@@ -474,6 +475,11 @@ def init():
                 "CREATE INDEX IF NOT EXISTS idx_users_sub ON users(supabase_uid)")
         except sqlite3.OperationalError:
             pass
+        # orphaned streaming cursors: replies in-flight when the backend last
+        # stopped end in ▌ forever — mark them interrupted on boot.
+        conn.execute(
+            "UPDATE messages SET content = RTRIM(RTRIM(content,'▌')) "
+            "|| ' *(interrupted)*' WHERE content LIKE '%▌'")
 
 
 def now():

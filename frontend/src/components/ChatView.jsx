@@ -16,6 +16,7 @@ export default function ChatView({ channel, server, onDm, members, me, emojis, r
   const [draft, setDraft] = useState("");
   const [atts, setAtts] = useState([]);
   const [typers, setTypers] = useState({});
+  const [, setTypTick] = useState(0);   // 1s re-render while typers exist (elapsed counter)
   const [reads, setReads] = useState({});   // user_id -> last_read ts (DM receipts)
   const [huddling, setHuddling] = useState(false);
   const [preview, setPreview] = useState(false);
@@ -193,7 +194,8 @@ export default function ChatView({ channel, server, onDm, members, me, emojis, r
       if (channel.kind === "dm") api.markRead(channel.id).catch(() => {});
     };
     channel._onRead = (uid, ts) => setReads((r) => ({ ...r, [uid]: Math.max(r[uid] || 0, ts) }));
-    channel._onTyping = (u, on) => setTypers((t) => ({ ...t, [u.id]: on ? u : undefined }));
+    channel._onTyping = (u, on) => setTypers((t) =>
+      ({ ...t, [u.id]: on ? { ...u, _t0: t[u.id]?._t0 || Date.now() } : undefined }));
     channel._onDel = (id) => {
       setMsgs((prev) => prev.filter((p) => p.id !== id));
       setThread((t) => {
@@ -221,6 +223,14 @@ export default function ChatView({ channel, server, onDm, members, me, emojis, r
       channel._onDel = null; channel._onReact = null; channel._onUpdate = null;
       channel._onRead = null; };
   }, [channel]);
+
+  // 1s tick while anyone's typing — drives the elapsed counter in the
+  // working indicator ("thinking… (14s)")
+  useEffect(() => {
+    if (!Object.keys(typers).length) return;
+    const iv = setInterval(() => setTypTick((x) => x + 1), 1000);
+    return () => clearInterval(iv);
+  }, [typers]);
 
   async function onPin(m) {
     await api.pinMessage(m.id).catch(() => {});
@@ -456,6 +466,14 @@ export default function ChatView({ channel, server, onDm, members, me, emojis, r
   }
 
   const typerList = Object.values(typers).filter(Boolean);
+  const isBotTyper = (t) => !!(t?.bot || /^[a-z-]+:/.test(t?.id || ""));
+  const typerLabel = (t) => {
+    const base = t?.phase === "tools" ? `running ${t.tool || "tools"}`
+      : t?.phase || (isBotTyper(t) ? "investigating" : "typing");
+    const secs = t?._t0 ? Math.floor((Date.now() - t._t0) / 1000) : 0;
+    return `${base}…${secs >= 4 ? ` (${secs}s)` : ""}`;
+  };
+  const agentic = typerList.some(isBotTyper);
   let lastDay = "", lastAuthor = null, lastTs = 0;
 
   // DM read receipt — who's caught up past my last message
@@ -562,12 +580,18 @@ export default function ChatView({ channel, server, onDm, members, me, emojis, r
         {channel.roster?.length > 0 && (
           <div className="roster">
             <span className="r-lab">✦ residents — @ them to summon</span>
-            {channel.roster.map((a) => (
-              <button key={a.id} className="r-chip" title={`Summon @${agentSlug(a.name)}`}
-                onClick={() => onAgentOpen(agents.find((x) => x.id === a.id) || a)}>
-                {a.icon} {a.name}
-              </button>
-            ))}
+            {channel.roster.map((a) => {
+              const w = typerList.find((t) => isBotTyper(t) &&
+                (t.display_name === a.name || String(t.id) === `agent:${agentSlug(a.name)}`));
+              return (
+                <button key={a.id} className={`r-chip ${w ? "working" : ""}`}
+                  title={w ? `${a.name} — ${typerLabel(w)}` : `Summon @${agentSlug(a.name)}`}
+                  onClick={() => onAgentOpen(agents.find((x) => x.id === a.id) || a)}>
+                  {w && <img className="r-knot" src="/brand/knot-loop.png" alt="" />}
+                  {a.icon} {a.name}
+                </button>
+              );
+            })}
             <button className="r-chip r-huddle" title="Summon every resident"
               disabled={huddling}
               onClick={async () => {
@@ -651,10 +675,19 @@ export default function ChatView({ channel, server, onDm, members, me, emojis, r
           }}>↓ {pendingNew} new message{pendingNew > 1 ? "s" : ""}</div>
         )}
         <div className="typing">
-          {typerList.length > 0 && (
-            <span><b>{typerList.map((t) => t.display_name).join(", ")}</b>
-              {typerList.length === 1 ? " is" : " are"} typing…</span>
-          )}
+          {typerList.length > 0 && (() => {
+            const names = [...new Set(typerList.map((t) => t.display_name))];
+            const lt = typerList.find((t) => t.phase && !/cooling|skipped/.test(t.phase))
+              || typerList.find((t) => t.phase) || typerList[0];
+            return (
+              <span>{agentic && <img className="typknot" src="/brand/knot-loop.png" alt="" />}
+                <b>{names.join(", ")}</b>
+                {names.length === 1 ? " is" : " are"} {typerLabel(lt)}
+                {agentic && <button className="ghost ty-stop" title="stop the agent"
+                  onClick={() => typerList.filter(isBotTyper).forEach((t) =>
+                    api.agentStop(channel.id, t.id).catch(() => {}))}>✕</button>}</span>
+            );
+          })()}
         </div>
         {replyTo && (
           <div className="reply-banner">
@@ -806,7 +839,9 @@ export default function ChatView({ channel, server, onDm, members, me, emojis, r
                     {r.name}</span>
                 ))}
                 {m.status_text && <span className="mstatus">{m.status_text}</span>}
-                {typers[m.id] && <span className="mtype">typing…</span>}
+                {typers[m.id] && <span className="mtype">
+                  {isBotTyper(typers[m.id]) && <img className="typknot" src="/brand/knot-loop.png" alt="" />}
+                  {typerLabel(typers[m.id])}</span>}
               </div>
             );
           })}

@@ -298,6 +298,8 @@ def try_agent_stream(aid: int, body: TryIn, user=Depends(current_user)):
                     temperature=agent.get("temperature"), endpoint=ep):
                 if kind == "meta":
                     yield json.dumps({"t": "meta", **data}) + "\n"
+                elif kind == "thinking":
+                    yield json.dumps({"t": "thinking", "n": data}) + "\n"
                 elif kind == "token":
                     yield json.dumps({"t": "token", "c": data}) + "\n"
                 else:

@@ -93,10 +93,26 @@ def _hidden(rel: str) -> bool:
     return parts[-1] in HIDDEN_FILES
 
 
+_ABS = re.compile(r"^(?:[a-zA-Z]:[\\/]|[\\/]{2}|~[\\/])")
+
+
 def resolve(root: str, rel: str, must_exist=False) -> str:
-    """Absolute host path for `rel`, guaranteed to sit inside `root`."""
-    rel = norm_rel(rel)
+    """Absolute host path for `rel`, guaranteed to sit inside `root`.
+
+    Absolute inputs that land inside the root are translated to the matching
+    relative path (models love passing the advertised root folder back at us);
+    anything outside is still rejected."""
+    cand = (rel or "").strip()
     base = os.path.realpath(root)
+    if _ABS.match(cand):
+        full = os.path.realpath(os.path.expanduser(cand))
+        if os.path.normcase(full) == os.path.normcase(base):
+            cand = ""
+        elif os.path.normcase(full).startswith(os.path.normcase(base) + os.sep):
+            cand = os.path.relpath(full, base)
+        else:
+            raise WorkspaceError("Path escapes the workspace", 400)
+    rel = norm_rel(cand)
     full = os.path.realpath(os.path.join(base, *rel.split("/"))) if rel else base
     if full != base and not full.startswith(base + os.sep):
         raise WorkspaceError("Path escapes the workspace", 400)
@@ -261,6 +277,50 @@ def read_file(conn, ws, rel, uid=None, agent_id=None, record=True):
             "mtime": os.path.getmtime(full), "lang": language(rel)}
 
 
+IMAGE_EXT = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".ico", ".svg"}
+
+
+def file_meta(conn, ws, rel):
+    """Cheap stat for the editor: size, mtime, kind, and who last touched it."""
+    rel = norm_rel(rel)
+    if _hidden(rel):
+        raise WorkspaceError("That file is hidden from workspaces", 403)
+    full = resolve(ws["root"], rel, must_exist=True)
+    if os.path.isdir(full):
+        raise WorkspaceError("That's a folder", 400)
+    st = os.stat(full)
+    ext = os.path.splitext(rel)[1].lower()
+    row = conn.execute(
+        "SELECT f.updated_by, f.updated_at, u.display_name, u.avatar_emoji "
+        "FROM workspace_files f LEFT JOIN users u ON u.id=f.updated_by "
+        "WHERE f.workspace_id=? AND f.path=?", (ws["id"], rel)).fetchone()
+    return {"path": rel, "size": st.st_size, "mtime": st.st_mtime,
+            "text": is_text(rel), "image": ext in IMAGE_EXT,
+            "lang": language(rel),
+            "updated_by": ({"id": row["updated_by"], "display_name": row["display_name"],
+                            "avatar_emoji": row["avatar_emoji"]}
+                           if row and row["updated_by"] else None),
+            "updated_at": row["updated_at"] if row else None}
+
+
+def read_bytes(conn, ws, rel, uid=None, agent_id=None):
+    """Raw bytes for download / image preview (any file type, size-capped)."""
+    rel = norm_rel(rel)
+    if not rel or _hidden(rel):
+        raise WorkspaceError("That file is hidden from workspaces", 403)
+    full = resolve(ws["root"], rel, must_exist=True)
+    if os.path.isdir(full):
+        raise WorkspaceError("That's a folder", 400)
+    size = os.path.getsize(full)
+    if size > 25 * 1024 * 1024:
+        raise WorkspaceError("File is too big to download (25 MB max)", 413)
+    with open(full, "rb") as f:
+        data = f.read()
+    audit(conn, ws["id"], "download", rel, f"{size} bytes",
+          actor_id=uid, agent_id=agent_id)
+    return data, os.path.basename(full)
+
+
 def _snapshot(conn, ws, rel, full, uid, agent_id, source, note):
     """Keep the previous bytes before overwriting (bounded history per path)."""
     if not os.path.exists(full) or not is_text(rel):
@@ -281,7 +341,10 @@ def _snapshot(conn, ws, rel, full, uid, agent_id, source, note):
 
 
 def write_file(conn, ws, rel, content, uid=None, agent_id=None, source="human",
-               note="", create_only=False):
+               note="", create_only=False, base_mtime=None, force=False):
+    """Write a text file. `base_mtime` is the mtime the editor loaded — if the
+    file changed on disk since then the write is refused with a 409 so nobody
+    silently clobbers someone else's edit (pass force=True to override)."""
     rel = norm_rel(rel)
     if not rel:
         raise WorkspaceError("Pick a file name", 400)
@@ -298,6 +361,22 @@ def write_file(conn, ws, rel, content, uid=None, agent_id=None, source="human",
         raise WorkspaceError(f"{rel} already exists", 409)
     if existed and os.path.isdir(full):
         raise WorkspaceError("That's a folder", 400)
+    if existed and base_mtime and not force:
+        cur = os.path.getmtime(full)
+        if abs(cur - float(base_mtime)) > 0.001:
+            who = conn.execute(
+                "SELECT u.display_name, a.name aname FROM workspace_files f "
+                "LEFT JOIN users u ON u.id=f.updated_by "
+                "LEFT JOIN agents a ON a.id=(SELECT agent_id FROM workspace_audit "
+                "  WHERE workspace_id=? AND path=? AND agent_id IS NOT NULL "
+                "  ORDER BY id DESC LIMIT 1) "
+                "WHERE f.workspace_id=? AND f.path=?",
+                (ws["id"], rel, ws["id"], rel)).fetchone()
+            by = (who["aname"] or who["display_name"]) if who else None
+            raise WorkspaceError(
+                f"{rel} changed on disk since you opened it"
+                + (f" ({by} edited it)" if by else "")
+                + " — reload to see the new version, or save anyway to overwrite.", 409)
     os.makedirs(os.path.dirname(full) or ws["root"], exist_ok=True)
     _snapshot(conn, ws, rel, full, uid, agent_id, source, note)
     with open(full, "w", encoding="utf-8", newline="") as f:
@@ -313,7 +392,33 @@ def write_file(conn, ws, rel, content, uid=None, agent_id=None, source="human",
           f"{len(data)} chars" + (f" — {note}" if note else ""),
           actor_id=uid, agent_id=agent_id)
     return {"path": rel, "size": st.st_size, "created": not existed,
-            "mtime": st.st_mtime}
+            "mtime": st.st_mtime, "lines": data.count("\n") + 1}
+
+
+def edit_file(conn, ws, rel, find, replace, uid=None, agent_id=None, note=""):
+    """Replace one exact occurrence of `find` with `replace`.
+
+    Much cheaper than rewriting a whole file, and it refuses ambiguous edits:
+    if `find` is missing or appears more than once the agent gets a clear error
+    instead of silently mangling the file.
+    """
+    rel = norm_rel(rel)
+    if not find:
+        raise WorkspaceError("`find` must not be empty", 400)
+    cur = read_file(conn, ws, rel, uid=uid, agent_id=agent_id, record=False)
+    text = cur["content"]
+    n = text.count(find)
+    if n == 0:
+        raise WorkspaceError(
+            f"`find` text not present in {rel} — read the file and copy the exact text", 400)
+    if n > 1:
+        raise WorkspaceError(
+            f"`find` matches {n} places in {rel} — include more surrounding context "
+            "so the edit is unambiguous", 400)
+    new = text.replace(find, replace, 1)
+    r = write_file(conn, ws, rel, new, uid=uid, agent_id=agent_id, source="agent",
+                   note=note or f"replaced {len(find)} chars")
+    return {**r, "replaced": 1}
 
 
 def delete_path(conn, ws, rel, uid=None, agent_id=None):
@@ -350,6 +455,12 @@ def move_path(conn, ws, src, dst, uid=None, agent_id=None):
                  (dst, ws["id"], src))
     conn.execute("UPDATE workspace_files SET path=? || substr(path, ?) WHERE workspace_id=? "
                  "AND path LIKE ?", (dst, len(src) + 1, ws["id"], src + "/%"))
+    # history follows the file so a rename doesn't orphan its revisions
+    conn.execute("UPDATE workspace_revisions SET path=? WHERE workspace_id=? AND path=?",
+                 (dst, ws["id"], src))
+    conn.execute("UPDATE workspace_revisions SET path=? || substr(path, ?) "
+                 "WHERE workspace_id=? AND path LIKE ?",
+                 (dst, len(src) + 1, ws["id"], src + "/%"))
     audit(conn, ws["id"], "move", src, f"→ {dst}", actor_id=uid, agent_id=agent_id)
     return {"from": src, "to": dst}
 
@@ -528,6 +639,8 @@ def workspace_json(conn, ws, uid):
         "level": lvl, "can_read": _RANK.get(lvl, 0) >= 1,
         "can_write": _RANK.get(lvl, 0) >= 2, "can_admin": _RANK.get(lvl, 0) >= 3,
         "files": n_files,
+        "chat_channel_id": (ws["chat_channel_id"]
+                            if "chat_channel_id" in ws.keys() else None),
         "grants": [{"user_id": g["user_id"], "level": g["level"],
                     "username": g["username"], "display_name": g["display_name"],
                     "avatar_emoji": g["avatar_emoji"],
@@ -561,13 +674,63 @@ def audit_json(conn, ws_id, before=0, limit=60):
             for r in conn.execute(q, args).fetchall()]
 
 
+def agent_prompt(conn, ws, uid, focus=""):
+    """The system-prompt block that turns any agent into a workspace coder.
+
+    Shared by the agent desk and by @-summons in a workspace chat channel so
+    both surfaces behave identically.
+    """
+    lvl = level_of(conn, ws, uid)
+    names = [t["function"]["name"] for t in agent_tools(conn, ws, uid)]
+    lines = [
+        f'You are working inside the shared workspace "{ws["name"]}" '
+        f'(folder: {ws["root"]}).',
+        f"Your access level is {lvl} — you can never do more than the person "
+        "who summoned you.",
+        "",
+        "You have real filesystem tools. To call one, reply with ONLY a JSON "
+        'object like {"tool": "read_file", "args": {"path": "README.md"}} — '
+        "one call per reply. The result comes back and you continue.",
+        "",
+        "Tools available to you: " + ", ".join(names) + ".",
+        "",
+        "How to work:",
+        "- Look before you leap: list_files / search_files / read_file first.",
+        "- Prefer edit_file over write_file for small changes — it replaces one "
+        "exact snippet and refuses ambiguous matches.",
+        "- Keep edits minimal and in the existing style of the file.",
+        "- When you are done, summarize what you changed in plain language.",
+        "- If a tool returns an error, read it and adjust — don't repeat the "
+        "same failing call.",
+        "- Tool paths are relative to the workspace root — pass \"\" for the "
+        "root itself.",
+        "- Never narrate or fake tool steps — no ⚙ receipt lines, no "
+        "step-by-step recaps. Emit a tool's JSON or plain answer text, nothing "
+        "in between.",
+    ]
+    if focus:
+        try:
+            f = read_file(conn, ws, focus, uid=uid, record=False)
+            lines += ["", f"The user currently has `{focus}` open:",
+                      "```", f["content"][:6000], "```"]
+        except WorkspaceError:
+            pass
+    return "\n".join(lines)
+
+
 def agent_tools(conn, ws, uid):
-    """Tool schemas handed to the LLM when an agent works inside a workspace."""
+    """Tool schemas handed to the LLM when an agent works inside a workspace.
+
+    The set is the full filesystem surface the caller's level allows: read
+    tools for everyone with access, write tools for `write`, and the shell for
+    `admin`. Agents never get more than the human who summoned them.
+    """
     lvl = level_of(conn, ws, uid)
     tools = [
         {"type": "function", "function": {
             "name": "list_files",
-            "description": "List files and folders in the workspace (recursive, 2 levels).",
+            "description": "List files and folders in the workspace (recursive, 2 levels). "
+                           "Use '' for the root.",
             "parameters": {"type": "object", "properties": {
                 "path": {"type": "string", "description": "folder, '' for root"}}}}},
         {"type": "function", "function": {
@@ -580,19 +743,47 @@ def agent_tools(conn, ws, uid):
             "description": "Grep the workspace for a string; returns path:line hits.",
             "parameters": {"type": "object", "properties": {
                 "query": {"type": "string"}}, "required": ["query"]}}},
+        {"type": "function", "function": {
+            "name": "file_info",
+            "description": "Stat a path: size, mtime, whether it is text/image, who last edited it.",
+            "parameters": {"type": "object", "properties": {
+                "path": {"type": "string"}}, "required": ["path"]}}},
     ]
     if _RANK.get(lvl, 0) >= 2:
         tools += [
             {"type": "function", "function": {
                 "name": "write_file",
-                "description": "Create or overwrite a text file with full content.",
+                "description": "Create or overwrite a text file with full content. "
+                               "The previous version is kept as a revision.",
                 "parameters": {"type": "object", "properties": {
                     "path": {"type": "string"}, "content": {"type": "string"},
                     "note": {"type": "string", "description": "one-line summary of the change"}},
                     "required": ["path", "content"]}}},
             {"type": "function", "function": {
+                "name": "edit_file",
+                "description": "Replace an exact substring in a file — cheaper and safer "
+                               "than rewriting the whole file. Fails if `find` is not "
+                               "present exactly once.",
+                "parameters": {"type": "object", "properties": {
+                    "path": {"type": "string"},
+                    "find": {"type": "string", "description": "exact text to replace"},
+                    "replace": {"type": "string", "description": "replacement text"},
+                    "note": {"type": "string"}},
+                    "required": ["path", "find", "replace"]}}},
+            {"type": "function", "function": {
                 "name": "delete_file",
                 "description": "Delete a file or folder from the workspace.",
+                "parameters": {"type": "object", "properties": {
+                    "path": {"type": "string"}}, "required": ["path"]}}},
+            {"type": "function", "function": {
+                "name": "move_file",
+                "description": "Move or rename a file/folder. History follows the file.",
+                "parameters": {"type": "object", "properties": {
+                    "path": {"type": "string"}, "to": {"type": "string"}},
+                    "required": ["path", "to"]}}},
+            {"type": "function", "function": {
+                "name": "make_dir",
+                "description": "Create a folder (parents are created as needed).",
                 "parameters": {"type": "object", "properties": {
                     "path": {"type": "string"}}, "required": ["path"]}}},
         ]
@@ -619,16 +810,33 @@ def run_tool(conn, ws, uid, agent_id, name, args):
             return {"ok": True, "path": r["path"], "content": r["content"][:20000]}
         if name == "search_files":
             return {"ok": True, "hits": search(conn, ws, args.get("query"))}
+        if name == "file_info":
+            return {"ok": True, **file_meta(conn, ws, args.get("path"))}
         if name == "write_file":
             require(conn, ws, uid, "write")
             r = write_file(conn, ws, args.get("path"), args.get("content", ""),
                            uid=uid, agent_id=agent_id, source="agent",
                            note=args.get("note") or "agent edit")
             return {"ok": True, **r}
+        if name == "edit_file":
+            require(conn, ws, uid, "write")
+            return {"ok": True, **edit_file(
+                conn, ws, args.get("path"), args.get("find", ""),
+                args.get("replace", ""), uid=uid, agent_id=agent_id,
+                note=args.get("note") or "agent edit")}
         if name == "delete_file":
             require(conn, ws, uid, "write")
             return {"ok": True, **delete_path(conn, ws, args.get("path"),
                                               uid=uid, agent_id=agent_id)}
+        if name == "move_file":
+            require(conn, ws, uid, "write")
+            return {"ok": True, **move_path(conn, ws, args.get("path"),
+                                             args.get("to"), uid=uid,
+                                             agent_id=agent_id)}
+        if name == "make_dir":
+            require(conn, ws, uid, "write")
+            return {"ok": True, **mkdir(conn, ws, args.get("path"),
+                                         uid=uid, agent_id=agent_id)}
         if name == "run_command":
             require(conn, ws, uid, "admin")
             return {"ok": True, **run_command(conn, ws, args.get("cmd"),
@@ -642,39 +850,99 @@ def run_tool(conn, ws, uid, agent_id, name, args):
         return {"ok": False, "error": f"{type(e).__name__}: {e}"}
 
 
-def parse_tool_calls(text):
-    """Pull tool calls out of a model reply.
+_TOOL_NAMES = frozenset((
+    "list_files", "read_file", "search_files", "file_info",
+    "write_file", "edit_file", "delete_file", "move_file",
+    "make_dir", "run_command"))
 
-    Accepts the OpenAI `tool_calls` shape (handled by the caller) and a plain
-    JSON block the model may emit instead:
-        {"tool": "read_file", "args": {"path": "README.md"}}
-    or a fenced ```json block containing one or a list of those.
-    """
+
+def _json_spans(text):
+    """(start, end) spans of every balanced {...} / [...] region in text,
+    ignoring brackets inside "..." strings."""
+    spans, depth, start, instr, esc = [], 0, -1, False, False
+    for i, ch in enumerate(text):
+        if instr:
+            if esc:
+                esc = False
+            elif ch == "\\":
+                esc = True
+            elif ch == '"':
+                instr = False
+            continue
+        if ch == '"':
+            instr = True
+        elif ch in "{[":
+            if not depth:
+                start = i
+            depth += 1
+        elif ch in "}]" and depth:
+            depth -= 1
+            if not depth:
+                spans.append((start, i + 1))
+    return spans
+
+
+def _call_items(d, out):
+    for it in (d if isinstance(d, list) else [d]):
+        if not isinstance(it, dict):
+            continue
+        name = it.get("tool") or it.get("name") or it.get("function")
+        args = it.get("args") or it.get("arguments") or it.get("parameters") or {}
+        if isinstance(args, str):
+            try:
+                args = json.loads(args)
+            except Exception:
+                args = {}
+        if name in _TOOL_NAMES:
+            out.append({"name": name, "args": args})
+    return out
+
+
+def parse_tool_calls(text):
+    """Pull tool calls out of a model reply — fenced ```json blocks, a reply
+    that is entirely JSON, or inline {"tool":…} objects mixed into prose."""
     if not text:
         return []
-    blocks = re.findall(r"```(?:json)?\s*(\{.*?\}|\[.*?\])\s*```", text, re.S)
-    cands = list(blocks)
+    cands = re.findall(r"```(?:json)?\s*(\{.*?\}|\[.*?\])\s*```", text, re.S)
     stripped = text.strip()
-    if stripped.startswith("{") or stripped.startswith("["):
+    if stripped.startswith(("{", "[")):
         cands.append(stripped)
-    out = []
+    cands += [text[s:e] for s, e in _json_spans(text)]
+    out, seen = [], set()
     for c in cands:
         try:
             d = json.loads(c)
         except Exception:
             continue
-        items = d if isinstance(d, list) else [d]
-        for it in items:
-            if not isinstance(it, dict):
-                continue
-            name = it.get("tool") or it.get("name") or it.get("function")
-            args = it.get("args") or it.get("arguments") or it.get("parameters") or {}
-            if isinstance(args, str):
-                try:
-                    args = json.loads(args)
-                except Exception:
-                    args = {}
-            if name in ("list_files", "read_file", "search_files", "write_file",
-                        "delete_file", "run_command"):
-                out.append({"name": name, "args": args})
+        for call in _call_items(d, []):
+            key = (call["name"], json.dumps(call["args"], sort_keys=True))
+            if key not in seen:
+                seen.add(key)
+                out.append(call)
     return out
+
+
+def strip_tool_calls(text):
+    """Drop inline {"tool":…} JSON blobs from a reply — they already ran, so
+    showing them to humans is just noise."""
+    if not text:
+        return ""
+    out = text
+    for s, e in reversed(_json_spans(text)):
+        try:
+            d = json.loads(text[s:e])
+        except Exception:
+            continue
+        if _call_items(d, []):
+            out = out[:s] + out[e:]
+    out = re.sub(r"[^\S\n]+\n", "\n", out)       # trailing spaces before newlines
+    out = re.sub(r"\n\s*\n\s*\n+", "\n\n", out)  # collapse blank-line runs
+    return out.strip()
+
+# qa save test
+
+# qa save test
+
+# x
+
+# x

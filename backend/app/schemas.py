@@ -247,6 +247,8 @@ class WorkspaceFileIn(BaseModel):
     content: str = ""
     note: str = Field(default="", max_length=200)
     create_only: bool = False
+    base_mtime: float | None = None      # mtime the editor loaded → 409 on conflict
+    force: bool = False                  # overwrite despite a conflict
 
 
 class WorkspacePathIn(BaseModel):
@@ -271,6 +273,7 @@ class WorkspaceAgentIn(BaseModel):
     agent_id: int
     message: str = Field(min_length=1, max_length=4000)
     path: str = ""                                      # file the agent should focus on
+    run_id: str = ""                                    # client-minted id for /agent/stop
 
 
 class AgentConnectIn(BaseModel):

@@ -65,8 +65,29 @@
   Channels wire to a workspace via `channels.workspace_id` (channel edit modal) —
   agents summoned there get the tool prompt and run `read_file`/`write_file`/…
   through `workspace.parse_tool_calls` (JSON `{"tool","args"}` replies).
+  `GET /api/workspaces/{wid}/chat` find-or-creates the workspace's own agent
+  channel (`workspaces.chat_channel_id`, slugified name, `workspace_id` wired) —
+  that channel is the shared Studio↔Chat room every server member can post in,
+  and it is hidden from the sidebar's Agent channels list (`!c.workspace` in
+  `ServerSidebar`) so it only lives inside its workspace.
   Frontend: `components/Workspace.jsx` (tree/editor/diff/history/activity/access +
-  agent desk + terminal), `modals/workspace.jsx` (link a folder).
+  agent desk + terminal; the agent panel's left edge is a drag resizer, width
+  persisted as `st.wspanel`). `modals/workspace.jsx` links a folder.
+  **Chat is an editor tab, not a mode**: `openChat()` pushes a `{kind:"chat"}`
+  tab (sentinel path `CHAT_TAB`) into the same tab list as files, so it opens,
+  closes and switches like any file. `WorkspaceChat` mounts the real `ChatView`
+  on the workspace channel and registers it in `guestchan.js` — App's WS
+  dispatcher then routes message/typing/reaction/read events to it and skips
+  unread badges while it's open (`st:guestchan` clears on mount). In chat mode
+  the file tree + agent desk hide (`.ws-body.chat-mode`) so chat gets full width.
+  The active file is stamped into `workspace_sessions.path` via
+  `POST /api/workspaces/{wid}/focus`; `services._focus_for` reads it so a chat
+  summon hands the agent the same file the agent desk would.
+  Agent toolset (level-gated): `list_files`, `read_file`, `search_files`,
+  `file_info` (read) · `write_file`, `edit_file`, `delete_file`, `move_file`,
+  `make_dir` (write) · `run_command` (admin). `edit_file` replaces exactly one
+  occurrence and refuses missing/ambiguous matches. `workspace.agent_prompt()`
+  is the single shared prompt for both the agent desk and chat summons.
 - QA: `node <browser-automation-skill>/browser.mjs http://localhost:5175 --script qa.mjs`.
   This box has Supabase configured, so QA scripts must click the "crew account" tab
   before filling mike/password. `qa/agent_ws.py` drives the agent tool loop against

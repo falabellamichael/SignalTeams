@@ -2,13 +2,15 @@ import React, { Suspense, lazy, useCallback, useEffect, useRef, useState } from 
 import Ico from "./components/Ico";
 import { api, getToken, setToken } from "./api";
 import { connectWS, disconnectWS, onWS, sendWS } from "./ws";
-import { onVoice, leaveVoice, toggleVoiceMute, toggleDeafen } from "./voice";
+import { getGuestChans, isGuestChan } from "./guestchan";
+import { onVoice, joinVoice, leaveVoice, toggleVoiceMute, toggleDeafen, toggleShare, toggleCam } from "./voice";
 import Rail from "./components/Rail";
 import { HomeSidebar, ServerSidebar, MeBar, VoiceConnectedBar } from "./components/Sidebar";
 import Bell from "./components/Bell";
 
 const Login = lazy(() => import("./components/Login"));
 const ChatView = lazy(() => import("./components/ChatView"));
+const VoiceRoom = lazy(() => import("./components/VoiceRoom"));
 const Library = lazy(() => import("./components/Library"));
 const Buzz = lazy(() => import("./components/Buzz"));
 const Friends = lazy(() => import("./components/Friends"));
@@ -265,9 +267,18 @@ export default function App() {
         setOnlineIds(evt.online);
       } else if (evt.type === "message") {
         const ch = channelRef.current;
+        const guests = getGuestChans().filter((g) => g.id === evt.channel_id);
         const isActive = ch && ch.id === evt.channel_id;
+        const guestActive = guests.length > 0;
         if (isActive && ch._onMsg) ch._onMsg(evt.message);
-        if (!isActive) {
+        for (const g of guests) {
+          if (g._onMsg) g._onMsg(evt.message);
+        }
+        if (guestActive) {
+          setUnread((u) => u[evt.channel_id] ? { ...u, [evt.channel_id]: 0 } : u);
+          setMentions((mp) => mp[evt.channel_id] ? { ...mp, [evt.channel_id]: 0 } : mp);
+        }
+        if (!isActive && !guestActive) {
           setUnread((u) => ({ ...u, [evt.channel_id]: (u[evt.channel_id] || 0) + 1 }));
           if (evt.mentions?.includes(me.id))
             setMentions((mp) => ({ ...mp, [evt.channel_id]: (mp[evt.channel_id] || 0) + 1 }));
@@ -277,15 +288,23 @@ export default function App() {
       } else if (evt.type === "message_deleted") {
         const ch = channelRef.current;
         if (ch && ch.id === evt.channel_id && ch._onDel) ch._onDel(evt.id);
+        for (const g of getGuestChans())
+          if (g.id === evt.channel_id && g._onDel) g._onDel(evt.id);
       } else if (evt.type === "reaction") {
         const ch = channelRef.current;
         if (ch && ch.id === evt.channel_id && ch._onReact) ch._onReact(evt.message_id, evt.reactions);
+        for (const g of getGuestChans())
+          if (g.id === evt.channel_id && g._onReact) g._onReact(evt.message_id, evt.reactions);
       } else if (evt.type === "message_updated") {
         const ch = channelRef.current;
         if (ch && ch.id === evt.channel_id && ch._onUpdate) ch._onUpdate(evt.message);
+        for (const g of getGuestChans())
+          if (g.id === evt.channel_id && g._onUpdate) g._onUpdate(evt.message);
       } else if (evt.type === "typing") {
         const ch = channelRef.current;
         if (ch && ch.id === evt.channel_id && ch._onTyping) ch._onTyping(evt.user, evt.on);
+        for (const g of getGuestChans())
+          if (g.id === evt.channel_id && g._onTyping) g._onTyping(evt.user, evt.on);
         const u = evt.user;
         if (u && u.id !== meRef.current?.id) {
           const key = `${evt.channel_id}:${u.id}`;
@@ -303,7 +322,7 @@ export default function App() {
           }
           setDmTyping((t) => {
             const cur = { ...(t[evt.channel_id] || {}) };
-            if (evt.on) cur[u.id] = u.display_name || u.username; else delete cur[u.id];
+            if (evt.on) cur[u.id] = u; else delete cur[u.id];
             const next = { ...t };
             Object.keys(cur).length ? next[evt.channel_id] = cur : delete next[evt.channel_id];
             return next;
@@ -312,6 +331,8 @@ export default function App() {
       } else if (evt.type === "read") {
         const ch = channelRef.current;
         if (ch && ch.id === evt.channel_id && ch._onRead) ch._onRead(evt.user_id, evt.ts);
+        for (const g of getGuestChans())
+          if (g.id === evt.channel_id && g._onRead) g._onRead(evt.user_id, evt.ts);
       } else if (evt.type === "buzz") {
         setRefresh((r) => r + 1);
       } else if (evt.type === "status") {
@@ -351,6 +372,18 @@ export default function App() {
 
   // ---- actions ----
 
+  // opening the workspace Chat tab clears that channel's badges
+  useEffect(() => {
+    const h = (e) => {
+      const cid = e.detail?.id;
+      if (!cid) return;
+      setUnread((u) => ({ ...u, [cid]: 0 }));
+      setMentions((mp) => ({ ...mp, [cid]: 0 }));
+    };
+    window.addEventListener("st:guestchan", h);
+    return () => window.removeEventListener("st:guestchan", h);
+  }, []);
+
   function maybeNotify(evt) {
     if (localStorage.getItem("signalteams.notifs") === "0") return;
     if (!("Notification" in window) || Notification.permission !== "granted") return;
@@ -361,7 +394,9 @@ export default function App() {
     if (!pinged && !isDm) return;
     if (srvMutedSet.has(chanServer.current[evt.channel_id])) return; // muted server
     if (!pinged && me.notify_mentions?.includes(evt.channel_id)) return; // mention-only channel
-    if (!document.hidden && channelRef.current?.id === evt.channel_id) return;
+    const watching = channelRef.current?.id === evt.channel_id
+      || isGuestChan(evt.channel_id);
+    if (!document.hidden && watching) return;
     const n = new Notification(
       pinged ? `${m.author?.display_name} mentioned you` : (m.author?.display_name || "SignalTeams"),
       { body: (m.content || "📎 attachment").slice(0, 120),
@@ -620,7 +655,43 @@ export default function App() {
     <Workspace workspace={wsOpen} me={me} agents={wsAgents}
       members={server?.members || []}
       onClose={() => setWsOpen(null)}
-      onOpenAgent={openAgent} />
+      onOpenAgent={openAgent}
+      chat={{
+        server, me, members, emojis: server?.emojis || [], roles: server?.roles || [],
+        channels: server?.channels || [], blocked, onDm: openDm,
+        onAgentOpen: openAgent, onPackOpen: openPack,
+        onShareAgent: () => setModal({ kind: "share", agent: null }),
+        onUserOpen: (u) => setModal({ kind: "profile", user: u }),
+        onForward: (m) => setModal({ kind: "forward", msg: m }),
+        onFwdJump: openChannelById,
+      }} />
+  );
+  else if (channel?.kind === "voice") main = (
+    <VoiceRoom
+      channel={channel}
+      server={server}
+      me={me}
+      voice={voice}
+      onJoinVoice={(cid) => joinVoice(cid, me)}
+      onLeaveVoice={leaveVoice}
+      onToggleMute={toggleVoiceMute}
+      onToggleDeafen={toggleDeafen}
+      onToggleShare={toggleShare}
+      onToggleCam={toggleCam}
+      onUserOpen={(u) => setModal({ kind: "profile", user: u })}
+      onDm={openDm}
+      members={members}
+      emojis={server?.emojis || []}
+      roles={server?.roles || []}
+      channels={server?.channels || []}
+      onAgentOpen={openAgent}
+      onPackOpen={openPack}
+      onShareAgent={() => setModal({ kind: "share", agent: null })}
+      onForward={(m) => setModal({ kind: "forward", msg: m })}
+      onFwdJump={openChannelById}
+      focusMsg={focusMsg}
+      blocked={blocked}
+    />
   );
   else if (channel) main = (
     <ChatView channel={channel} server={server} onDm={openDm} members={members} me={me} blocked={blocked}
@@ -659,7 +730,7 @@ export default function App() {
 
   const title = wsOpen ? `${wsOpen.icon} ${wsOpen.name} — workspace`
     : dmChannel ? `@ ${channel.name}`
-    : channel ? `${channel.kind === "agents" ? "✦" : "#"} ${channel.name}`
+    : channel ? `${channel.kind === "agents" ? "✦" : channel.kind === "voice" ? "🔊" : channel.kind === "forum" ? "📋" : "#"} ${channel.name}`
     : { buzz: "🐝 The Buzz", library: "🧰 Agent Library", bench: "⭐ My Bench", friends: "👥 Friends", saved: "🔖 Saved" }[view] || "SignalTeams";
 
   return (
@@ -679,11 +750,11 @@ export default function App() {
       <div className={`side-wrap ${sideOpen ? "open" : ""}`}
         style={{ display: "flex", flexDirection: "column", flexShrink: 0 }}>
         {server ? (
-          <ServerSidebar server={server} channel={channel} me={me}
+          <ServerSidebar server={server} channel={channel} me={me} voice={voice} onJoinVoice={(cid) => joinVoice(cid, me)}
             onChannel={(c) => { selectChannel(c); closeSide(); }} unread={visUnread}
             mentions={visMentions}
             muted={mutedSet} mentionsOnly={mentionSet} onToggleMute={cycleNotify}
-            voiceRosters={voice.rosters || {}}
+            voiceRosters={voice.rosters || {}} typingMap={dmTyping}
             onAddChannel={(kind) => setModal({ kind: "channel", channelKind: kind })}
             onEditChannel={(c) => setModal({ kind: "chanedit", channel: c, channelKind: c.kind })}
             onMoveChannel={moveChannel}

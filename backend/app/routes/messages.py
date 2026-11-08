@@ -345,9 +345,24 @@ async def post_message(cid: int, body: MessageIn, user=Depends(current_user)):
     for a in hit_agents[:2]:
         key = (a["id"], cid)
         if time.time() - _agent_cool.get(key, 0) < 8:
+            # summon landed but the agent is on cooldown — surface it instead
+            # of silently dropping (the typer auto-clears after ~7s)
+            slug = re.sub(r"[^a-z0-9]+", "", a["name"].lower())[:24] or f"a{a['id']}"
+            await hub.send_many(members, {
+                "type": "typing", "channel_id": cid, "on": True,
+                "user": {"id": f"agent:{slug}", "display_name": a["name"],
+                         "bot": True, "phase": "cooling down"}})
             continue
         _agent_cool[key] = time.time()
         asyncio.create_task(agent_reply(cid, a["id"], user["id"], m["id"]))
+    for a in hit_agents[2:]:
+        # past the 2-summons-per-message cap — show the skip rather than
+        # silently ignoring the mention (auto-clears like the cooldown notice)
+        slug = re.sub(r"[^a-z0-9]+", "", a["name"].lower())[:24] or f"a{a['id']}"
+        await hub.send_many(members, {
+            "type": "typing", "channel_id": cid, "on": True,
+            "user": {"id": f"agent:{slug}", "display_name": a["name"],
+                     "bot": True, "phase": "skipped — 2 replies max"}})
     # lurking residents — ambient replies in agent channels, no summon needed.
     # One lurker per message, 60s shared cooldown, only when nobody was @-summoned.
     if (not silent and not hit_agents and not body.thread_root

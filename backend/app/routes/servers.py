@@ -481,7 +481,7 @@ def server_from_template(body: dict, user=Depends(current_user)):
             {"name": "general", "kind": "text", "topic": "", "category": "",
              "position": 0, "slowmode_secs": 0, "voice_cap": 0, "role_name": None}]
         for c in chans:
-            kind = c["kind"] if c["kind"] in ("text", "agents", "forum") else "text"
+            kind = c["kind"] if c["kind"] in ("text", "agents", "forum", "voice") else "text"
             conn.execute(
                 "INSERT INTO channels(server_id, kind, name, topic, position, category, "
                 "slowmode_secs, voice_cap, role_id, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
@@ -652,7 +652,7 @@ def add_channel(sid: int, body: ChannelIn, user=Depends(current_user)):
                 "SELECT 1 FROM server_roles WHERE id=? AND server_id=?",
                 (body.role_id, sid)).fetchone():
             raise HTTPException(404, "No such role")
-        kind = body.kind if body.kind in ("text", "agents", "forum") else "text"
+        kind = body.kind if body.kind in ("text", "agents", "forum", "voice") else "text"
         ftags = [t.strip()[:24] for t in body.forum_tags[:10] if str(t).strip()]
         cur = conn.execute(
             "INSERT INTO channels(server_id, kind, name, topic, position, roster, lurkers, category, role_id, voice_cap, forum_tags, created_at) "
@@ -810,6 +810,8 @@ async def del_channel(cid: int, user=Depends(current_user)):
         if left <= 1:
             raise HTTPException(400, "A server needs at least one channel")
         conn.execute("DELETE FROM channels WHERE id=?", (cid,))
+        conn.execute("UPDATE workspaces SET chat_channel_id=NULL "
+                     "WHERE chat_channel_id=?", (cid,))
         audit(conn, ch["server_id"], user["id"], "channel.delete", f"#{ch['name']}")
         sid = ch["server_id"]
     with db() as conn:
