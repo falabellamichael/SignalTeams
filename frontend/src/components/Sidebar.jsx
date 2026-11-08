@@ -104,7 +104,7 @@ function MuteBtn({ state = 0, onToggle }) {
   );
 }
 
-export function ServerSidebar({ server, channel, me, onChannel, onAddChannel, onEditChannel, onServerSettings, onMoveChannel, onToggleSrvMute, srvMuted, onEvents, evCount = 0, unread = {}, mentions = {}, muted, mentionsOnly, onToggleMute, voiceRosters = {} }) {
+export function ServerSidebar({ server, channel, me, onChannel, onAddChannel, onEditChannel, onServerSettings, onMoveChannel, onToggleSrvMute, srvMuted, onEvents, evCount = 0, unread = {}, mentions = {}, muted, mentionsOnly, onToggleMute, voiceRosters = {}, workspaces = [], activeWs, onWorkspace, onNewWorkspace }) {
   const text = server.channels.filter((c) => c.kind === "text" || c.kind === "forum");
   const agentCh = server.channels.filter((c) => c.kind === "agents");
   const [copied, setCopied] = React.useState(false);
@@ -205,6 +205,27 @@ export function ServerSidebar({ server, channel, me, onChannel, onAddChannel, on
           <span className="ch-cnt">{agentCh.length}</span>
           <span className="add" onClick={() => onAddChannel("agents")}><Ico n="plus" s={13} /></span></div>
         {agentCh.map((c) => chRow(c, true))}
+        {(workspaces.length > 0 || owner) && (
+          <>
+            <div className="side-group">Workspaces
+              <span className="ch-cnt">{workspaces.length}</span>
+              {owner && <span className="add" title="Link a folder on this machine"
+                onClick={() => onNewWorkspace?.()}><Ico n="plus" s={13} /></span>}</div>
+            {workspaces.map((w) => (
+              <div key={w.id} className={`nav-item ws-nav ${activeWs === w.id ? "on" : ""}`}
+                onClick={() => onWorkspace?.(w)} title={`${w.root} — ${w.files} files`}>
+                <span className="ch-hash">{w.icon}</span>
+                <span className="txt">{w.name}</span>
+                <span className={`ws-lvl-mini ${w.level}`} title={`your access: ${w.level}`}>
+                  {w.level === "admin" ? "🛡" : w.level === "write" ? "✏️" : "👁"}</span>
+              </div>
+            ))}
+            {workspaces.length === 0 && (
+              <div style={{ fontSize: 11.5, color: "var(--dim)", padding: "2px 8px" }}>
+                No workspaces — link a folder so agents can edit real files.</div>
+            )}
+          </>
+        )}
       </div>
     </div>
   );

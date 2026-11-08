@@ -128,22 +128,59 @@ def hook_info(token: str):
 
 
 def _hook_text(body):
-    """Normalize Discord/Slack/generic payloads to (content, username, parse)."""
+    """Normalize Discord/Slack/generic payloads to (content, username, parse, embed)."""
     if isinstance(body, str):
-        return body, "", set()
+        return body, "", set(), None
     if not isinstance(body, dict):
-        return "", "", set()
+        return "", "", set(), None
     text = str(body.get("content") or body.get("text") or
                body.get("message") or body.get("msg") or "")
     uname = str(body.get("username") or body.get("name") or "")[:80]
-    for e in body.get("embeds") or []:
-        if not isinstance(e, dict):
-            continue
-        parts = [f"**{e['title']}**" if e.get("title") else "",
-                 str(e.get("description") or ""), str(e.get("url") or "")]
-        parts += [f"**{f.get('name', '')}:** {f.get('value', '')}"
-                  for f in (e.get("fields") or []) if isinstance(f, dict)]
-        text += "\n" + "\n".join(p for p in parts if p)
+    embed = None
+    embeds = body.get("embeds") or []
+    if isinstance(body.get("embed"), dict):
+        embeds = [body["embed"]] + (embeds if isinstance(embeds, list) else [])
+    if isinstance(embeds, list) and embeds and isinstance(embeds[0], dict):
+        e = embeds[0]
+        raw_color = e.get("color")
+        color = None
+        if isinstance(raw_color, int):
+            color = f"#{raw_color:06x}"
+        elif isinstance(raw_color, str) and raw_color.strip():
+            color = raw_color.strip() if raw_color.strip().startswith("#") else f"#{raw_color.strip()}"
+
+        embed = {
+            "type": "rich",
+            "title": str(e.get("title") or "")[:256] or None,
+            "description": str(e.get("description") or "")[:4000] or None,
+            "url": str(e.get("url") or "")[:1000] or None,
+            "color": color,
+            "author": {
+                "name": str(e["author"].get("name", ""))[:256],
+                "icon_url": str(e["author"].get("icon_url", ""))[:1000],
+                "url": str(e["author"].get("url", ""))[:1000]
+            } if isinstance(e.get("author"), dict) else None,
+            "fields": [
+                {
+                    "name": str(f.get("name", ""))[:256],
+                    "value": str(f.get("value", ""))[:1024],
+                    "inline": bool(f.get("inline", False))
+                }
+                for f in (e.get("fields") or []) if isinstance(f, dict)
+            ][:25],
+            "thumbnail": {"url": str(e["thumbnail"].get("url", ""))[:1000]}
+                if isinstance(e.get("thumbnail"), dict) and e["thumbnail"].get("url") else None,
+            "image": {"url": str(e["image"].get("url", ""))[:1000]}
+                if isinstance(e.get("image"), dict) and e["image"].get("url") else None,
+            "footer": {
+                "text": str(e["footer"].get("text", ""))[:2048],
+                "icon_url": str(e["footer"].get("icon_url", ""))[:1000]
+            } if isinstance(e.get("footer"), dict) else None,
+            "timestamp": str(e.get("timestamp") or "")[:64] or None
+        }
+        if not any([embed["title"], embed["description"], embed["fields"], embed["image"], embed["author"]]):
+            embed = None
+
     am = body.get("allowed_mentions")
     if isinstance(am, dict):
         parse = {str(x).lower() for x in (am.get("parse") or [])}
@@ -151,7 +188,7 @@ def _hook_text(body):
             parse.add("users")
     else:
         parse = {str(x).lower() for x in am} if isinstance(am, list) else set()
-    return text, uname, parse
+    return text, uname, parse, embed
 
 
 @router.post("/api/hooks/{token}")
@@ -189,10 +226,10 @@ async def post_hook(token: str, request: Request):
         else:
             body = raw.decode("utf-8", "replace").strip()
 
-    content, uname, parse = _hook_text(body)
+    content, uname, parse, embed = _hook_text(body)
     content = content.strip()[:3600]
-    if not content:
-        raise HTTPException(400, "Nothing to post — send {content|text|message}")
+    if not content and not embed:
+        raise HTTPException(400, "Nothing to post — send {content|text|message|embeds}")
 
     with db() as conn:
         ch = conn.execute("SELECT * FROM channels WHERE id=?",
@@ -202,9 +239,9 @@ async def post_hook(token: str, request: Request):
         bot = hook_bot_user(conn, h)
         members = channel_member_ids(conn, ch)
         cur = conn.execute(
-            "INSERT INTO messages(channel_id, author_id, content, webhook_id, author_name, "
-            "created_at) VALUES (?,?,?,?,?,?)",
-            (ch["id"], bot["id"], content, h["id"], uname or None, now()))
+            "INSERT INTO messages(channel_id, author_id, content, webhook_id, author_name, embed, "
+            "created_at) VALUES (?,?,?,?,?,?,?)",
+            (ch["id"], bot["id"], content, h["id"], uname or None, json.dumps(embed) if embed else None, now()))
         mid = cur.lastrowid
         conn.execute("UPDATE channel_hooks SET uses=uses+1, last_used=? WHERE id=?",
                      (now(), h["id"]))

@@ -20,5 +20,9 @@ export const SLASH_COMMANDS = [
   { cmd: "shrug", icon: "🤷", usage: "", desc: "¯\\_(ツ)_/¯" },
   { cmd: "tableflip", icon: "😤", usage: "", desc: "(╯°□°)╯︵ ┻━┻" },
   { cmd: "unflip", icon: "🙂", usage: "", desc: "┬─┬ ノ( ゜-゜ノ)" },
+  { cmd: "flip", icon: "🪙", usage: "", desc: "flip a coin (Heads or Tails)" },
+  { cmd: "spoiler", icon: "👁️", usage: "<text>", desc: "send text wrapped in ||spoiler||" },
+  { cmd: "nick", icon: "✏️", usage: "<name>", desc: "change your server nickname" },
+  { cmd: "slowmode", icon: "🐌", usage: "<seconds>", desc: "set channel slowmode (0-21600)" },
 ];
 

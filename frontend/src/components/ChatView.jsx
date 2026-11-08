@@ -11,7 +11,7 @@ import { ThreadPanel } from "./chat/ThreadPanel";
 import { ForumFeed } from "./chat/ForumView";
 import { MessageAiModal } from "./modals/aimessage";
 
-export default function ChatView({ channel, members, me, emojis, roles, channels = [], onAgentOpen, onPackOpen, onShareAgent, onUserOpen, onForward, onFwdJump, focusMsg, newSince = 0, onGroupAdd, onGroupRename, blocked, onMarkUnread }) {
+export default function ChatView({ channel, members, me, emojis, roles, channels = [], onAgentOpen, onPackOpen, onShareAgent, onUserOpen, onForward, onFwdJump, focusMsg, newSince = 0, onGroupAdd, onGroupRename, blocked, onMarkUnread, onWorkspace }) {
   const [msgs, setMsgs] = useState([]);
   const [draft, setDraft] = useState("");
   const [atts, setAtts] = useState([]);
@@ -277,6 +277,8 @@ export default function ChatView({ channel, members, me, emojis, roles, channels
     if (v === "/shrug") return "¯\\_(ツ)_/¯";
     if (v === "/tableflip") return "(╯°□°)╯︵ ┻━┻";
     if (v === "/unflip") return "┬─┬ ノ( ゜-゜ノ)";
+    if (v === "/flip") return Math.random() < 0.5 ? "🪙 flipped a coin: **Heads**!" : "🪙 flipped a coin: **Tails**!";
+    if (v.startsWith("/spoiler ")) return "||" + v.slice(9).trim() + "||";
     if (v.startsWith("/me ")) return "*" + v.slice(4).trim() + "*";
     const r = v.match(/^\/roll(?:\s+(\d*)d(\d+))?$/i);
     if (r) {
@@ -324,6 +326,27 @@ export default function ChatView({ channel, members, me, emojis, roles, channels
       setDraft("");
       try {
         await api.remind(channel.id, +rem[1] * mult, rem[3].trim());
+        setSendErr("");
+      } catch (e) { setDraft(v); setSendErr(e.message); }
+      return;
+    }
+    const nick = v.match(/^\/nick(?:\s+(.+))?$/i);
+    if (nick) {
+      if (!channel.server_id) { setSendErr("Nicknames can only be set in servers"); return; }
+      setDraft("");
+      try {
+        const newNick = nick[1]?.trim() || "";
+        await api.setNick(channel.server_id, newNick);
+        setSendErr("");
+      } catch (e) { setDraft(v); setSendErr(e.message); }
+      return;
+    }
+    const sm = v.match(/^\/slowmode(?:\s+(\d+))?$/i);
+    if (sm) {
+      const s = Math.max(0, Math.min(parseInt(sm[1] || "0", 10), 21600));
+      setDraft("");
+      try {
+        await api.editChannel(channel.id, { slowmode_secs: s });
         setSendErr("");
       } catch (e) { setDraft(v); setSendErr(e.message); }
       return;
@@ -454,7 +477,8 @@ export default function ChatView({ channel, members, me, emojis, roles, channels
         )}
         <ChannelTools channel={channel} me={me} onAgentOpen={onAgentOpen}
           onPackOpen={onPackOpen} onJump={jumpTo}
-          voice={voice} onJoinCall={joinCall} onLeaveCall={leaveVoice} />
+          voice={voice} onJoinCall={joinCall} onLeaveCall={leaveVoice}
+          onWorkspace={onWorkspace} />
         {voice.joined && voice.channelId === channel.id ? (
           <div className="voice-bar in">
             <span className="vb-ico"><Ico n="phones" s={17} /></span>

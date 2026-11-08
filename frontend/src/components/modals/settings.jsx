@@ -10,6 +10,8 @@ export function SettingsModal({ me, theme, onTheme, onClose, onSaved, onLogout }
     avatar_emoji: me.avatar_emoji, avatar_color: me.avatar_color, status: me.status,
     status_text: me.status_text || "",
     keywords: (me.keywords || []).join(", "),
+    banner_color: me.banner_color || "",
+    pronouns: me.pronouns || "",
   });
   const [acct, setAcct] = useState(me);        // fresh flags from /api/me
   const [density, setDensity] = useState(localStorage.getItem("st.density") || "cozy");
@@ -157,6 +159,18 @@ export function SettingsModal({ me, theme, onTheme, onClose, onSaved, onLogout }
       </div>
       <label>Display name</label>
       <input value={f.display_name} onChange={(e) => setF({ ...f, display_name: e.target.value })} />
+      <label>Pronouns <span style={{ color: "var(--dim)", fontWeight: 400 }}>(e.g. they/them, she/her, he/him)</span></label>
+      <input value={f.pronouns} onChange={(e) => setF({ ...f, pronouns: e.target.value })}
+        placeholder="they/them" maxLength={32} />
+      <label>Banner color <span style={{ color: "var(--dim)", fontWeight: 400 }}>(profile header)</span></label>
+      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        <input type="color" value={f.banner_color && /^#[0-9a-f]{6}$/i.test(f.banner_color) ? f.banner_color : "#4da3ff"}
+          style={{ width: 44, height: 32, padding: 2, cursor: "pointer", background: "none" }}
+          onChange={(e) => setF({ ...f, banner_color: e.target.value })} />
+        <input value={f.banner_color}
+          placeholder="#4da3ff or #5865f2" maxLength={24}
+          onChange={(e) => setF({ ...f, banner_color: e.target.value })} style={{ flex: 1 }} />
+      </div>
       <label>Custom status <span style={{ color: "var(--dim)", fontWeight: 400 }}>(what you're up to)</span></label>
       <input value={f.status_text} onChange={(e) => setF({ ...f, status_text: e.target.value })}
         placeholder="🎮 grinding ranked…" maxLength={80} />

@@ -21,7 +21,7 @@ const AUDIT_LABEL = {
   "message.delete": "deleted a message in",
 };
 
-export function ServerSettingsModal({ server, me, onClose, onSaved, onDeleted, onLeft, onKick, onBan, onTimeout, onTransfer }) {
+export function ServerSettingsModal({ server, me, onClose, onSaved, onDeleted, onLeft, onKick, onBan, onTimeout, onTransfer, onOpenWorkspace, onNewWorkspace }) {
   const owner = server.owner_id === me?.id;
   const [name, setName] = useState(server.name);
   const [icon, setIcon] = useState(server.icon);
@@ -67,6 +67,10 @@ export function ServerSettingsModal({ server, me, onClose, onSaved, onDeleted, o
     max_mentions: server.automod?.max_mentions || 0,
   });
   const [amMsg, setAmMsg] = useState("");
+  const [wsList, setWsList] = useState(null);
+  useEffect(() => {
+    if (owner) api.workspaces(server.id).then(setWsList).catch(() => setWsList([]));
+  }, [owner, server.id]);
   useEffect(() => {
     if (owner && auditOpen && audit === null) {
       api.serverAudit(server.id)
@@ -447,6 +451,38 @@ export function ServerSettingsModal({ server, me, onClose, onSaved, onDeleted, o
               ))}
             </div>
           )}
+          <label>🗂 Workspaces <span style={{ color: "var(--dim)", fontWeight: 400 }}>
+            (folders on this machine your crew and its agents can edit)</span></label>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 8 }}>
+            {wsList === null && <div className="idehint">Loading…</div>}
+            {(wsList || []).map((w) => (
+              <div key={w.id} className="pack-agent" style={{ cursor: "default" }}>
+                <span className="pk-ico big">{w.icon}</span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <b>{w.name}</b>
+                  <div style={{ fontSize: 11, color: "var(--dim)", fontFamily: "ui-monospace, Consolas, monospace",
+                    overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{w.root}</div>
+                  <div style={{ fontSize: 11, color: "var(--dim)" }}>
+                    {w.files} tracked file{w.files === 1 ? "" : "s"} · {w.grants.length} grant{w.grants.length === 1 ? "" : "s"}
+                    {w.last && <> · last: {w.last.agent || w.last.actor || "?"} {w.last.action} {w.last.path}</>}
+                  </div>
+                </div>
+                <span className="stat xfer" title="Open workspace"
+                  onClick={() => onOpenWorkspace?.(w)}>open</span>
+                <span className="stat kick" title="Unlink (folder stays on disk)" onClick={async () => {
+                  if (!confirm(`Unlink workspace "${w.name}"? The folder on disk is not touched.`)) return;
+                  await api.delWorkspace(w.id).catch((e) => (setMsg(e.message), null));
+                  setWsList((x) => (x || []).filter((z) => z.id !== w.id));
+                }}><Ico n="x" s={11} /></span>
+              </div>
+            ))}
+            {wsList && wsList.length === 0 && (
+              <div className="idehint">
+                No workspaces yet — link a folder and agents summoned in a wired channel can read and edit it.
+              </div>
+            )}
+            <button onClick={() => onNewWorkspace?.()}><Ico n="plus" s={12} /> link a folder</button>
+          </div>
           <label style={{ cursor: "pointer", userSelect: "none" }}
             onClick={() => setAuditOpen((o) => !o)}>
             <Ico n={auditOpen ? "caretD" : "caretR"} s={11} /> Audit log{" "}

@@ -4,7 +4,7 @@ import { api } from "../../api";
 import { timeAgo, hasSearchQuery } from "../../util";
 import { AgentShareCard, PackShareCard } from "../AgentCard";
 
-export function ChannelTools({ channel, me, onAgentOpen, onPackOpen, onJump, voice, onJoinCall, onLeaveCall }) {
+export function ChannelTools({ channel, me, onAgentOpen, onPackOpen, onJump, voice, onJoinCall, onLeaveCall, onWorkspace }) {
   const [open, setOpen] = useState(null);     // "search" | "pins" | null
   const [q, setQ] = useState("");
   const [hits, setHits] = useState([]);
@@ -38,6 +38,12 @@ export function ChannelTools({ channel, me, onAgentOpen, onPackOpen, onJump, voi
 
   return (
     <div className="ch-tools">
+      {channel.workspace && (
+        <button className="ghost ws-chip" title={`Open workspace ${channel.workspace.name} — agents here can edit its files`}
+          onClick={() => onWorkspace?.(channel.workspace)}>
+          {channel.workspace.icon} {channel.workspace.name}
+        </button>
+      )}
       <button className={`ghost ${open === "search" ? "on" : ""}`} title="Search channel"
         onClick={() => setOpen(open === "search" ? null : "search")}><Ico n="search" /></button>
       <button className={`ghost ${open === "pins" ? "on" : ""}`} title="Pinned messages"

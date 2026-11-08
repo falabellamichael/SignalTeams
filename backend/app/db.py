@@ -307,6 +307,74 @@ CREATE TABLE IF NOT EXISTS events (                      -- scheduled server eve
     created_at  REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_events_server ON events(server_id, starts_at);
+
+-- ---------- workspaces: shared folders agents can read/write ----------
+CREATE TABLE IF NOT EXISTS workspaces (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    server_id   INTEGER NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+    name        TEXT NOT NULL,
+    icon        TEXT NOT NULL DEFAULT '🗂',
+    root        TEXT NOT NULL,                          -- absolute folder on the host
+    description TEXT NOT NULL DEFAULT '',
+    created_by  INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at  REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_workspaces_server ON workspaces(server_id);
+
+CREATE TABLE IF NOT EXISTS workspace_files (            -- one row per tracked path
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    workspace_id INTEGER NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    path         TEXT NOT NULL,                         -- posix, relative to root
+    size         INTEGER NOT NULL DEFAULT 0,
+    mtime        REAL NOT NULL DEFAULT 0,
+    updated_by   INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    updated_at   REAL NOT NULL DEFAULT 0,
+    UNIQUE(workspace_id, path)
+);
+
+CREATE TABLE IF NOT EXISTS workspace_revisions (        -- every write keeps the old bytes
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    workspace_id INTEGER NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    path         TEXT NOT NULL,
+    content      TEXT NOT NULL DEFAULT '',
+    size         INTEGER NOT NULL DEFAULT 0,
+    author_id    INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    agent_id     INTEGER REFERENCES agents(id) ON DELETE SET NULL,
+    source       TEXT NOT NULL DEFAULT 'human',         -- human | agent | restore
+    note         TEXT NOT NULL DEFAULT '',
+    created_at   REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_wrev_path ON workspace_revisions(workspace_id, path, id DESC);
+
+CREATE TABLE IF NOT EXISTS workspace_grants (           -- who may do what, per workspace
+    workspace_id INTEGER NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    user_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    level        TEXT NOT NULL DEFAULT 'read',          -- read | write | admin
+    granted_by   INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    created_at   REAL NOT NULL,
+    PRIMARY KEY (workspace_id, user_id)
+);
+
+CREATE TABLE IF NOT EXISTS workspace_sessions (         -- live editor presence
+    workspace_id INTEGER NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    user_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    path         TEXT NOT NULL DEFAULT '',
+    last_seen    REAL NOT NULL,
+    PRIMARY KEY (workspace_id, user_id)
+);
+
+CREATE TABLE IF NOT EXISTS workspace_audit (            -- every agent/human file action
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    workspace_id INTEGER NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    actor_id     INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    agent_id     INTEGER REFERENCES agents(id) ON DELETE SET NULL,
+    action       TEXT NOT NULL,                         -- read | write | create | delete | move | exec | grant
+    path         TEXT NOT NULL DEFAULT '',
+    detail       TEXT NOT NULL DEFAULT '',
+    ok           INTEGER NOT NULL DEFAULT 1,
+    created_at   REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_waudit_ws ON workspace_audit(workspace_id, id DESC);
 """
 
 
@@ -392,6 +460,9 @@ def init():
             ("users.keywords", "ALTER TABLE users ADD COLUMN keywords TEXT NOT NULL DEFAULT '[]'"),
             ("channels.forum_tags", "ALTER TABLE channels ADD COLUMN forum_tags TEXT NOT NULL DEFAULT '[]'"),
             ("messages.tags", "ALTER TABLE messages ADD COLUMN tags TEXT NOT NULL DEFAULT '[]'"),
+            ("users.banner_color", "ALTER TABLE users ADD COLUMN banner_color TEXT NOT NULL DEFAULT ''"),
+            ("users.pronouns", "ALTER TABLE users ADD COLUMN pronouns TEXT NOT NULL DEFAULT ''"),
+            ("channels.workspace_id", "ALTER TABLE channels ADD COLUMN workspace_id INTEGER"),
         ]:
             table, c = col.split(".")
             try:

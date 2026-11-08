@@ -1,0 +1,680 @@
+"""Workspace filesystem layer — sandboxed read/write for humans and agents.
+
+A workspace is a folder on the host machine that a server's members (and the
+agents they summon) can browse and edit. Every path is resolved *inside* the
+workspace root: `..`, absolute paths, symlinks that escape, and reserved
+names are all rejected before any I/O happens.
+
+Permission model (per workspace, per user):
+    read   — list + read files, see history
+    write  — read + create/edit/delete/move files
+    admin  — write + run commands + manage grants
+The server owner is always admin. Agents inherit the level of the human who
+summoned them, so an agent can never do more than the person talking to it.
+"""
+import difflib
+import json
+import os
+import re
+import shutil
+import subprocess
+import time
+
+from .config import (WORKSPACE_EXEC, WORKSPACE_EXEC_TIMEOUT, WORKSPACE_MAX_BYTES,
+                     WORKSPACE_MAX_FILES, WORKSPACE_ROOTS)
+from .db import now
+
+LEVELS = ("read", "write", "admin")
+_RANK = {"read": 1, "write": 2, "admin": 3}
+
+# never listed, never readable — keeps secrets and VCS noise out of the tree
+HIDDEN_DIRS = {".git", ".hg", ".svn", "node_modules", "__pycache__", ".venv",
+               "venv", ".idea", ".vscode", "dist", "build", ".next", ".cache"}
+HIDDEN_FILES = {".env", ".env.local", ".env.production", "id_rsa", "id_ed25519",
+                ".npmrc", ".netrc", ".git-credentials"}
+TEXT_EXT = {
+    ".txt", ".md", ".markdown", ".rst", ".py", ".js", ".jsx", ".ts", ".tsx",
+    ".json", ".jsonc", ".yaml", ".yml", ".toml", ".ini", ".cfg", ".conf",
+    ".html", ".htm", ".css", ".scss", ".sass", ".less", ".sql", ".sh", ".ps1",
+    ".bat", ".cmd", ".c", ".h", ".cpp", ".hpp", ".cs", ".java", ".kt", ".go",
+    ".rs", ".rb", ".php", ".lua", ".swift", ".dart", ".vue", ".svelte", ".xml",
+    ".svg", ".csv", ".tsv", ".log", ".env.example", ".gitignore", ".dockerfile",
+    ".makefile", ".gradle", ".properties", ".graphql", ".proto", ".tex",
+}
+BINARY_EXT = {
+    ".png", ".jpg", ".jpeg", ".gif", ".webp", ".ico", ".bmp", ".tiff", ".pdf",
+    ".zip", ".gz", ".tar", ".7z", ".rar", ".exe", ".dll", ".so", ".dylib",
+    ".bin", ".dat", ".db", ".sqlite", ".mp3", ".mp4", ".wav", ".ogg", ".webm",
+    ".woff", ".woff2", ".ttf", ".otf", ".pyc", ".class", ".jar", ".gguf",
+    ".safetensors", ".onnx", ".pt", ".pth",
+}
+LANG = {
+    ".py": "python", ".js": "javascript", ".jsx": "javascript", ".ts": "typescript",
+    ".tsx": "typescript", ".json": "json", ".md": "markdown", ".css": "css",
+    ".html": "html", ".yml": "yaml", ".yaml": "yaml", ".sh": "shell", ".ps1": "powershell",
+    ".sql": "sql", ".go": "go", ".rs": "rust", ".java": "java", ".c": "c", ".cpp": "cpp",
+    ".rb": "ruby", ".php": "php", ".toml": "toml", ".ini": "ini", ".xml": "xml",
+}
+
+
+class WorkspaceError(Exception):
+    """Raised for anything the caller should see as a 4xx."""
+
+    def __init__(self, msg, code=400):
+        super().__init__(msg)
+        self.code = code
+
+
+# ---------------------------------------------------------------- paths
+
+def norm_rel(path: str) -> str:
+    """Normalize a client-supplied relative path to posix form ('a/b/c.txt')."""
+    p = (path or "").replace("\\", "/").strip()
+    p = re.sub(r"^\./+", "", p)
+    p = p.strip("/")
+    if not p:
+        return ""
+    parts = []
+    for seg in p.split("/"):
+        if seg in ("", "."):
+            continue
+        if seg == "..":
+            raise WorkspaceError("Path escapes the workspace", 400)
+        if "\x00" in seg:
+            raise WorkspaceError("Bad path", 400)
+        parts.append(seg)
+    return "/".join(parts)
+
+
+def _hidden(rel: str) -> bool:
+    parts = rel.split("/")
+    if any(p in HIDDEN_DIRS for p in parts[:-1]):
+        return True
+    return parts[-1] in HIDDEN_FILES
+
+
+def resolve(root: str, rel: str, must_exist=False) -> str:
+    """Absolute host path for `rel`, guaranteed to sit inside `root`."""
+    rel = norm_rel(rel)
+    base = os.path.realpath(root)
+    full = os.path.realpath(os.path.join(base, *rel.split("/"))) if rel else base
+    if full != base and not full.startswith(base + os.sep):
+        raise WorkspaceError("Path escapes the workspace", 400)
+    if must_exist and not os.path.exists(full):
+        raise WorkspaceError(f"No such file: {rel or '/'}", 404)
+    return full
+
+
+def check_root(path: str) -> str:
+    """Validate a workspace root folder against AGENTHIVE_WORKSPACE_ROOTS."""
+    p = os.path.abspath(os.path.expanduser((path or "").strip()))
+    if not p or not os.path.isdir(p):
+        raise WorkspaceError("That folder doesn't exist on this machine", 400)
+    real = os.path.realpath(p)
+    if WORKSPACE_ROOTS:
+        ok = False
+        for allowed in WORKSPACE_ROOTS:
+            a = os.path.realpath(os.path.abspath(os.path.expanduser(allowed)))
+            if real == a or real.startswith(a + os.sep):
+                ok = True
+                break
+        if not ok:
+            raise WorkspaceError(
+                "That folder is outside the allowed workspace roots "
+                f"({', '.join(WORKSPACE_ROOTS)})", 403)
+    return real
+
+
+def is_text(rel: str) -> bool:
+    ext = os.path.splitext(rel)[1].lower()
+    if ext in BINARY_EXT:
+        return False
+    if ext in TEXT_EXT:
+        return True
+    return ext == ""          # extensionless files (Dockerfile, Makefile…) are text
+
+
+def language(rel: str) -> str:
+    return LANG.get(os.path.splitext(rel)[1].lower(), "text")
+
+
+# ---------------------------------------------------------------- permissions
+
+def level_of(conn, ws, uid) -> str:
+    """Effective level for a user: owner > explicit grant > none."""
+    if not uid:
+        return ""
+    srv = conn.execute("SELECT owner_id FROM servers WHERE id=?",
+                       (ws["server_id"],)).fetchone()
+    if srv and srv["owner_id"] == uid:
+        return "admin"
+    g = conn.execute(
+        "SELECT level FROM workspace_grants WHERE workspace_id=? AND user_id=?",
+        (ws["id"], uid)).fetchone()
+    return g["level"] if g and g["level"] in _RANK else ""
+
+
+def can(conn, ws, uid, need="read") -> bool:
+    lvl = level_of(conn, ws, uid)
+    return bool(lvl) and _RANK[lvl] >= _RANK[need]
+
+
+def require(conn, ws, uid, need="read"):
+    if not can(conn, ws, uid, need):
+        raise WorkspaceError(
+            f"You need {need} access to this workspace", 403)
+
+
+def audit(conn, ws_id, action, path="", detail="", ok=True, actor_id=None, agent_id=None):
+    conn.execute(
+        "INSERT INTO workspace_audit(workspace_id, actor_id, agent_id, action, path, "
+        "detail, ok, created_at) VALUES (?,?,?,?,?,?,?,?)",
+        (ws_id, actor_id, agent_id, action, str(path or "")[:300],
+         str(detail or "")[:400], 1 if ok else 0, now()))
+    conn.execute(
+        "DELETE FROM workspace_audit WHERE workspace_id=? AND id NOT IN "
+        "(SELECT id FROM workspace_audit WHERE workspace_id=? ORDER BY id DESC LIMIT 800)",
+        (ws_id, ws_id))
+
+
+# ---------------------------------------------------------------- tree
+
+def _entry(conn, ws_id, rel, full):
+    st = os.stat(full)
+    is_dir = os.path.isdir(full)
+    row = conn.execute(
+        "SELECT updated_by, updated_at FROM workspace_files WHERE workspace_id=? AND path=?",
+        (ws_id, rel)).fetchone()
+    return {
+        "path": rel,
+        "name": os.path.basename(full),
+        "dir": is_dir,
+        "size": 0 if is_dir else st.st_size,
+        "mtime": st.st_mtime,
+        "text": is_text(rel) if not is_dir else False,
+        "lang": language(rel) if not is_dir else "",
+        "updated_by": row["updated_by"] if row else None,
+        "updated_at": row["updated_at"] if row else None,
+    }
+
+
+def tree(conn, ws, sub="", depth=2, limit=None):
+    """Directory listing (recursive to `depth`), hidden + binary noise skipped."""
+    limit = limit or WORKSPACE_MAX_FILES
+    root = ws["root"]
+    sub = norm_rel(sub)
+    base = resolve(root, sub, must_exist=True)
+    if not os.path.isdir(base):
+        raise WorkspaceError("Not a folder", 400)
+    out, count = [], 0
+
+    def walk(full, rel, d):
+        nonlocal count
+        try:
+            names = sorted(os.listdir(full), key=lambda n: (not os.path.isdir(os.path.join(full, n)), n.lower()))
+        except OSError:
+            return
+        for name in names:
+            if count >= limit:
+                return
+            child_rel = f"{rel}/{name}" if rel else name
+            if _hidden(child_rel):
+                continue
+            child = os.path.join(full, name)
+            if os.path.islink(child):
+                continue
+            try:
+                e = _entry(conn, ws["id"], child_rel, child)
+            except OSError:
+                continue
+            out.append(e)
+            count += 1
+            if e["dir"] and d > 1:
+                walk(child, child_rel, d - 1)
+
+    walk(base, sub, max(1, min(int(depth or 2), 6)))
+    return {"root": sub, "entries": out, "truncated": count >= limit}
+
+
+# ---------------------------------------------------------------- read / write
+
+def read_file(conn, ws, rel, uid=None, agent_id=None, record=True):
+    rel = norm_rel(rel)
+    if not rel:
+        raise WorkspaceError("Pick a file", 400)
+    if _hidden(rel):
+        raise WorkspaceError("That file is hidden from workspaces", 403)
+    full = resolve(ws["root"], rel, must_exist=True)
+    if os.path.isdir(full):
+        raise WorkspaceError("That's a folder", 400)
+    size = os.path.getsize(full)
+    if size > WORKSPACE_MAX_BYTES:
+        raise WorkspaceError(f"File is too big to open ({size // 1024} KB)", 413)
+    if not is_text(rel):
+        raise WorkspaceError("Binary file — download it instead", 415)
+    with open(full, "r", encoding="utf-8", errors="replace") as f:
+        content = f.read()
+    if record:
+        audit(conn, ws["id"], "read", rel, f"{len(content)} chars",
+              actor_id=uid, agent_id=agent_id)
+    return {"path": rel, "content": content, "size": size,
+            "mtime": os.path.getmtime(full), "lang": language(rel)}
+
+
+def _snapshot(conn, ws, rel, full, uid, agent_id, source, note):
+    """Keep the previous bytes before overwriting (bounded history per path)."""
+    if not os.path.exists(full) or not is_text(rel):
+        return
+    try:
+        with open(full, "r", encoding="utf-8", errors="replace") as f:
+            old = f.read(WORKSPACE_MAX_BYTES)
+    except OSError:
+        return
+    conn.execute(
+        "INSERT INTO workspace_revisions(workspace_id, path, content, size, author_id, "
+        "agent_id, source, note, created_at) VALUES (?,?,?,?,?,?,?,?,?)",
+        (ws["id"], rel, old, len(old), uid, agent_id, source, note[:200], now()))
+    conn.execute(
+        "DELETE FROM workspace_revisions WHERE workspace_id=? AND path=? AND id NOT IN "
+        "(SELECT id FROM workspace_revisions WHERE workspace_id=? AND path=? "
+        "ORDER BY id DESC LIMIT 25)", (ws["id"], rel, ws["id"], rel))
+
+
+def write_file(conn, ws, rel, content, uid=None, agent_id=None, source="human",
+               note="", create_only=False):
+    rel = norm_rel(rel)
+    if not rel:
+        raise WorkspaceError("Pick a file name", 400)
+    if _hidden(rel):
+        raise WorkspaceError("That path is reserved", 403)
+    if not is_text(rel):
+        raise WorkspaceError("Only text files can be edited here", 415)
+    data = content if isinstance(content, str) else str(content)
+    if len(data.encode("utf-8")) > WORKSPACE_MAX_BYTES:
+        raise WorkspaceError("File too large (2 MB max)", 413)
+    full = resolve(ws["root"], rel)
+    existed = os.path.exists(full)
+    if create_only and existed:
+        raise WorkspaceError(f"{rel} already exists", 409)
+    if existed and os.path.isdir(full):
+        raise WorkspaceError("That's a folder", 400)
+    os.makedirs(os.path.dirname(full) or ws["root"], exist_ok=True)
+    _snapshot(conn, ws, rel, full, uid, agent_id, source, note)
+    with open(full, "w", encoding="utf-8", newline="") as f:
+        f.write(data)
+    st = os.stat(full)
+    conn.execute(
+        "INSERT INTO workspace_files(workspace_id, path, size, mtime, updated_by, updated_at) "
+        "VALUES (?,?,?,?,?,?) ON CONFLICT(workspace_id, path) DO UPDATE SET "
+        "size=excluded.size, mtime=excluded.mtime, updated_by=excluded.updated_by, "
+        "updated_at=excluded.updated_at",
+        (ws["id"], rel, st.st_size, st.st_mtime, uid, now()))
+    audit(conn, ws["id"], "write" if existed else "create", rel,
+          f"{len(data)} chars" + (f" — {note}" if note else ""),
+          actor_id=uid, agent_id=agent_id)
+    return {"path": rel, "size": st.st_size, "created": not existed,
+            "mtime": st.st_mtime}
+
+
+def delete_path(conn, ws, rel, uid=None, agent_id=None):
+    rel = norm_rel(rel)
+    if not rel:
+        raise WorkspaceError("Can't delete the workspace root", 400)
+    full = resolve(ws["root"], rel, must_exist=True)
+    if os.path.isdir(full):
+        shutil.rmtree(full)
+        conn.execute("DELETE FROM workspace_files WHERE workspace_id=? AND "
+                     "(path=? OR path LIKE ?)", (ws["id"], rel, rel + "/%"))
+    else:
+        _snapshot(conn, ws, rel, full, uid, agent_id, "human", "before delete")
+        os.remove(full)
+        conn.execute("DELETE FROM workspace_files WHERE workspace_id=? AND path=?",
+                     (ws["id"], rel))
+    audit(conn, ws["id"], "delete", rel, "", actor_id=uid, agent_id=agent_id)
+    return {"deleted": rel}
+
+
+def move_path(conn, ws, src, dst, uid=None, agent_id=None):
+    src, dst = norm_rel(src), norm_rel(dst)
+    if not src or not dst:
+        raise WorkspaceError("Both paths are required", 400)
+    if _hidden(dst):
+        raise WorkspaceError("That destination is reserved", 403)
+    a = resolve(ws["root"], src, must_exist=True)
+    b = resolve(ws["root"], dst)
+    if os.path.exists(b):
+        raise WorkspaceError(f"{dst} already exists", 409)
+    os.makedirs(os.path.dirname(b) or ws["root"], exist_ok=True)
+    shutil.move(a, b)
+    conn.execute("UPDATE workspace_files SET path=? WHERE workspace_id=? AND path=?",
+                 (dst, ws["id"], src))
+    conn.execute("UPDATE workspace_files SET path=? || substr(path, ?) WHERE workspace_id=? "
+                 "AND path LIKE ?", (dst, len(src) + 1, ws["id"], src + "/%"))
+    audit(conn, ws["id"], "move", src, f"→ {dst}", actor_id=uid, agent_id=agent_id)
+    return {"from": src, "to": dst}
+
+
+def mkdir(conn, ws, rel, uid=None, agent_id=None):
+    rel = norm_rel(rel)
+    if not rel:
+        raise WorkspaceError("Name the folder", 400)
+    full = resolve(ws["root"], rel)
+    if os.path.exists(full):
+        raise WorkspaceError("Already exists", 409)
+    os.makedirs(full)
+    audit(conn, ws["id"], "mkdir", rel, "", actor_id=uid, agent_id=agent_id)
+    return {"path": rel}
+
+
+# ---------------------------------------------------------------- history / diff
+
+def revisions(conn, ws, rel):
+    rel = norm_rel(rel)
+    rows = conn.execute(
+        "SELECT r.id, r.size, r.source, r.note, r.created_at, r.author_id, r.agent_id, "
+        "u.display_name, u.avatar_emoji, a.name aname, a.icon aicon "
+        "FROM workspace_revisions r LEFT JOIN users u ON u.id=r.author_id "
+        "LEFT JOIN agents a ON a.id=r.agent_id "
+        "WHERE r.workspace_id=? AND r.path=? ORDER BY r.id DESC LIMIT 25",
+        (ws["id"], rel)).fetchall()
+    return [{"id": r["id"], "size": r["size"], "source": r["source"], "note": r["note"],
+             "created_at": r["created_at"],
+             "author": ({"id": r["author_id"], "display_name": r["display_name"],
+                         "avatar_emoji": r["avatar_emoji"]} if r["author_id"] else None),
+             "agent": ({"id": r["agent_id"], "name": r["aname"], "icon": r["aicon"]}
+                       if r["agent_id"] else None)} for r in rows]
+
+
+def diff(conn, ws, rel, rev_id=None):
+    """Unified diff between a stored revision and the file as it is now."""
+    rel = norm_rel(rel)
+    full = resolve(ws["root"], rel, must_exist=True)
+    with open(full, "r", encoding="utf-8", errors="replace") as f:
+        cur = f.read()
+    if rev_id:
+        r = conn.execute("SELECT * FROM workspace_revisions WHERE id=? AND workspace_id=? "
+                         "AND path=?", (rev_id, ws["id"], rel)).fetchone()
+        if not r:
+            raise WorkspaceError("No such revision", 404)
+        old, label = r["content"], f"rev {r['id']}"
+    else:
+        r = conn.execute("SELECT * FROM workspace_revisions WHERE workspace_id=? AND path=? "
+                         "ORDER BY id DESC LIMIT 1", (ws["id"], rel)).fetchone()
+        if not r:
+            return {"path": rel, "diff": "", "empty": True}
+        old, label = r["content"], f"rev {r['id']}"
+    lines = list(difflib.unified_diff(
+        old.splitlines(keepends=True), cur.splitlines(keepends=True),
+        fromfile=f"{rel} ({label})", tofile=f"{rel} (now)", n=3))
+    return {"path": rel, "diff": "".join(lines)[:200_000], "empty": not lines}
+
+
+def restore(conn, ws, rel, rev_id, uid=None, agent_id=None):
+    rel = norm_rel(rel)
+    r = conn.execute("SELECT * FROM workspace_revisions WHERE id=? AND workspace_id=? "
+                     "AND path=?", (rev_id, ws["id"], rel)).fetchone()
+    if not r:
+        raise WorkspaceError("No such revision", 404)
+    return write_file(conn, ws, rel, r["content"], uid=uid, agent_id=agent_id,
+                      source="restore", note=f"restored rev {rev_id}")
+
+
+# ---------------------------------------------------------------- search
+
+def search(conn, ws, q, limit=40):
+    q = (q or "").strip()
+    if len(q) < 2:
+        return []
+    root = ws["root"]
+    needle = q.lower()
+    hits, scanned = [], 0
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [d for d in dirnames if d not in HIDDEN_DIRS and not d.startswith(".")]
+        for name in filenames:
+            rel = os.path.relpath(os.path.join(dirpath, name), root).replace("\\", "/")
+            if _hidden(rel) or not is_text(rel):
+                continue
+            scanned += 1
+            if scanned > WORKSPACE_MAX_FILES:
+                return hits
+            try:
+                if os.path.getsize(os.path.join(dirpath, name)) > WORKSPACE_MAX_BYTES:
+                    continue
+                with open(os.path.join(dirpath, name), "r", encoding="utf-8",
+                          errors="replace") as f:
+                    for i, line in enumerate(f, 1):
+                        if needle in line.lower():
+                            hits.append({"path": rel, "line": i,
+                                         "text": line.strip()[:200]})
+                            if len(hits) >= limit:
+                                return hits
+            except OSError:
+                continue
+    return hits
+
+
+# ---------------------------------------------------------------- exec
+
+def run_command(conn, ws, cmd, uid=None, agent_id=None):
+    """Run a shell command inside the workspace root (admin only)."""
+    if not WORKSPACE_EXEC:
+        raise WorkspaceError("Command execution is disabled on this host", 403)
+    cmd = (cmd or "").strip()
+    if not cmd:
+        raise WorkspaceError("Nothing to run", 400)
+    if len(cmd) > 2000:
+        raise WorkspaceError("Command too long", 400)
+    shell = ["powershell", "-NoProfile", "-NonInteractive", "-Command", cmd] \
+        if os.name == "nt" else ["/bin/sh", "-c", cmd]
+    t0 = time.time()
+    try:
+        p = subprocess.run(shell, cwd=ws["root"], capture_output=True,
+                           timeout=WORKSPACE_EXEC_TIMEOUT)
+        out = (p.stdout or b"").decode("utf-8", "replace")
+        err = (p.stderr or b"").decode("utf-8", "replace")
+        code = p.returncode
+    except subprocess.TimeoutExpired:
+        out, err, code = "", f"timed out after {int(WORKSPACE_EXEC_TIMEOUT)}s", -1
+    except Exception as e:                       # noqa: BLE001 — surface anything
+        out, err, code = "", str(e), -1
+    audit(conn, ws["id"], "exec", "", f"$ {cmd} → {code}",
+          ok=(code == 0), actor_id=uid, agent_id=agent_id)
+    return {"cmd": cmd, "code": code, "stdout": out[-8000:], "stderr": err[-4000:],
+            "ms": int((time.time() - t0) * 1000)}
+
+
+# ---------------------------------------------------------------- presence
+
+def touch_session(conn, ws_id, uid, path=""):
+    conn.execute(
+        "INSERT INTO workspace_sessions(workspace_id, user_id, path, last_seen) "
+        "VALUES (?,?,?,?) ON CONFLICT(workspace_id, user_id) DO UPDATE SET "
+        "path=excluded.path, last_seen=excluded.last_seen",
+        (ws_id, uid, str(path or "")[:300], now()))
+
+
+def sessions(conn, ws_id, ttl=90):
+    rows = conn.execute(
+        "SELECT s.user_id, s.path, s.last_seen, u.display_name, u.username, "
+        "u.avatar_emoji, u.avatar_color FROM workspace_sessions s "
+        "JOIN users u ON u.id=s.user_id WHERE s.workspace_id=? AND s.last_seen>? "
+        "ORDER BY s.last_seen DESC", (ws_id, now() - ttl)).fetchall()
+    return [{"user": {"id": r["user_id"], "display_name": r["display_name"],
+                      "username": r["username"], "avatar_emoji": r["avatar_emoji"],
+                      "avatar_color": r["avatar_color"]},
+             "path": r["path"], "last_seen": r["last_seen"]} for r in rows]
+
+
+# ---------------------------------------------------------------- serializers
+
+def workspace_json(conn, ws, uid):
+    lvl = level_of(conn, ws, uid)
+    n_files = conn.execute(
+        "SELECT COUNT(*) c FROM workspace_files WHERE workspace_id=?",
+        (ws["id"],)).fetchone()["c"]
+    last = conn.execute(
+        "SELECT a.*, u.display_name, u.avatar_emoji, ag.name aname, ag.icon aicon "
+        "FROM workspace_audit a LEFT JOIN users u ON u.id=a.actor_id "
+        "LEFT JOIN agents ag ON ag.id=a.agent_id WHERE a.workspace_id=? "
+        "ORDER BY a.id DESC LIMIT 1", (ws["id"],)).fetchone()
+    grants = conn.execute(
+        "SELECT g.user_id, g.level, u.username, u.display_name, u.avatar_emoji, "
+        "u.avatar_color FROM workspace_grants g JOIN users u ON u.id=g.user_id "
+        "WHERE g.workspace_id=? ORDER BY g.level DESC, u.username", (ws["id"],)).fetchall()
+    return {
+        "id": ws["id"], "server_id": ws["server_id"], "name": ws["name"],
+        "icon": ws["icon"], "root": ws["root"], "description": ws["description"],
+        "created_by": ws["created_by"], "created_at": ws["created_at"],
+        "level": lvl, "can_read": _RANK.get(lvl, 0) >= 1,
+        "can_write": _RANK.get(lvl, 0) >= 2, "can_admin": _RANK.get(lvl, 0) >= 3,
+        "files": n_files,
+        "grants": [{"user_id": g["user_id"], "level": g["level"],
+                    "username": g["username"], "display_name": g["display_name"],
+                    "avatar_emoji": g["avatar_emoji"],
+                    "avatar_color": g["avatar_color"]} for g in grants],
+        "last": ({"action": last["action"], "path": last["path"],
+                  "detail": last["detail"], "ok": bool(last["ok"]),
+                  "created_at": last["created_at"],
+                  "actor": last["display_name"], "agent": last["aname"],
+                  "icon": last["aicon"] or last["avatar_emoji"]} if last else None),
+    }
+
+
+def audit_json(conn, ws_id, before=0, limit=60):
+    q = ("SELECT a.*, u.display_name, u.username, u.avatar_emoji, u.avatar_color, "
+         "ag.name aname, ag.icon aicon FROM workspace_audit a "
+         "LEFT JOIN users u ON u.id=a.actor_id LEFT JOIN agents ag ON ag.id=a.agent_id "
+         "WHERE a.workspace_id=?")
+    args = [ws_id]
+    if before:
+        q += " AND a.id<?"
+        args.append(before)
+    q += " ORDER BY a.id DESC LIMIT ?"
+    args.append(limit)
+    return [{"id": r["id"], "action": r["action"], "path": r["path"],
+             "detail": r["detail"], "ok": bool(r["ok"]), "created_at": r["created_at"],
+             "actor": ({"id": r["actor_id"], "display_name": r["display_name"],
+                        "username": r["username"], "avatar_emoji": r["avatar_emoji"],
+                        "avatar_color": r["avatar_color"]} if r["actor_id"] else None),
+             "agent": ({"id": r["agent_id"], "name": r["aname"], "icon": r["aicon"]}
+                       if r["agent_id"] else None)}
+            for r in conn.execute(q, args).fetchall()]
+
+
+def agent_tools(conn, ws, uid):
+    """Tool schemas handed to the LLM when an agent works inside a workspace."""
+    lvl = level_of(conn, ws, uid)
+    tools = [
+        {"type": "function", "function": {
+            "name": "list_files",
+            "description": "List files and folders in the workspace (recursive, 2 levels).",
+            "parameters": {"type": "object", "properties": {
+                "path": {"type": "string", "description": "folder, '' for root"}}}}},
+        {"type": "function", "function": {
+            "name": "read_file",
+            "description": "Read a text file from the workspace.",
+            "parameters": {"type": "object", "properties": {
+                "path": {"type": "string"}}, "required": ["path"]}}},
+        {"type": "function", "function": {
+            "name": "search_files",
+            "description": "Grep the workspace for a string; returns path:line hits.",
+            "parameters": {"type": "object", "properties": {
+                "query": {"type": "string"}}, "required": ["query"]}}},
+    ]
+    if _RANK.get(lvl, 0) >= 2:
+        tools += [
+            {"type": "function", "function": {
+                "name": "write_file",
+                "description": "Create or overwrite a text file with full content.",
+                "parameters": {"type": "object", "properties": {
+                    "path": {"type": "string"}, "content": {"type": "string"},
+                    "note": {"type": "string", "description": "one-line summary of the change"}},
+                    "required": ["path", "content"]}}},
+            {"type": "function", "function": {
+                "name": "delete_file",
+                "description": "Delete a file or folder from the workspace.",
+                "parameters": {"type": "object", "properties": {
+                    "path": {"type": "string"}}, "required": ["path"]}}},
+        ]
+    if _RANK.get(lvl, 0) >= 3:
+        tools.append({"type": "function", "function": {
+            "name": "run_command",
+            "description": "Run a shell command in the workspace root and return its output.",
+            "parameters": {"type": "object", "properties": {
+                "cmd": {"type": "string"}}, "required": ["cmd"]}}})
+    return tools
+
+
+def run_tool(conn, ws, uid, agent_id, name, args):
+    """Execute one agent tool call. Returns a JSON-able result dict."""
+    args = args or {}
+    try:
+        if name == "list_files":
+            t = tree(conn, ws, args.get("path") or "", depth=2)
+            return {"ok": True, "entries": [
+                {"path": e["path"], "dir": e["dir"], "size": e["size"]}
+                for e in t["entries"][:200]]}
+        if name == "read_file":
+            r = read_file(conn, ws, args.get("path"), uid=uid, agent_id=agent_id)
+            return {"ok": True, "path": r["path"], "content": r["content"][:20000]}
+        if name == "search_files":
+            return {"ok": True, "hits": search(conn, ws, args.get("query"))}
+        if name == "write_file":
+            require(conn, ws, uid, "write")
+            r = write_file(conn, ws, args.get("path"), args.get("content", ""),
+                           uid=uid, agent_id=agent_id, source="agent",
+                           note=args.get("note") or "agent edit")
+            return {"ok": True, **r}
+        if name == "delete_file":
+            require(conn, ws, uid, "write")
+            return {"ok": True, **delete_path(conn, ws, args.get("path"),
+                                              uid=uid, agent_id=agent_id)}
+        if name == "run_command":
+            require(conn, ws, uid, "admin")
+            return {"ok": True, **run_command(conn, ws, args.get("cmd"),
+                                              uid=uid, agent_id=agent_id)}
+        return {"ok": False, "error": f"unknown tool {name}"}
+    except WorkspaceError as e:
+        audit(conn, ws["id"], name.replace("_file", ""), args.get("path") or "",
+              str(e), ok=False, actor_id=uid, agent_id=agent_id)
+        return {"ok": False, "error": str(e)}
+    except Exception as e:                       # noqa: BLE001
+        return {"ok": False, "error": f"{type(e).__name__}: {e}"}
+
+
+def parse_tool_calls(text):
+    """Pull tool calls out of a model reply.
+
+    Accepts the OpenAI `tool_calls` shape (handled by the caller) and a plain
+    JSON block the model may emit instead:
+        {"tool": "read_file", "args": {"path": "README.md"}}
+    or a fenced ```json block containing one or a list of those.
+    """
+    if not text:
+        return []
+    blocks = re.findall(r"```(?:json)?\s*(\{.*?\}|\[.*?\])\s*```", text, re.S)
+    cands = list(blocks)
+    stripped = text.strip()
+    if stripped.startswith("{") or stripped.startswith("["):
+        cands.append(stripped)
+    out = []
+    for c in cands:
+        try:
+            d = json.loads(c)
+        except Exception:
+            continue
+        items = d if isinstance(d, list) else [d]
+        for it in items:
+            if not isinstance(it, dict):
+                continue
+            name = it.get("tool") or it.get("name") or it.get("function")
+            args = it.get("args") or it.get("arguments") or it.get("parameters") or {}
+            if isinstance(args, str):
+                try:
+                    args = json.loads(args)
+                except Exception:
+                    args = {}
+            if name in ("list_files", "read_file", "search_files", "write_file",
+                        "delete_file", "run_command"):
+                out.append({"name": name, "args": args})
+    return out

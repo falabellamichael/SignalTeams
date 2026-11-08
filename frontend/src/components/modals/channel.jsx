@@ -178,7 +178,7 @@ function DigestSection({ channel }) {
   );
 }
 
-export function ChannelModal({ kind, channel, me, roles, onClose, onDone, onDelete }) {
+export function ChannelModal({ kind, channel, me, roles, workspaces = [], onClose, onDone, onDelete }) {
   const editing = !!channel;
   const [selKind, setSelKind] = useState(channel?.kind || kind);
   const [name, setName] = useState(channel?.name || "");
@@ -190,6 +190,7 @@ export function ChannelModal({ kind, channel, me, roles, onClose, onDone, onDele
   const [picked, setPicked] = useState(new Set((channel?.roster || []).map((a) => a.id)));
   const [lurk, setLurk] = useState(new Set(channel?.lurkers || []));
   const [ftags, setFtags] = useState((channel?.forum_tags || []).join(", "));
+  const [wsId, setWsId] = useState(channel?.workspace_id || 0);
   const [agents, setAgents] = useState([]);
   useEffect(() => {
     if (selKind === "agents") api.agents({ sort: "name" }).then((all) =>
@@ -238,6 +239,18 @@ export function ChannelModal({ kind, channel, me, roles, onClose, onDone, onDele
             placeholder="bug, feature, question" maxLength={200} />
         </>
       )}
+      {editing && workspaces.length > 0 && (
+        <>
+          <label>🗂 Workspace <span style={{ color: "var(--dim)", fontWeight: 400 }}>
+            (agents summoned here can read &amp; edit this folder — they inherit your access)</span></label>
+          <select value={wsId} onChange={(e) => setWsId(+e.target.value)}>
+            <option value={0}>none — chat only</option>
+            {workspaces.map((w) => (
+              <option key={w.id} value={w.id}>{w.icon} {w.name} — {w.root}</option>
+            ))}
+          </select>
+        </>
+      )}
       {editing && <WebhookSection channel={channel} />}
       {editing && <DigestSection channel={channel} />}
       {(roles || []).length > 0 && (
@@ -282,7 +295,7 @@ export function ChannelModal({ kind, channel, me, roles, onClose, onDone, onDele
         <button onClick={onClose}>Cancel</button>
         <button className="primary" disabled={!name.trim()}
           onClick={() => onDone(name.trim(), selKind, topic.trim(), [...picked], category.trim(), slow, vcap, roleId, [...lurk].filter((id) => picked.has(id)),
-            ftags.split(",").map((t) => t.trim()).filter(Boolean))}>
+            ftags.split(",").map((t) => t.trim()).filter(Boolean), wsId)}>
           {editing ? "Save" : "Create"}
         </button>
       </div>

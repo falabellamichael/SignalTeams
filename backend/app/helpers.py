@@ -28,6 +28,9 @@ def public_user(u):
                             if "notify_mentions" in u.keys() and u["notify_mentions"] else []),
         "keywords": (json.loads(u["keywords"])
                      if "keywords" in u.keys() and u["keywords"] else []),
+        "banner_color": u["banner_color"] if "banner_color" in u.keys() else "",
+        "pronouns": u["pronouns"] if "pronouns" in u.keys() else "",
+        "created_at": u["created_at"] if "created_at" in u.keys() else 0,
     }
 
 
@@ -155,6 +158,12 @@ def channel_json(conn, ch, uid=None):
         d["forum_tags"] = json.loads(d.get("forum_tags") or "[]")
     except Exception:
         d["forum_tags"] = []
+    wid = d.get("workspace_id")
+    if wid:
+        w = conn.execute("SELECT id, name, icon FROM workspaces WHERE id=?", (wid,)).fetchone()
+        d["workspace"] = {"id": w["id"], "name": w["name"], "icon": w["icon"]} if w else None
+    else:
+        d["workspace"] = None
     d["locked"] = bool(d.get("role_id")) and uid is not None and \
         uid not in channel_member_ids(conn, ch)
     if d["locked"]:

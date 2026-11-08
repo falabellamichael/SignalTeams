@@ -149,5 +149,70 @@ class Smoke(unittest.TestCase):
             self.assertIn("models", p)
 
 
+    def test_discord_features(self):
+        reg = self.req("POST", "/api/register",
+                       {"username": "discord_tester", "password": "pw12345"})
+        tok = reg["token"]
+        uid = reg["user"]["id"]
+
+        # Profile banner_color & pronouns customization
+        patched = self.req("PATCH", "/api/me",
+                           {"banner_color": "#5865F2", "pronouns": "they/them"},
+                           token=tok)
+        self.assertEqual(patched["banner_color"], "#5865F2")
+        self.assertEqual(patched["pronouns"], "they/them")
+
+        prof = self.req("GET", f"/api/users/{uid}/profile", token=tok)
+        self.assertEqual(prof["user"]["banner_color"], "#5865F2")
+        self.assertEqual(prof["user"]["pronouns"], "they/them")
+
+        # Create server & channel for embeds
+        srv = self.req("POST", "/api/servers",
+                       {"name": "Embed HQ", "icon": "⚡"}, token=tok)
+        detail = self.req("GET", f"/api/servers/{srv['id']}", token=tok)
+        chan = next(c for c in detail["channels"] if c["kind"] == "text")
+
+        # Post message with rich embed
+        embed_payload = {
+            "title": "Welcome to SignalTeams",
+            "description": "Discord-style rich embed card",
+            "color": "#5865F2",
+            "fields": [
+                {"name": "Status", "value": "Operational", "inline": True},
+                {"name": "Latency", "value": "12ms", "inline": True}
+            ]
+        }
+        msg = self.req("POST", f"/api/channels/{chan['id']}/messages",
+                       {"content": "Check this embed!", "embed": embed_payload},
+                       token=tok)
+        self.assertIsNotNone(msg.get("embed"))
+        self.assertEqual(msg["embed"]["title"], "Welcome to SignalTeams")
+        self.assertEqual(len(msg["embed"]["fields"]), 2)
+
+        # Webhook incoming Discord embed translation
+        wh = self.req("POST", f"/api/channels/{chan['id']}/webhooks",
+                      {"name": "embed-bot"}, token=tok)
+        self.assertTrue(wh.get("token"))
+
+        wh_payload = {
+            "content": "Alert from bot",
+            "embeds": [{
+                "title": "GitHub Release v2.0",
+                "description": "Discord webhook embed test",
+                "color": 5793266,
+                "fields": [{"name": "Author", "value": "agent", "inline": True}]
+            }]
+        }
+        wh_res = self.req("POST", f"/api/hooks/{wh['token']}", wh_payload)
+        self.assertTrue(wh_res.get("ok"))
+
+        msgs = self.req("GET", f"/api/channels/{chan['id']}/messages", token=tok)
+        last_msg = msgs[-1]
+        self.assertEqual(last_msg["content"], "Alert from bot")
+        self.assertIsNotNone(last_msg.get("embed"))
+        self.assertEqual(last_msg["embed"]["title"], "GitHub Release v2.0")
+        self.assertEqual(last_msg["embed"]["color"].lower(), "#5865f2")
+
+
 if __name__ == "__main__":
     unittest.main()

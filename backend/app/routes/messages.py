@@ -168,7 +168,7 @@ async def post_message(cid: int, body: MessageIn, user=Depends(current_user)):
         if m_silent:
             content = content[m_silent.end():].lstrip()
             silent = True
-        if not content and not body.agent_id and not body.pack_id and not body.attachments:
+        if not content and not body.agent_id and not body.pack_id and not body.attachments and not body.embed:
             raise HTTPException(400, "Empty message")
         # server automod — the owner and bots/webhooks are exempt
         if ch["server_id"] and \
@@ -202,7 +202,9 @@ async def post_message(cid: int, body: MessageIn, user=Depends(current_user)):
                 raise HTTPException(400, "Can't forward that message")
         u = URL_RE.search(content)
         jm = u and re.search(r"#/s/(\d+)/c/(\d+)/m/(\d+)", u.group(0))
-        if jm:
+        if body.embed:
+            embed = body.embed
+        elif jm:
             tm = conn.execute("SELECT * FROM messages WHERE id=?", (int(jm[3]),)).fetchone()
             tch = tm and conn.execute(
                 "SELECT * FROM channels WHERE id=?", (tm["channel_id"],)).fetchone()

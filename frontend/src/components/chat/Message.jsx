@@ -80,7 +80,7 @@ export function Message({ m, grouped, me, members, agents, emojis, roles, channe
         )}
         {!grouped && (
           <div className="meta">
-            <span className="author" style={{ color: topRole(m.author)?.color || m.author?.avatar_color }}
+            <span className="author" style={{ color: topRole(m.author)?.color || m.author?.avatar_color, cursor: "pointer" }} onClick={() => m.author && onUserOpen?.(m.author)}
               title={nickOf(m.author) !== m.author?.display_name ? `@${m.author?.username}` : undefined}>
               {nickOf(m.author)}</span>
             {m.author?.status === "bot" && <span className="bot-tag">BOT</span>}
@@ -132,6 +132,8 @@ export function Message({ m, grouped, me, members, agents, emojis, roles, channe
         ))}
         {m.embed?.type === "jump" ? (
           <JumpCard embed={m.embed} onJump={onFwdJump} />
+        ) : m.embed && (m.embed.type === "rich" || m.embed.fields || m.embed.color || m.embed.author || m.embed.footer) ? (
+          <DiscordEmbed embed={m.embed} />
         ) : m.embed ? (
           <a className="embed" href={m.embed.url} target="_blank" rel="noreferrer">
             {m.embed.image && <img className="embed-img" src={m.embed.image} alt="" loading="lazy" />}
@@ -197,6 +199,10 @@ export function Message({ m, grouped, me, members, agents, emojis, roles, channe
         {QUICK.map((e) => (
           <span key={e} onClick={() => onReact(m, e)}>{e}</span>
         ))}
+        <span title="Add reaction" onClick={(e) => {
+          const r = e.currentTarget.getBoundingClientRect();
+          onMenu?.(r.left, r.bottom + 4, m, setEditing);
+        }}><Ico n="emoji" s={13} /></span>
         <span title="Reply" onClick={() => onReply(m)}><Ico n="reply" s={13} /></span>
         <span title="Thread" onClick={() => onThread?.(m)}><Ico n="dots3" s={13} /></span>
         {mine && m.content &&
@@ -206,6 +212,60 @@ export function Message({ m, grouped, me, members, agents, emojis, roles, channe
           onMenu?.(r.left, r.bottom + 4, m, setEditing);
         }}><Ico n="dots" s={13} /></span>
       </div>
+    </div>
+  );
+}
+
+
+function DiscordEmbed({ embed }) {
+  if (!embed) return null;
+  const col = embed.color || "var(--accent)";
+  return (
+    <div className="discord-embed" style={{ "--embed-color": col, borderLeftColor: col }}>
+      {embed.thumbnail?.url && (
+        <img className="de-thumb" src={embed.thumbnail.url} alt="" loading="lazy" />
+      )}
+      {embed.author?.name && (
+        <div className="de-author">
+          {embed.author.icon_url && <img className="de-author-icon" src={embed.author.icon_url} alt="" />}
+          {embed.author.url ? (
+            <a href={embed.author.url} target="_blank" rel="noreferrer">{embed.author.name}</a>
+          ) : (
+            <span>{embed.author.name}</span>
+          )}
+        </div>
+      )}
+      {embed.title && (
+        embed.url ? (
+          <a className="de-title" href={embed.url} target="_blank" rel="noreferrer">{embed.title}</a>
+        ) : (
+          <span className="de-title">{embed.title}</span>
+        )
+      )}
+      {embed.description && (
+        <div className="de-desc">{embed.description}</div>
+      )}
+      {embed.fields?.length > 0 && (
+        <div className="de-fields">
+          {embed.fields.map((f, i) => (
+            <div key={i} className={`de-field ${f.inline ? "inline" : "full"}`}>
+              <div className="de-field-name">{f.name}</div>
+              <div className="de-field-value">{f.value}</div>
+            </div>
+          ))}
+        </div>
+      )}
+      {embed.image?.url && (
+        <img className="de-image" src={embed.image.url} alt="" loading="lazy" />
+      )}
+      {(embed.footer?.text || embed.timestamp) && (
+        <div className="de-footer">
+          {embed.footer?.icon_url && <img className="de-footer-icon" src={embed.footer.icon_url} alt="" />}
+          <span>{embed.footer?.text}</span>
+          {embed.footer?.text && embed.timestamp && <span> • </span>}
+          {embed.timestamp && <span>{new Date(embed.timestamp).toLocaleString()}</span>}
+        </div>
+      )}
     </div>
   );
 }

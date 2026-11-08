@@ -43,3 +43,14 @@ if os.environ.get("AGENTHIVE_LLM_URL"):
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "").rstrip("/")
 SUPABASE_ANON_KEY = os.environ.get("SUPABASE_ANON_KEY", "")
+
+# ---- workspaces: shared folders agents can read/write ----
+# Comma-separated absolute folders a workspace root must live under. Empty =
+# any folder the backend process can reach (dev default).
+WORKSPACE_ROOTS = [p.strip() for p in
+                   os.environ.get("AGENTHIVE_WORKSPACE_ROOTS", "").split(",") if p.strip()]
+WORKSPACE_MAX_BYTES = int(os.environ.get("AGENTHIVE_WORKSPACE_MAX_BYTES", str(2 * 1024 * 1024)))
+WORKSPACE_MAX_FILES = int(os.environ.get("AGENTHIVE_WORKSPACE_MAX_FILES", "5000"))
+WORKSPACE_EXEC = os.environ.get("AGENTHIVE_WORKSPACE_EXEC", "1") == "1"
+WORKSPACE_EXEC_TIMEOUT = float(os.environ.get("AGENTHIVE_WORKSPACE_EXEC_TIMEOUT", "20"))
+WORKSPACE_AGENT_TOOLS = os.environ.get("AGENTHIVE_WORKSPACE_AGENT_TOOLS", "1") == "1"

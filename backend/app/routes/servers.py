@@ -704,10 +704,18 @@ async def edit_channel(cid: int, body: ChannelPatch, user=Depends(current_user))
             conn.execute("UPDATE channels SET forum_tags=? WHERE id=?",
                          (json.dumps([t.strip()[:24] for t in body.forum_tags[:10]
                                       if str(t).strip()]), cid))
+        if body.workspace_id is not None:
+            if body.workspace_id and not conn.execute(
+                    "SELECT 1 FROM workspaces WHERE id=? AND server_id=?",
+                    (body.workspace_id, ch["server_id"])).fetchone():
+                raise HTTPException(404, "No such workspace")
+            conn.execute("UPDATE channels SET workspace_id=? WHERE id=?",
+                         (body.workspace_id or None, cid))
         changed = [k for k, v in (("name", body.name), ("topic", body.topic),
                                 ("category", body.category), ("slowmode", body.slowmode_secs),
                                 ("voice cap", body.voice_cap), ("roster", body.roster),
-                                ("lurkers", body.lurkers), ("role gate", body.role_id))
+                                ("lurkers", body.lurkers), ("role gate", body.role_id),
+                                ("workspace", body.workspace_id))
                    if v is not None]
         audit(conn, ch["server_id"], user["id"], "channel.update",
               f"#{ch['name']}", "changed " + ", ".join(changed) if changed else "")

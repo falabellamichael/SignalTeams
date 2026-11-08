@@ -31,6 +31,8 @@ const ShortcutsModal = lazy(() => import("./components/modals/shortcuts.jsx").th
 const PickAgentModal = lazy(() => import("./components/modals/pickagent.jsx").then((m) => ({ default: m.PickAgentModal })));
 const SettingsModal = lazy(() => import("./components/modals/settings.jsx").then((m) => ({ default: m.SettingsModal })));
 const EventsModal = lazy(() => import("./components/modals/events.jsx").then((m) => ({ default: m.EventsModal })));
+const WorkspaceModal = lazy(() => import("./components/modals/workspace.jsx").then((m) => ({ default: m.WorkspaceModal })));
+const Workspace = lazy(() => import("./components/Workspace"));
 
 export default function App() {
   const [me, setMe] = useState(null);
@@ -76,6 +78,9 @@ export default function App() {
   const typingTimers = useRef({});           // "cid:uid" -> timeout id
   const [dmTyping, setDmTyping] = useState({});   // channelId -> {uid: name}
   const [events, setEvents] = useState([]);            // upcoming events for `server`
+  const [workspaces, setWorkspaces] = useState([]);    // workspaces in `server`
+  const [wsOpen, setWsOpen] = useState(null);          // workspace object being edited
+  const [wsAgents, setWsAgents] = useState([]);        // agents visible to me (agent desk)
   const chanServer = useRef({});                       // channelId -> serverId
   channelRef.current = channel;
   serverRef.current = server;
@@ -323,6 +328,11 @@ export default function App() {
       } else if (evt.type === "server_deleted" || evt.type === "server_left") {
         setServers((sv) => sv.filter((s) => s.id !== evt.server_id));
         if (serverRef.current?.id === evt.server_id) goHome();
+      } else if (evt.type === "workspace") {
+        if (serverRef.current?.id) {
+          api.workspaces(serverRef.current.id).then(setWorkspaces).catch(() => {});
+        }
+        window.dispatchEvent(new CustomEvent("st:workspace", { detail: evt }));
       } else if (evt.type === "server_changed") {
         if (serverRef.current?.id === evt.server_id) {
           api.server(evt.server_id).then((full) => {
@@ -371,6 +381,7 @@ export default function App() {
   }
 
   function selectChannel(c) {
+    setWsOpen(null);
     setChannel(c);
     if (c) {
       setNewSince({ ch: c.id, n: unread[c.id] || 0 });
@@ -401,13 +412,14 @@ export default function App() {
     full.channels.forEach((c) => { chanServer.current[c.id] = id; });
     setServer(full);
     api.serverEvents(id).then(setEvents).catch(() => setEvents([]));
+    api.workspaces(id).then(setWorkspaces).catch(() => setWorkspaces([]));
     setView("server");
     const firstUnread = full.channels.find((c) => visUnread[c.id] > 0) || full.channels[0];
     selectChannel(firstUnread || null);
   }
 
   function goHome() {
-    setServer(null); setChannel(null);
+    setServer(null); setChannel(null); setWsOpen(null);
     setView("buzz");
   }
 
@@ -445,8 +457,8 @@ export default function App() {
     setModal(null);
   }
 
-  async function saveChannel(name, kind, topic, roster, category, slowmode, vcap, roleId, lurkers, forumTags) {
-    const c = await api.editChannel(modal.channel.id, { name, topic, roster, category, slowmode_secs: slowmode, role_id: roleId ?? 0, voice_cap: vcap ?? 0, ...(lurkers !== undefined ? { lurkers } : {}), ...(forumTags !== undefined ? { forum_tags: forumTags } : {}) }).catch((e) => (alert(e.message), null));
+  async function saveChannel(name, kind, topic, roster, category, slowmode, vcap, roleId, lurkers, forumTags, workspaceId) {
+    const c = await api.editChannel(modal.channel.id, { name, topic, roster, category, slowmode_secs: slowmode, role_id: roleId ?? 0, voice_cap: vcap ?? 0, ...(lurkers !== undefined ? { lurkers } : {}), ...(forumTags !== undefined ? { forum_tags: forumTags } : {}), ...(workspaceId !== undefined ? { workspace_id: workspaceId } : {}) }).catch((e) => (alert(e.message), null));
     if (!c) return;
     const full = await api.server(server.id);
     setServer(full);
@@ -499,7 +511,7 @@ export default function App() {
       const full = await api.server(sid).catch(() => null);
       if (!full) return;
       full.channels.forEach((c) => { chanServer.current[c.id] = sid; });
-      setServer(full); setView("server");
+      setServer(full); setView("server"); setWsOpen(null);
       selectChannel(full.channels.find((c) => c.id === cid) || null);
     } else {
       const list = await api.dms().catch(() => []);
@@ -604,6 +616,12 @@ export default function App() {
   else if (view === "saved") main = (
     <Saved onJump={(m) => openChannelById(m.channel_id, m.server_id, m.id)} />
   );
+  else if (wsOpen) main = (
+    <Workspace workspace={wsOpen} me={me} agents={wsAgents}
+      members={server?.members || []}
+      onClose={() => setWsOpen(null)}
+      onOpenAgent={openAgent} />
+  );
   else if (channel) main = (
     <ChatView channel={channel} members={members} me={me} blocked={blocked}
       emojis={server?.emojis || []} roles={server?.roles || []}
@@ -621,6 +639,11 @@ export default function App() {
       onAgentOpen={openAgent}
       onPackOpen={openPack}
       onShareAgent={() => setModal({ kind: "share", agent: null })}
+      onWorkspace={(w) => {
+        const full = workspaces.find((x) => x.id === w.id) || w;
+        setWsOpen(full); setChannel(null);
+        api.agents({}).then(setWsAgents).catch(() => {});
+      }}
       onGroupAdd={() => setModal({ kind: "groupdm", channel })}
       onGroupRename={async () => {
         const n = prompt("Rename group:", channel.name || "");
@@ -634,7 +657,8 @@ export default function App() {
   );
   else main = <div className="empty"><div className="big">📡</div><div className="serif">Pick a channel.</div></div>;
 
-  const title = dmChannel ? `@ ${channel.name}`
+  const title = wsOpen ? `${wsOpen.icon} ${wsOpen.name} — workspace`
+    : dmChannel ? `@ ${channel.name}`
     : channel ? `${channel.kind === "agents" ? "✦" : "#"} ${channel.name}`
     : { buzz: "🐝 The Buzz", library: "🧰 Agent Library", bench: "⭐ My Bench", friends: "👥 Friends", saved: "🔖 Saved" }[view] || "SignalTeams";
 
@@ -672,6 +696,12 @@ export default function App() {
             }}
             onEvents={() => setModal({ kind: "events", server })}
             evCount={events.filter((e) => e.status !== "cancelled").length}
+            workspaces={workspaces} activeWs={wsOpen?.id}
+            onWorkspace={(w) => {
+              setWsOpen(w); setChannel(null);
+              api.agents({}).then(setWsAgents).catch(() => {});
+            }}
+            onNewWorkspace={() => setModal({ kind: "workspace", server })}
             onServerSettings={(s) => setModal({ kind: "srvsettings", server: s })} />
         ) : (
           <HomeSidebar view={view} setView={(v) => { setView(v); closeSide(); }} dms={dms}
@@ -785,11 +815,12 @@ export default function App() {
       )}
       {modal?.kind === "channel" && (
         <ChannelModal kind={modal.channelKind} me={me} roles={server?.roles || []}
+          workspaces={workspaces}
           onClose={() => setModal(null)} onDone={addChannel} />
       )}
       {modal?.kind === "chanedit" && (
         <ChannelModal kind={modal.channelKind} channel={modal.channel} me={me}
-          roles={server?.roles || []}
+          roles={server?.roles || []} workspaces={workspaces}
           onClose={() => setModal(null)} onDone={saveChannel} onDelete={removeChannel} />
       )}
       {modal?.kind === "inbox" && (
@@ -875,6 +906,15 @@ export default function App() {
       )}
       {modal?.kind === "events" && (
         <EventsModal server={modal.server} me={me} onClose={() => setModal(null)} />
+      )}
+      {modal?.kind === "workspace" && (
+        <WorkspaceModal server={modal.server} onClose={() => setModal(null)}
+          onCreated={(w) => {
+            setModal(null);
+            api.workspaces(modal.server.id).then(setWorkspaces).catch(() => {});
+            setWsOpen(w); setChannel(null);
+            api.agents({}).then(setWsAgents).catch(() => {});
+          }} />
       )}
       {modal?.kind === "pulse" && server && (
         <PulseModal server={server} onClose={() => setModal(null)}

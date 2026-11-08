@@ -25,6 +25,8 @@ class ProfileIn(BaseModel):
     server_order: list[int] | None = None
     status_text: str | None = None
     keywords: list[str] | None = None
+    banner_color: str | None = None
+    pronouns: str | None = None
 
 
 class FriendIn(BaseModel):
@@ -63,6 +65,7 @@ class MessageIn(BaseModel):
     poll: dict | None = None     # {q, options:[str..]} — votes live in message_reactions
     title: str | None = Field(default=None, max_length=120)   # forum post title
     tags: list[str] | None = None                             # forum post tags
+    embed: dict | None = None                                 # Discord-style rich embed
 
 
 class DigestIn(BaseModel):
@@ -154,6 +157,7 @@ class ChannelPatch(BaseModel):
     role_id: int | None = None    # absent = unchanged · 0 = open to all · N = gate to role
     lurkers: list[int] | None = None  # agent ids that auto-reply in this channel
     forum_tags: list[str] | None = None  # allowed tag chips on forum posts
+    workspace_id: int | None = None   # absent = unchanged · 0 = unlink · N = wire to workspace
 
 
 class GroupDmIn(BaseModel):
@@ -221,6 +225,51 @@ class LlmConfigIn(BaseModel):
     model: str = ""
     kind: str = "openai"                      # openai | webhook
     headers: str | None = None                # JSON of extra request headers
+
+
+class WorkspaceIn(BaseModel):
+    name: str = Field(min_length=1, max_length=64)
+    icon: str = Field(default="🗂", max_length=8)
+    root: str = Field(min_length=1, max_length=400)      # absolute folder on the host
+    description: str = Field(default="", max_length=400)
+
+
+class WorkspacePatch(BaseModel):
+    name: str | None = None
+    icon: str | None = None
+    description: str | None = None
+    root: str | None = None                              # admin only — re-points the folder
+
+
+class WorkspaceFileIn(BaseModel):
+    path: str = Field(min_length=1, max_length=400)
+    content: str = ""
+    note: str = Field(default="", max_length=200)
+    create_only: bool = False
+
+
+class WorkspacePathIn(BaseModel):
+    path: str = Field(min_length=1, max_length=400)
+
+
+class WorkspaceMoveIn(BaseModel):
+    path: str = Field(min_length=1, max_length=400)
+    to: str = Field(min_length=1, max_length=400)
+
+
+class WorkspaceGrantIn(BaseModel):
+    user_id: int
+    level: str = "read"                                # read | write | admin | "" (revoke)
+
+
+class WorkspaceExecIn(BaseModel):
+    cmd: str = Field(min_length=1, max_length=2000)
+
+
+class WorkspaceAgentIn(BaseModel):
+    agent_id: int
+    message: str = Field(min_length=1, max_length=4000)
+    path: str = ""                                      # file the agent should focus on
 
 
 class AgentConnectIn(BaseModel):

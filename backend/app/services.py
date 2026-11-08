@@ -6,10 +6,12 @@ import re
 import threading
 import time
 
+from .config import WORKSPACE_AGENT_TOOLS
 from .db import db, emit_buzz, now
 from .hub import hub
 
 from .helpers import STAR_EMOJI, _agent_llm, _grounding, _server_llm, _split_model, _sysprompt, _user_llm, agent_bot_user, can_see_agent, channel_member_ids, friend_ids, message_json, starboard_bot_user
+from . import workspace as wsx
 
 
 async def _server_changed(conn, sid):
@@ -349,11 +351,26 @@ def _strip_echo_prefix(text: str, asker_un: str, asker_dn: str = "", agent_name:
     return s
 
 
+def _workspace_for_channel(conn, ch, uid):
+    """The workspace an agent channel is wired to (if any) + the asker's level."""
+    if not ch or not ch["server_id"] or not WORKSPACE_AGENT_TOOLS:
+        return None, ""
+    wid = ch["workspace_id"] if "workspace_id" in ch.keys() else None
+    if not wid:
+        return None, ""
+    ws = conn.execute("SELECT * FROM workspaces WHERE id=?", (wid,)).fetchone()
+    if not ws:
+        return None, ""
+    lvl = wsx.level_of(conn, ws, uid)
+    return (ws, lvl) if lvl else (None, "")
+
+
 async def agent_reply(cid, aid, asker_id, msg_id, depth=0, ping=True):
     """Generate a reply from an agent @mentioned in chat and post it in-channel.
     Bot replies may themselves @mention other agents — those get summoned too,
     bounded by depth (max 3 hops) + per-agent cooldown so convos can't runaway.
     ping=False makes it ambient (lurking) — no @prefix and no mention buzz."""
+    from .llm import chat as llm_chat_once
     from .llm import chat_stream as llm_stream
     try:
         with db() as conn:
@@ -365,6 +382,7 @@ async def agent_reply(cid, aid, asker_id, msg_id, depth=0, ping=True):
                 return
             bot = agent_bot_user(conn, a)
             members = channel_member_ids(conn, ch)
+            ws, ws_lvl = _workspace_for_channel(conn, ch, asker_id)
             asker_llm = _agent_llm(a) \
                 or (_server_llm(conn, ch["server_id"]) if ch["server_id"] else None) \
                 or _user_llm(conn, asker_id)   # agent's own API connection wins, then server, then asker
@@ -416,13 +434,23 @@ async def agent_reply(cid, aid, asker_id, msg_id, depth=0, ping=True):
             history[-1]["content"] if history else "",
             a["context_headers"] if "context_headers" in a.keys() else None)) \
             if a["context_url"] else ""
+        sysp = _sysprompt(a, ground_ctx)
+        if ws:
+            sysp += (f"\n\nYou are working inside the shared workspace \"{ws['name']}\" "
+                     f"(folder: {ws['root']}). Your access level is {ws_lvl}. "
+                     "You can inspect and edit files with tools. To call one, reply with "
+                     "ONLY a JSON object like {\"tool\": \"read_file\", \"args\": "
+                     "{\"path\": \"README.md\"}} — one call per reply. Available tools: "
+                     + ", ".join(t["function"]["name"]
+                                 for t in wsx.agent_tools(conn, ws, asker_id)))
+        tool_steps = []
         q = queue.Queue()
         _aprov, _amdl = _split_model(a["model"])
 
         def _pump():
             try:
                 for kind, data in llm_stream(
-                        _sysprompt(a, ground_ctx),
+                        sysp,
                         history[:-1],
                         history[-1]["content"],
                         model=_amdl,
@@ -465,9 +493,43 @@ async def agent_reply(cid, aid, asker_id, msg_id, depth=0, ping=True):
                     "type": "message_updated", "channel_id": cid, "message": mj})
         await hub.send_many(members, {**typing, "on": False})
         reply = _strip_echo_prefix(reply, asker["username"], asker["display_name"], a["name"])
+        # workspace tool calls — the agent acts on files, then answers for real
+        if ws and not errored and reply:
+            for _ in range(3):
+                calls = wsx.parse_tool_calls(reply)
+                if not calls:
+                    break
+                results = []
+                for c in calls[:3]:
+                    with db() as conn:
+                        res = wsx.run_tool(conn, ws, asker_id, a["id"], c["name"], c["args"])
+                    tool_steps.append({"tool": c["name"], "args": c["args"], "result": res})
+                    results.append(f"TOOL RESULT {c['name']}: {json.dumps(res)[:4000]}")
+                with db() as conn:
+                    conn.execute("UPDATE messages SET content=? WHERE id=?",
+                                 (prefix + "⚙ " + ", ".join(s["tool"] for s in tool_steps)
+                                  + "…▌", mid))
+                try:
+                    reply, _p2, _m2 = await asyncio.to_thread(
+                        llm_chat_once, sysp, history[:-1],
+                        history[-1]["content"] + "\n\n" + "\n\n".join(results),
+                        endpoint=asker_llm)
+                except Exception:
+                    reply = ""
+                    break
+                reply = _strip_echo_prefix(reply, asker["username"],
+                                           asker["display_name"], a["name"])
+            if tool_steps and not reply:
+                reply = "⚙ " + ", ".join(f"{s['tool']}({s['args'].get('path') or s['args'].get('query') or s['args'].get('cmd') or ''})"
+                                          for s in tool_steps)
         if errored or not reply:
             reply = "hmm, my brain's offline — no local LLM reachable right now"
         text = prefix + reply[:3600]
+        if tool_steps:
+            text += "\n\n" + "\n".join(
+                f"⚙ `{s['tool']}` {s['args'].get('path') or s['args'].get('query') or s['args'].get('cmd') or ''}"
+                + ("" if s["result"].get("ok") else f" — ✗ {s['result'].get('error', 'failed')}")
+                for s in tool_steps)
         with db() as conn:
             conn.execute("UPDATE messages SET content=? WHERE id=?", (text, mid))
             m2 = conn.execute("SELECT * FROM messages WHERE id=?", (mid,)).fetchone()

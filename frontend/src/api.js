@@ -108,9 +108,9 @@ export const api = {
   // messages
   messages: (cid, before) =>
     req("GET", `/api/channels/${cid}/messages${before ? `?before=${before}` : ""}`),
-  send: (cid, content, agent_id, attachments, pack_id, reply_to, thread_root, fwd_of, poll, title, tags) =>
+  send: (cid, content, agent_id, attachments, pack_id, reply_to, thread_root, fwd_of, poll, title, tags, embed) =>
     req("POST", `/api/channels/${cid}/messages`,
-      { content, agent_id, pack_id, reply_to, thread_root, fwd_of, attachments, poll, title, tags }),
+      { content, agent_id, pack_id, reply_to, thread_root, fwd_of, attachments, poll, title, tags, embed }),
   messageAi: (mid, op, extra = "") => req("POST", `/api/messages/${mid}/ai`, { op, extra }),
   thread: (mid) => req("GET", `/api/messages/${mid}/thread`),
   markRead: (cid) => req("POST", `/api/channels/${cid}/read`, {}),
@@ -207,4 +207,36 @@ export const api = {
 
   // buzz
   buzz: () => req("GET", "/api/buzz"),
+
+  // workspaces — shared folders agents can read/write
+  workspaces: (sid) => req("GET", `/api/servers/${sid}/workspaces`),
+  createWorkspace: (sid, p) => req("POST", `/api/servers/${sid}/workspaces`, p),
+  workspace: (wid) => req("GET", `/api/workspaces/${wid}`),
+  editWorkspace: (wid, p) => req("PATCH", `/api/workspaces/${wid}`, p),
+  delWorkspace: (wid) => req("DELETE", `/api/workspaces/${wid}`),
+  wsTree: (wid, path = "", depth = 2) =>
+    req("GET", `/api/workspaces/${wid}/tree?path=${encodeURIComponent(path)}&depth=${depth}`),
+  wsFile: (wid, path) =>
+    req("GET", `/api/workspaces/${wid}/file?path=${encodeURIComponent(path)}`),
+  wsSave: (wid, path, content, note = "", create_only = false) =>
+    req("PUT", `/api/workspaces/${wid}/file`, { path, content, note, create_only }),
+  wsDelete: (wid, path) => req("POST", `/api/workspaces/${wid}/delete`, { path }),
+  wsMove: (wid, path, to) => req("POST", `/api/workspaces/${wid}/move`, { path, to }),
+  wsMkdir: (wid, path) => req("POST", `/api/workspaces/${wid}/mkdir`, { path }),
+  wsSearch: (wid, q) =>
+    req("GET", `/api/workspaces/${wid}/search?q=${encodeURIComponent(q)}`),
+  wsHistory: (wid, path) =>
+    req("GET", `/api/workspaces/${wid}/history?path=${encodeURIComponent(path)}`),
+  wsDiff: (wid, path, rev = 0) =>
+    req("GET", `/api/workspaces/${wid}/diff?path=${encodeURIComponent(path)}&rev=${rev}`),
+  wsRestore: (wid, path, rev) => req("POST", `/api/workspaces/${wid}/restore`, { path, rev }),
+  wsAudit: (wid, before = 0) =>
+    req("GET", `/api/workspaces/${wid}/audit${before ? `?before=${before}` : ""}`),
+  wsExec: (wid, cmd) => req("POST", `/api/workspaces/${wid}/exec`, { cmd }),
+  wsGrant: (wid, user_id, level) =>
+    req("POST", `/api/workspaces/${wid}/grants`, { user_id, level }),
+  wsAgent: (wid, agent_id, message, path = "") =>
+    req("POST", `/api/workspaces/${wid}/agent`, { agent_id, message, path }),
+  wsSessions: (wid) => req("GET", `/api/workspaces/${wid}/sessions`),
+  workspaceRoots: () => req("GET", "/api/workspace-roots"),
 };
