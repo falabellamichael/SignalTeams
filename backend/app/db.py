@@ -57,7 +57,7 @@ CREATE TABLE IF NOT EXISTS server_members (
 CREATE TABLE IF NOT EXISTS channels (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
     server_id  INTEGER REFERENCES servers(id) ON DELETE CASCADE,   -- NULL => DM channel
-    kind       TEXT NOT NULL DEFAULT 'text',            -- text | agents | dm
+    kind       TEXT NOT NULL DEFAULT 'text',            -- text | forum | agents | dm
     name       TEXT NOT NULL,
     topic      TEXT NOT NULL DEFAULT '',
     position   INTEGER NOT NULL DEFAULT 0,
@@ -341,6 +341,7 @@ def init():
             ("agents.context_headers", "ALTER TABLE agents ADD COLUMN context_headers TEXT"),
             ("messages.webhook_id", "ALTER TABLE messages ADD COLUMN webhook_id INTEGER"),
             ("messages.author_name", "ALTER TABLE messages ADD COLUMN author_name TEXT"),
+            ("messages.title", "ALTER TABLE messages ADD COLUMN title TEXT"),
         ]:
             table, c = col.split(".")
             try:

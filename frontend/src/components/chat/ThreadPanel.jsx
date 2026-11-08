@@ -22,7 +22,8 @@ export function ThreadPanel({ channel, thread, me, members, agents, emojis, role
   return (
     <div className="thread-panel">
       <div className="tp-head">
-        <span className="tp-title"><Ico n="dots3" s={14} /> Thread</span>
+        <span className="tp-title" title={thread.root.title || undefined}>
+          <Ico n="dots3" s={14} /> {thread.root.title || "Thread"}</span>
         <span className="tp-sub">in #{channel.name} · started by {thread.root.author?.display_name}</span>
         <button className="ghost" onClick={onClose} title="Close thread"><Ico n="x" s={14} /></button>
       </div>

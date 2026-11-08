@@ -412,10 +412,11 @@ def add_channel(sid: int, body: ChannelIn, user=Depends(current_user)):
                 "SELECT 1 FROM server_roles WHERE id=? AND server_id=?",
                 (body.role_id, sid)).fetchone():
             raise HTTPException(404, "No such role")
+        kind = body.kind if body.kind in ("text", "agents", "forum") else "text"
         cur = conn.execute(
             "INSERT INTO channels(server_id, kind, name, topic, position, roster, category, role_id, voice_cap, created_at) "
             "VALUES (?,?,?,?,?,?,?,?,?,?)",
-            (sid, body.kind, body.name.lstrip("#"), body.topic, pos,
+            (sid, kind, body.name.lstrip("#"), body.topic, pos,
              json.dumps(roster), body.category[:48], body.role_id or None,
              max(0, min(int(body.voice_cap or 0), 99)), now()))
         audit(conn, sid, user["id"], "channel.create",

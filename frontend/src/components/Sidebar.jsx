@@ -105,7 +105,7 @@ function MuteBtn({ state = 0, onToggle }) {
 }
 
 export function ServerSidebar({ server, channel, me, onChannel, onAddChannel, onEditChannel, onServerSettings, onMoveChannel, onToggleSrvMute, srvMuted, unread = {}, mentions = {}, muted, mentionsOnly, onToggleMute, voiceRosters = {} }) {
-  const text = server.channels.filter((c) => c.kind === "text");
+  const text = server.channels.filter((c) => c.kind === "text" || c.kind === "forum");
   const agentCh = server.channels.filter((c) => c.kind === "agents");
   const [copied, setCopied] = React.useState(false);
   const [collapsed, setCollapsed] = React.useState(new Set());
@@ -128,7 +128,7 @@ export function ServerSidebar({ server, channel, me, onChannel, onAddChannel, on
       <React.Fragment key={c.id}>
         <div className={`nav-item ${agent ? "ch-agent" : ""} ${channel?.id === c.id ? "on" : ""}`}
           onClick={() => onChannel(c)}>
-          <span className="ch-hash">{c.locked ? <Ico n="lock" s={13} /> : agent ? "✦" : "#"}</span>
+          <span className="ch-hash">{c.locked ? <Ico n="lock" s={13} /> : agent ? "✦" : c.kind === "forum" ? "📋" : "#"}</span>
           <span className="txt" title={c.topic || c.name}>{c.name}</span>
           {localStorage.getItem("st.draft." + c.id) &&
             <span className="ch-draft" title="You have an unsent draft here"><Ico n="edit" s={11} /></span>}

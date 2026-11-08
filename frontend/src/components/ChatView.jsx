@@ -8,6 +8,7 @@ import { QUICK, EMOJI_PICK, SLASH_COMMANDS } from "./chat/consts";
 import { Message } from "./chat/Message";
 import { ChannelTools } from "./chat/ChannelTools";
 import { ThreadPanel } from "./chat/ThreadPanel";
+import { ForumFeed } from "./chat/ForumView";
 import { MessageAiModal } from "./modals/aimessage";
 
 export default function ChatView({ channel, members, me, emojis, roles, channels = [], onAgentOpen, onPackOpen, onShareAgent, onUserOpen, onForward, onFwdJump, focusMsg, newSince = 0, onGroupAdd, onGroupRename, blocked, onMarkUnread }) {
@@ -175,7 +176,9 @@ export default function ChatView({ channel, members, me, emojis, roles, channels
       if (m.thread_root) {
         // thread reply — bump the root's chip, feed the open panel
         setMsgs((prev) => prev.map((p) =>
-          p.id === m.thread_root ? { ...p, thread_count: (p.thread_count || 0) + 1 } : p));
+          p.id === m.thread_root ? { ...p, thread_count: (p.thread_count || 0) + 1,
+            last_reply: { id: m.id, created_at: m.created_at,
+                          content: (m.content || "").slice(0, 80), author: m.author } } : p));
         setThread((t) => t && t.root.id === m.thread_root
           ? { ...t, replies: t.replies.some((r) => r.id === m.id) ? t.replies : [...t.replies, m] }
           : t);
@@ -568,7 +571,14 @@ export default function ChatView({ channel, members, me, emojis, roles, channels
                         .catch((e) => setSendErr(e.message));
                     }}>🚪 knock to join</button>}
             </div>
-          ) : (<>
+          ) : channel.kind === "forum" ? (
+          <>
+          {hasMore && <div className="idehint" style={{ textAlign: "center", padding: "4px 0" }}>
+            scroll up for earlier posts…</div>}
+          <ForumFeed channel={channel} me={me} msgs={msgs}
+            onOpen={openThread}
+            onPosted={(m) => setMsgs((prev) => prev.some((p) => p.id === m.id) ? prev : [...prev, m])} />
+          </>) : (<>
           {hasMore && <div className="idehint" style={{ textAlign: "center", padding: "4px 0" }}>
             scroll up for earlier messages…</div>}
           {msgs.length === 0 && (
@@ -638,7 +648,7 @@ export default function ChatView({ channel, members, me, emojis, roles, channels
             ))}
           </div>
         )}
-        {!channel.locked && (
+        {!channel.locked && channel.kind !== "forum" && (
         <div className="composer">
           {matches.length > 0 && (
             <div className="mention-pop">

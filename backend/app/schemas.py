@@ -58,6 +58,7 @@ class MessageIn(BaseModel):
     fwd_of: int | None = None
     attachments: list[dict] = []
     poll: dict | None = None     # {q, options:[str..]} — votes live in message_reactions
+    title: str | None = Field(default=None, max_length=120)   # forum post title
 
 
 class PackIn(BaseModel):

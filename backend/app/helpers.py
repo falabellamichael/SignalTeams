@@ -175,6 +175,15 @@ def message_json(conn, m, viewer_id=None):
         d["pack"] = pack_json(conn, p, viewer_id or m["author_id"]) if p else None
     d["thread_count"] = conn.execute(
         "SELECT COUNT(*) c FROM messages WHERE thread_root=?", (m["id"],)).fetchone()["c"]
+    if d["thread_count"]:
+        lr = conn.execute(
+            "SELECT * FROM messages WHERE thread_root=? ORDER BY id DESC LIMIT 1",
+            (m["id"],)).fetchone()
+        d["last_reply"] = {"id": lr["id"], "created_at": lr["created_at"],
+                           "content": (lr["content"] or "")[:80],
+                           "author": public_user(conn.execute(
+                               "SELECT * FROM users WHERE id=?",
+                               (lr["author_id"],)).fetchone())}
     if m["reply_to"]:
         r = conn.execute("SELECT * FROM messages WHERE id=?", (m["reply_to"],)).fetchone()
         if r:
@@ -436,7 +445,8 @@ def _parse_search(q: str, user):
                     clauses.append("m.created_at>=? AND m.created_at<?")
                     params += [ts, ts + 86400]
     if len(free) >= 2:
-        clauses.append("m.content LIKE ?"); params.append(f"%{free}%")
+        clauses.append("(m.content LIKE ? OR m.title LIKE ?)")
+        params += [f"%{free}%", f"%{free}%"]
     return free, clauses, params, len(found)
 
 

@@ -83,6 +83,7 @@ export function Message({ m, grouped, me, members, agents, emojis, roles, channe
             {mine && <button className="del-msg" title="Delete" onClick={() => onDelete(m)}><Ico n="x" s={12} /></button>}
           </div>
         )}
+        {m.title && <div className="post-title">{m.title}</div>}
         {editing ? (
           <div className="edit-row">
             <textarea autoFocus value={editDraft}

@@ -23,6 +23,19 @@ def get_messages(cid: int, before: int = Query(0), limit: int = Query(50, le=100
         ch = conn.execute("SELECT * FROM channels WHERE id=?", (cid,)).fetchone()
         if not ch or user["id"] not in channel_member_ids(conn, ch):
             raise HTTPException(404, "No such channel")
+        if ch["kind"] == "forum":
+            # posts ordered by last activity — a reply bumps its thread to the top
+            q = ("SELECT m.*, COALESCE((SELECT MAX(r.id) FROM messages r "
+                 "WHERE r.thread_root=m.id), m.id) act FROM messages m "
+                 "WHERE m.channel_id=? AND m.thread_root IS NULL")
+            args = [cid]
+            if before:
+                q += " AND m.id<?"
+                args.append(before)
+            q += " ORDER BY act DESC LIMIT ?"
+            args.append(limit)
+            return [message_json(conn, m, user["id"])
+                    for m in conn.execute(q, args).fetchall()]
         q = "SELECT * FROM messages WHERE channel_id=? AND thread_root IS NULL"
         args = [cid]
         if before:
@@ -171,13 +184,15 @@ async def post_message(cid: int, body: MessageIn, user=Depends(current_user)):
                           "mid": int(jm[3])} or None)
         else:
             embed = await asyncio.to_thread(unfurl, u.group(0)) if u else None
+        title = (body.title or "").strip()[:120] or None
         cur = conn.execute(
             "INSERT INTO messages(channel_id, author_id, content, agent_id, pack_id, reply_to, "
-            "thread_root, attachments, embed, fwd_of, poll, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+            "thread_root, attachments, embed, fwd_of, poll, title, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (cid, user["id"], content, body.agent_id, body.pack_id, body.reply_to,
              body.thread_root, json.dumps(atts),
              json.dumps(embed) if embed else None, body.fwd_of,
-             json.dumps(poll) if poll else None, now()))
+             json.dumps(poll) if poll else None,
+             title if not body.thread_root else None, now()))
         m = conn.execute("SELECT * FROM messages WHERE id=?", (cur.lastrowid,)).fetchone()
         payload = {"type": "message", "channel_id": cid,
                    "message": message_json(conn, m, user["id"])}

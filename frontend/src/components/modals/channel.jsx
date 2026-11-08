@@ -123,6 +123,7 @@ function WebhookSection({ channel }) {
 
 export function ChannelModal({ kind, channel, me, roles, onClose, onDone, onDelete }) {
   const editing = !!channel;
+  const [selKind, setSelKind] = useState(channel?.kind || kind);
   const [name, setName] = useState(channel?.name || "");
   const [topic, setTopic] = useState(channel?.topic || "");
   const [category, setCategory] = useState(channel?.category || "");
@@ -132,23 +133,34 @@ export function ChannelModal({ kind, channel, me, roles, onClose, onDone, onDele
   const [picked, setPicked] = useState(new Set((channel?.roster || []).map((a) => a.id)));
   const [agents, setAgents] = useState([]);
   useEffect(() => {
-    if (kind === "agents") api.agents({ sort: "name" }).then((all) =>
+    if (selKind === "agents") api.agents({ sort: "name" }).then((all) =>
       setAgents([...all].sort((a, b) => (a.owner_id === me?.id ? 0 : 1) - (b.owner_id === me?.id ? 0 : 1)))
     ).catch(() => {});
-  }, [kind, me?.id]);
+  }, [selKind, me?.id]);
   const toggle = (id) => setPicked((p) => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n; });
   return (
-    <Modal title={editing ? `Edit ${kind === "agents" ? "✦" : "#"}${channel.name}`
-        : `New ${kind === "agents" ? "agent" : "text"} channel`} onClose={onClose}
-      sub={kind === "agents" ? "Agent channels highlight shared agent cards — pick residents to pin." : "Plain talk."}>
+    <Modal title={editing ? `Edit ${selKind === "agents" ? "✦" : selKind === "forum" ? "📋" : "#"}${channel.name}`
+        : `New ${selKind === "agents" ? "agent" : selKind === "forum" ? "forum" : "text"} channel`} onClose={onClose}
+      sub={selKind === "agents" ? "Agent channels highlight shared agent cards — pick residents to pin."
+        : selKind === "forum" ? "Titled posts with threaded replies — like Discord forums." : "Plain talk."}>
+      {!editing && kind !== "agents" && (
+        <>
+          <label>Channel type</label>
+          <div className="seg" style={{ marginBottom: 4 }}>
+            <button className={selKind === "text" ? "on" : ""} onClick={() => setSelKind("text")}># Text</button>
+            <button className={selKind === "forum" ? "on" : ""} onClick={() => setSelKind("forum")}>📋 Forum</button>
+          </div>
+        </>
+      )}
       <label>Name</label>
-      <input value={name} onChange={(e) => setName(e.target.value)} placeholder={kind === "agents" ? "agent-drops" : "general"} />
+      <input value={name} onChange={(e) => setName(e.target.value)}
+        placeholder={selKind === "agents" ? "agent-drops" : selKind === "forum" ? "showcase" : "general"} />
       <label>Topic</label>
       <input value={topic} onChange={(e) => setTopic(e.target.value)} placeholder="optional" />
       <label>Category <span style={{ color: "var(--dim)", fontWeight: 400 }}>(optional — groups channels in the sidebar)</span></label>
       <input value={category} onChange={(e) => setCategory(e.target.value)}
         placeholder="e.g. projects, fun" maxLength={48} />
-      {kind === "text" && (
+      {selKind !== "agents" && (
         <>
           <label>Slowmode <span style={{ color: "var(--dim)", fontWeight: 400 }}>(seconds between messages — 0 = off)</span></label>
           <input type="number" min={0} max={21600} value={slow}
@@ -168,7 +180,7 @@ export function ChannelModal({ kind, channel, me, roles, onClose, onDone, onDele
           </select>
         </>
       )}
-      {kind === "agents" && (
+      {selKind === "agents" && (
         <>
           <label>Resident agents — pinned to the channel header</label>
           <div className="pack-pick" style={{ maxHeight: 160, overflowY: "auto" }}>
@@ -190,7 +202,7 @@ export function ChannelModal({ kind, channel, me, roles, onClose, onDone, onDele
         {editing && <button className="danger" onClick={() => onDelete(channel)}><Ico n="trash" s={13} /> Delete</button>}
         <button onClick={onClose}>Cancel</button>
         <button className="primary" disabled={!name.trim()}
-          onClick={() => onDone(name.trim(), kind, topic.trim(), [...picked], category.trim(), slow, vcap, roleId)}>
+          onClick={() => onDone(name.trim(), selKind, topic.trim(), [...picked], category.trim(), slow, vcap, roleId)}>
           {editing ? "Save" : "Create"}
         </button>
       </div>

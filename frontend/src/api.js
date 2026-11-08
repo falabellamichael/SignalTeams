@@ -108,9 +108,9 @@ export const api = {
   // messages
   messages: (cid, before) =>
     req("GET", `/api/channels/${cid}/messages${before ? `?before=${before}` : ""}`),
-  send: (cid, content, agent_id, attachments, pack_id, reply_to, thread_root, fwd_of, poll) =>
+  send: (cid, content, agent_id, attachments, pack_id, reply_to, thread_root, fwd_of, poll, title) =>
     req("POST", `/api/channels/${cid}/messages`,
-      { content, agent_id, pack_id, reply_to, thread_root, fwd_of, attachments, poll }),
+      { content, agent_id, pack_id, reply_to, thread_root, fwd_of, attachments, poll, title }),
   messageAi: (mid, op, extra = "") => req("POST", `/api/messages/${mid}/ai`, { op, extra }),
   thread: (mid) => req("GET", `/api/messages/${mid}/thread`),
   markRead: (cid) => req("POST", `/api/channels/${cid}/read`, {}),
