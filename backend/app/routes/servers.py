@@ -359,6 +359,139 @@ def get_server(sid: int, user=Depends(current_user)):
         return d
 
 
+def _snapshot_server(conn, s):
+    """Structure-only snapshot — channels/roles/automod, no members or messages.
+    Role gating travels as role *names* so it re-links on instantiation."""
+    sid = s["id"]
+    roles = [dict(r) for r in conn.execute(
+        "SELECT id, name, color FROM server_roles WHERE server_id=? ORDER BY id",
+        (sid,)).fetchall()]
+    rname = {r["id"]: r["name"] for r in roles}
+    chans = []
+    for c in conn.execute(
+            "SELECT * FROM channels WHERE server_id=? ORDER BY position, id",
+            (sid,)).fetchall():
+        chans.append({"name": c["name"], "kind": c["kind"], "topic": c["topic"] or "",
+                      "category": c["category"] or "", "position": c["position"],
+                      "slowmode_secs": c["slowmode_secs"] or 0,
+                      "voice_cap": c["voice_cap"] or 0,
+                      "role_name": rname.get(c["role_id"])})
+    try:
+        automod = json.loads(s["automod"] or "{}")
+    except Exception:
+        automod = {}
+    return {"name": s["name"], "icon": s["icon"],
+            "star_threshold": s["star_threshold"] if "star_threshold" in s.keys() else 3,
+            "automod": automod, "roles": [{"name": r["name"], "color": r["color"]}
+                                          for r in roles],
+            "channels": chans}
+
+
+@router.post("/api/servers/{sid}/template")
+def save_template(sid: int, user=Depends(current_user)):
+    """Create (or refresh) this server's shareable template — owner only."""
+    with db() as conn:
+        s = conn.execute("SELECT * FROM servers WHERE id=?", (sid,)).fetchone()
+        if not s or s["owner_id"] != user["id"]:
+            raise HTTPException(403, "Only the owner can template this server")
+        snap = json.dumps(_snapshot_server(conn, s))
+        have = conn.execute("SELECT code FROM server_templates WHERE server_id=?",
+                            (sid,)).fetchone()
+        if have:
+            conn.execute("UPDATE server_templates SET snapshot=?, created_by=? WHERE code=?",
+                         (snap, user["id"], have["code"]))
+            code = have["code"]
+        else:
+            code = secrets.token_urlsafe(5)
+            conn.execute(
+                "INSERT INTO server_templates(code, server_id, snapshot, created_by, uses, created_at) "
+                "VALUES (?,?,?,?,0,?)", (code, sid, snap, user["id"], now()))
+        audit(conn, sid, user["id"], "server.template", s["name"],
+              f"code {code}")
+        return {"code": code}
+
+
+@router.delete("/api/servers/{sid}/template")
+def del_template(sid: int, user=Depends(current_user)):
+    with db() as conn:
+        s = conn.execute("SELECT * FROM servers WHERE id=?", (sid,)).fetchone()
+        if not s or s["owner_id"] != user["id"]:
+            raise HTTPException(403, "Only the owner can drop the template")
+        if not conn.execute("DELETE FROM server_templates WHERE server_id=?",
+                            (sid,)).rowcount:
+            raise HTTPException(404, "No template for this server")
+        return {"ok": True}
+
+
+@router.get("/api/servers/{sid}/template")
+def get_template(sid: int, user=Depends(current_user)):
+    with db() as conn:
+        s = conn.execute("SELECT * FROM servers WHERE id=?", (sid,)).fetchone()
+        if not s or s["owner_id"] != user["id"]:
+            raise HTTPException(403, "Only the owner")
+        t = conn.execute("SELECT code, uses, created_at FROM server_templates "
+                         "WHERE server_id=?", (sid,)).fetchone()
+        return {"code": t["code"], "uses": t["uses"], "created_at": t["created_at"]} if t else {}
+
+
+@router.get("/api/templates/{code}")
+def template_preview(code: str):
+    """Public preview — what a template builds, no secrets."""
+    with db() as conn:
+        t = conn.execute("SELECT * FROM server_templates WHERE code=?", (code,)).fetchone()
+        if not t:
+            raise HTTPException(404, "No such template")
+        snap = json.loads(t["snapshot"])
+        return {"name": snap["name"], "icon": snap["icon"], "uses": t["uses"],
+                "channels": [c["name"] for c in snap["channels"]],
+                "roles": [r["name"] for r in snap["roles"]]}
+
+
+@router.post("/api/servers/from-template")
+def server_from_template(body: dict, user=Depends(current_user)):
+    """Instantiate a template: owner member + roles + channels (role names re-linked)."""
+    code = (body.get("code") or "").strip()
+    with db() as conn:
+        t = conn.execute("SELECT * FROM server_templates WHERE code=?", (code,)).fetchone()
+        if not t:
+            raise HTTPException(404, "No such template")
+        snap = json.loads(t["snapshot"])
+        name = (body.get("name") or "").strip()[:64] or snap["name"]
+        code2 = secrets.token_urlsafe(6)
+        cur = conn.execute(
+            "INSERT INTO servers(name, icon, invite_code, owner_id, automod, star_threshold, created_at) "
+            "VALUES (?,?,?,?,?,?,?)",
+            (name, snap["icon"], code2, user["id"],
+             json.dumps(snap.get("automod") or {}),
+             snap.get("star_threshold", 3), now()))
+        sid = cur.lastrowid
+        conn.execute(
+            "INSERT INTO server_members(server_id, user_id, role, joined_at) VALUES (?,?,?,?)",
+            (sid, user["id"], "owner", now()))
+        role_ids = {}
+        for r in snap.get("roles", []):
+            rc = conn.execute(
+                "INSERT INTO server_roles(server_id, name, color, created_at) VALUES (?,?,?,?)",
+                (sid, r["name"][:24], r["color"], now()))
+            role_ids[r["name"]] = rc.lastrowid
+        chans = snap.get("channels") or [
+            {"name": "general", "kind": "text", "topic": "", "category": "",
+             "position": 0, "slowmode_secs": 0, "voice_cap": 0, "role_name": None}]
+        for c in chans:
+            kind = c["kind"] if c["kind"] in ("text", "agents", "forum") else "text"
+            conn.execute(
+                "INSERT INTO channels(server_id, kind, name, topic, position, category, "
+                "slowmode_secs, voice_cap, role_id, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                (sid, kind, c["name"][:48], (c["topic"] or "")[:200],
+                 c["position"], (c["category"] or "")[:48],
+                 c["slowmode_secs"] or 0, c["voice_cap"] or 0,
+                 role_ids.get(c["role_name"]), now()))
+        conn.execute("UPDATE server_templates SET uses=uses+1 WHERE code=?", (code,))
+        emit_buzz(conn, user["id"], "joined", {"server": name})
+        return _pub_server(dict(conn.execute(
+            "SELECT * FROM servers WHERE id=?", (sid,)).fetchone()))
+
+
 @router.get("/api/servers/{sid}/pulse")
 def server_pulse(sid: int, user=Depends(current_user)):
     """Last-7-days activity digest — powers the 📈 server pulse card."""

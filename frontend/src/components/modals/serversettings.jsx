@@ -57,6 +57,8 @@ export function ServerSettingsModal({ server, me, onClose, onSaved, onDeleted, o
   const [auditMore, setAuditMore] = useState(false);
   const [bans, setBans] = useState(null);
   const [bansOpen, setBansOpen] = useState(false);
+  const [tpl, setTpl] = useState(undefined);   // undefined=unfetched, null=none, {code,uses}
+  const [tplCopied, setTplCopied] = useState(false);
   const [am, setAm] = useState({
     words: (server.automod?.words || []).join(", "),
     block_links: !!server.automod?.block_links,
@@ -77,6 +79,13 @@ export function ServerSettingsModal({ server, me, onClose, onSaved, onDeleted, o
       api.serverBans(server.id).then(setBans).catch(() => setBans([]));
     }
   }, [owner, bansOpen, bans, server.id]);
+  useEffect(() => {
+    if (owner && tpl === undefined) {
+      api.getTemplate(server.id)
+        .then((t) => setTpl(t.code ? t : null))
+        .catch(() => setTpl(null));
+    }
+  }, [owner, tpl, server.id]);
   useEffect(() => {
     if (!server.llm_url) return;
     api.serverLlmTest(server.id)
@@ -295,6 +304,38 @@ export function ServerSettingsModal({ server, me, onClose, onSaved, onDeleted, o
             }}>Save rules</button>
             {amMsg && <span className="idehint" style={{ alignSelf: "center" }}>{amMsg}</span>}
           </div>
+          <label>Server template <span style={{ color: "var(--dim)", fontWeight: 400 }}>
+            (shareable snapshot — channels, roles, categories, automod rules)</span></label>
+          {tpl === null && (
+            <button onClick={async () => {
+              const t = await api.saveTemplate(server.id)
+                .catch((e) => (setMsg(e.message), null));
+              if (t) { setTpl(t); setTplCopied(false); }
+            }}>Create template code</button>
+          )}
+          {tpl && (
+              <div className="pack-agent" style={{ cursor: "default" }}>
+                <span className="pk-ico big">📋</span>
+                <div style={{ flex: 1 }}>
+                  <b><code>{tpl.code}</code></b>
+                  <div style={{ fontSize: 11, color: "var(--dim)" }}>
+                    used {tpl.uses}× — anyone with this code clones the structure</div>
+                </div>
+                <span className="stat xfer" title="Copy template code" onClick={() => {
+                  navigator.clipboard?.writeText(tpl.code);
+                  setTplCopied(true); setTimeout(() => setTplCopied(false), 1200);
+                }}>{tplCopied ? "✓ copied" : "copy"}</span>
+                <span className="stat xfer" title="Re-snapshot current structure" onClick={async () => {
+                  const t = await api.saveTemplate(server.id).catch((e) => (setMsg(e.message), null));
+                  if (t) setTpl(t);
+                }}>sync</span>
+                <span className="stat kick" title="Delete template" onClick={async () => {
+                  if (!confirm("Delete this template? Existing clones are unaffected.")) return;
+                  await api.delTemplate(server.id).catch((e) => (setMsg(e.message), null));
+                  setTpl(null);
+                }}><Ico n="x" s={11} /></span>
+              </div>
+          )}
           <label>Roles <span style={{ color: "var(--dim)", fontWeight: 400 }}>
             ({roles.length}/20 — colored names + pills)</span></label>
           {roles.length > 0 && (

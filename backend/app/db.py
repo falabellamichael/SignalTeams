@@ -285,6 +285,15 @@ CREATE TABLE IF NOT EXISTS digest_jobs (                 -- scheduled agent chan
     created_at    REAL NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS server_templates (            -- shareable server structure
+    code       TEXT PRIMARY KEY,
+    server_id  INTEGER NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+    snapshot   TEXT NOT NULL,                            -- JSON {name,channels,roles,automod,...}
+    created_by INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    uses       INTEGER NOT NULL DEFAULT 0,
+    created_at REAL NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS events (                      -- scheduled server events
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     server_id   INTEGER NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
