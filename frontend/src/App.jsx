@@ -1,5 +1,6 @@
 import React, { Suspense, lazy, useCallback, useEffect, useRef, useState } from "react";
 import Ico from "./components/Ico";
+import KnotMark from "./components/KnotMark";
 import { api, getToken, setToken } from "./api";
 import { connectWS, disconnectWS, onWS, sendWS } from "./ws";
 import { getGuestChans, isGuestChan } from "./guestchan";
@@ -263,7 +264,10 @@ export default function App() {
     refreshLists();
     const offVoice = onVoice(setVoice);
     const off = onWS((evt) => {
-      if (evt.type === "presence") {
+      if (evt.type === "ws:open") {
+        // the socket connecting marks us online server-side — keep our own label in sync
+        setMe((m) => (m && m.status === "offline" ? { ...m, status: "online" } : m));
+      } else if (evt.type === "presence") {
         setOnlineIds(evt.online);
       } else if (evt.type === "message") {
         const ch = channelRef.current;
@@ -335,7 +339,11 @@ export default function App() {
           if (g.id === evt.channel_id && g._onRead) g._onRead(evt.user_id, evt.ts);
       } else if (evt.type === "buzz") {
         setRefresh((r) => r + 1);
+        refreshLists();
       } else if (evt.type === "status") {
+        // our own label too — auto-idle / a status change from another tab
+        if (evt.user_id === meRef.current?.id)
+          setMe((m) => (m ? { ...m, status: evt.status } : m));
         setOnlineIds((ids) => evt.status === "offline" ? ids.filter((i) => i !== evt.user_id) : ids);
       } else if (evt.type === "event") {
         if (serverRef.current?.id === evt.server_id) {
@@ -519,6 +527,7 @@ export default function App() {
   async function installAgent(a) {
     await api.installAgent(a.id);
     setRefresh((r) => r + 1);
+    api.bench().then((b) => setBenchCount(b.length)).catch(() => {});
     if (modal?.kind === "agent") setModal({ kind: "agent", agent: await api.agent(a.id) });
   }
   async function forkAgent(a) {
@@ -727,7 +736,7 @@ export default function App() {
         refreshLists();
       }} />
   );
-  else main = <div className="empty"><div className="big">📡</div><div className="serif">Pick a channel.</div></div>;
+  else main = <div className="empty"><div className="big"><KnotMark /></div><div className="serif">Pick a channel.</div></div>;
 
   const title = wsOpen ? `${wsOpen.icon} ${wsOpen.name} — workspace`
     : dmChannel ? `@ ${channel.name}`

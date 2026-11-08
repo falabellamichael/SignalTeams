@@ -1,6 +1,7 @@
 import React, { useRef, useState } from "react";
 import { api } from "../api";
 import Ico from "./Ico";
+import KnotMark from "./KnotMark";
 
 export default function Rail({ servers, active, onHome, onServer, onNewServer, pendingCount, serverUnread = {}, serverMentions = {}, onReorder }) {
   const dragFrom = useRef(-1);
@@ -9,7 +10,7 @@ export default function Rail({ servers, active, onHome, onServer, onNewServer, p
   return (
     <div className="rail">
       <div className={`rail-ico ${active === "home" ? "on" : ""}`} onClick={onHome} title="Home — buzz, friends, library">
-        📡
+        <KnotMark />
         {pendingCount > 0 && <span className="rail-badge">{pendingCount}</span>}
       </div>
       <div className="rail-sep" />

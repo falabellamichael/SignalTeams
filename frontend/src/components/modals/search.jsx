@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import Ico from "../Ico";
+import KnotMark from "../KnotMark";
 import { api } from "../../api";
 import { hasSearchQuery, timeAgo } from "../../util";
 import { Modal } from "./_shared.jsx";
@@ -43,7 +44,7 @@ export function GlobalSearchModal({ onClose, onPick, dests, onJump }) {
       if (has(f.display_name) || has(f.username))
         jumps.push({ t: "friend", x: f, ic: f.avatar_emoji || "👤", name: f.display_name, sub: `@${f.username}` });
     for (const s of dests.servers || [])
-      if (has(s.name)) jumps.push({ t: "server", x: s, ic: s.icon || "📡", name: s.name, sub: "server" });
+      if (has(s.name)) jumps.push({ t: "server", x: s, ic: s.icon || <KnotMark />, name: s.name, sub: "server" });
   }
 
   const flat = jumps.slice(0, 6).length + hits.length;

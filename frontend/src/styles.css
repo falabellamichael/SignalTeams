@@ -227,6 +227,10 @@ a { color: var(--accent); text-decoration: none; }
 /* bot avatars render the flat 2D knot mark — currentColor = var(--honey),
    so every theme recolors it (gold on dark, amber on light, silver on obsidian) */
 .avatar .knotmark { width: 62%; height: 62%; color: var(--honey); flex-shrink: 0; }
+/* the knot mark doubles as the app logo glyph — honey in every theme */
+.rail-ico .knotmark { width: 24px; height: 24px; color: var(--honey); }
+.empty .big .knotmark { width: 46px; height: 46px; color: var(--honey); }
+.jump-ic .knotmark { width: 15px; height: 15px; color: var(--honey); vertical-align: -2px; }
 .dot { position: absolute; right: -1px; bottom: -1px; width: 10px; height: 10px;
   border-radius: 50%; border: 2px solid var(--panel); background: var(--dim); }
 .dot.online { background: var(--good); }
