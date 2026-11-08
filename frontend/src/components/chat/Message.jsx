@@ -25,6 +25,19 @@ export function Message({ m, grouped, me, members, agents, emojis, roles, channe
     await api.editMessage(m.id, v).catch((e) => alert(e.message));
   }
 
+  if (m.system) {
+    const txt = m.system === "join" ? "joined the server"
+      : m.system === "leave" ? "left the server" : m.system;
+    const ic = m.system === "join" ? "🚪" : m.system === "leave" ? "👋" : "ℹ️";
+    return (
+      <div className="sysmsg" id={"msg-" + m.id}>
+        {ic} <b style={{ color: m.author?.avatar_color }}>
+          {nickOf(m.author) || m.author?.display_name}</b> {txt}
+        <span className="sysmsg-time">{timeAgo(m.created_at)}</span>
+      </div>
+    );
+  }
+
   if (blocked?.has?.(m.author?.id) && !revealed) {
     return (
       <div className="msg blocked-msg" id={"msg-" + m.id} title="Click to show"

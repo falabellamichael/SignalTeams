@@ -485,6 +485,21 @@ def _split_model(spec):
     return None, s
 
 
+def _sys_post(conn, sid, uid, kind):
+    """Insert a join/leave system message into the server's first text channel.
+    Returns (channel_id, member_ids, message_json) for the caller to broadcast."""
+    ch = conn.execute(
+        "SELECT * FROM channels WHERE server_id=? AND kind IN ('text','forum') "
+        "ORDER BY position, id LIMIT 1", (sid,)).fetchone()
+    if not ch:
+        return None
+    cur = conn.execute(
+        "INSERT INTO messages(channel_id, author_id, content, system, created_at) "
+        "VALUES (?,?,'',?,?)", (ch["id"], uid, kind, now()))
+    m = conn.execute("SELECT * FROM messages WHERE id=?", (cur.lastrowid,)).fetchone()
+    return ch["id"], channel_member_ids(conn, ch), message_json(conn, m, uid)
+
+
 def _pub_server(d):
     """Strip secrets from a serialized server — llm_key is write-only."""
     if isinstance(d, dict) and "llm_key" in d:

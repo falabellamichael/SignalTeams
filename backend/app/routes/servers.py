@@ -8,7 +8,7 @@ from ..auth import current_user
 from ..db import db, emit_buzz, now
 from ..hub import hub
 
-from ..helpers import _clean_automod, _pub_server, audit, channel_json, public_user
+from ..helpers import _clean_automod, _pub_server, _sys_post, audit, channel_json, public_user
 from ..schemas import ChannelIn, ChannelPatch, DigestIn, JoinIn, MemberRoleIn, NickIn, RoleIn, ServerIn, ServerPatch, TransferIn
 from ..services import _server_changed
 
@@ -64,7 +64,8 @@ def invite_info(code: str):
 
 
 @router.post("/api/servers/join")
-def join_server(body: JoinIn, user=Depends(current_user)):
+async def join_server(body: JoinIn, user=Depends(current_user)):
+    sysinfo = None
     with db() as conn:
         s = conn.execute("SELECT * FROM servers WHERE invite_code=?", (body.invite_code,)).fetchone()
         if not s:
@@ -75,7 +76,13 @@ def join_server(body: JoinIn, user=Depends(current_user)):
                 "INSERT INTO server_members(server_id, user_id, role, joined_at) VALUES (?,?,?,?)",
                 (s["id"], user["id"], "member", now()))
             emit_buzz(conn, user["id"], "joined", {"server": s["name"]})
-        return dict(s)
+            sysinfo = _sys_post(conn, s["id"], user["id"], "join")
+        out = dict(s)
+    if sysinfo:
+        cid, memb, mj = sysinfo
+        await hub.send_many(memb, {"type": "message", "channel_id": cid,
+                                   "message": mj})
+    return out
 
 
 @router.patch("/api/servers/{sid}")
@@ -170,8 +177,13 @@ async def leave_server(sid: int, user=Depends(current_user)):
         conn.execute("DELETE FROM server_members WHERE server_id=? AND user_id=?",
                      (sid, user["id"]))
         audit(conn, sid, user["id"], "member.leave", f"@{user['username']}", s["name"])
+        sysinfo = _sys_post(conn, sid, user["id"], "leave")
     with db() as conn:
         await _server_changed(conn, sid)
+    if sysinfo:
+        cid, memb, mj = sysinfo
+        await hub.send_many(memb, {"type": "message", "channel_id": cid,
+                                   "message": mj})
     return {"ok": True}
 
 

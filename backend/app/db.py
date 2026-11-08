@@ -354,6 +354,7 @@ def init():
             ("messages.title", "ALTER TABLE messages ADD COLUMN title TEXT"),
             ("channels.lurkers", "ALTER TABLE channels ADD COLUMN lurkers TEXT NOT NULL DEFAULT '[]'"),
             ("servers.automod", "ALTER TABLE servers ADD COLUMN automod TEXT NOT NULL DEFAULT '{}'"),
+            ("messages.system", "ALTER TABLE messages ADD COLUMN system TEXT NOT NULL DEFAULT ''"),
         ]:
             table, c = col.split(".")
             try:

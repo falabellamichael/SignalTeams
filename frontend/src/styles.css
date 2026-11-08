@@ -305,6 +305,9 @@ a { color: var(--accent); text-decoration: none; }
   border: 1px dashed var(--border); color: var(--dim); cursor: pointer; }
 .lurk-chip.on { border: 1px solid var(--honey); color: var(--honey);
   background: color-mix(in srgb, var(--honey) 12%, transparent); }
+.sysmsg { text-align: center; color: var(--dim); font-size: 12px;
+  padding: 6px 0; }
+.sysmsg-time { font-size: 10px; margin-left: 8px; opacity: .7; }
 
 /* message context menu */
 .menu-scrim { position: fixed; inset: 0; z-index: 49; }

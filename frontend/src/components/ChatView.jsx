@@ -591,7 +591,7 @@ export default function ChatView({ channel, members, me, emojis, roles, channels
           {msgs.map((m, i) => {
             const day = msgDay(m.created_at);
             const grouped = day === lastDay && m.author?.id === lastAuthor
-              && m.created_at - lastTs < 300 && !m.agent && !m.pack;
+              && m.created_at - lastTs < 300 && !m.agent && !m.pack && !m.system;
             const showDay = day !== lastDay;
             lastDay = day; lastAuthor = m.author?.id; lastTs = m.created_at;
             const isNewBoundary = newSince > 0 && i === Math.max(0, msgs.length - newSince);
