@@ -42,7 +42,7 @@
     },
     "windows": {
       "wix": {
-        "language": "en-US",
+        "language": { "en-US": { "localePath": "msi/en-US.wxl" } },
         "upgradeCode": "406ffb1e-1adf-5c17-9a58-a1fb45b35664",
         "bannerPath": "msi/banner_2x.bmp",
         "dialogImagePath": "msi/dialog_2x.bmp"

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<WixLocalization Culture="en-us" xmlns="http://schemas.microsoft.com/wix/2006/localization">
+  <String Id="WelcomeDlgTitle" Overridable="yes">Welcome to [ProductName]</String>
+  <String Id="WelcomeDlgDescription" Overridable="yes">The Setup Wizard will install [ProductName] on this machine and rally your crew's agents. Click Next to continue, or Cancel to exit.</String>
+  <String Id="LicenseAgreementDlgTitle" Overridable="yes">[ProductName] License Agreement</String>
+  <String Id="LicenseAgreementDlgDescription" Overridable="yes">Take a moment to read the license agreement — it's short and friendly.</String>
+  <String Id="InstallDirDlgTitle" Overridable="yes">Choose an install location</String>
+  <String Id="InstallDirDlgDescription" Overridable="yes">Click Next to install to the default folder, or Change to pick somewhere else for [ProductName] to live.</String>
+  <String Id="VerifyReadyDlgInstallTitle" Overridable="yes">Ready to install [ProductName]</String>
+  <String Id="VerifyReadyDlgInstallText" Overridable="yes">Everything's set — the wizard is ready to put your agents to work.</String>
+  <String Id="ExitDialogTitle" Overridable="yes">[ProductName] is installed</String>
+  <String Id="ExitDialogDescription" Overridable="yes">Click Finish to close the Setup Wizard and get back to your crew.</String>
+</WixLocalization>
