@@ -21,7 +21,7 @@ function snap() {
     rosters: Object.fromEntries(rosters),
     videos: Object.fromEntries(videos),
     speaking: [...speaking],
-    camOn, camStream, err,
+    camOn, camStream, screenStream, err,
   };
 }
 
@@ -302,5 +302,3 @@ export function toggleDeafen() {
 export function askVoiceRoster(cid) {
   sendWS({ type: "voice_status", channel_id: cid });
 }
-
-if (typeof window !== "undefined") window.__voicePeers = peers;

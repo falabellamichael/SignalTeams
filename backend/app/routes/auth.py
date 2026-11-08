@@ -320,4 +320,21 @@ def profile(uid: int, user=Depends(current_user)):
         d["agents"] = [agent_json(conn, a, user["id"]) for a in conn.execute(
             "SELECT * FROM agents WHERE owner_id=? ORDER BY id DESC", (uid,)).fetchall()
             if can_see_agent(conn, a, user["id"])]
+        # mutuals — servers both users sit in, friends both share
+        d["mutual_servers"] = [dict(r) for r in conn.execute(
+            "SELECT s.id, s.name, s.icon FROM servers s"
+            " JOIN server_members a ON a.server_id=s.id AND a.user_id=?"
+            " JOIN server_members b ON b.server_id=s.id AND b.user_id=?"
+            " ORDER BY s.name", (user["id"], uid)).fetchall()] if uid != user["id"] else []
+        mutual_ids = [r["fid"] for r in conn.execute(
+            "SELECT DISTINCT u.id AS fid FROM users u"
+            " JOIN friendships f1 ON f1.status='accepted'"
+            "   AND u.id = CASE WHEN f1.user_id=? THEN f1.friend_id ELSE f1.user_id END"
+            "   AND (f1.user_id=? OR f1.friend_id=?)"
+            " JOIN friendships f2 ON f2.status='accepted'"
+            "   AND u.id = CASE WHEN f2.user_id=? THEN f2.friend_id ELSE f2.user_id END"
+            "   AND (f2.user_id=? OR f2.friend_id=?)",
+            (user["id"], user["id"], user["id"], uid, uid, uid)).fetchall()]
+        d["mutual_friends"] = [public_user(conn.execute(
+            "SELECT * FROM users WHERE id=?", (fid,)).fetchone()) for fid in mutual_ids[:24]]
         return d

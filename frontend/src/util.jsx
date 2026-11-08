@@ -159,7 +159,7 @@ function inline(text, keyBase, names, slugs, me, members, agents, emap, rmap, cm
         const u = (members || []).find((x) => x?.username?.toLowerCase() === uname);
         out.push(<span key={k++} className={`md-mention ${me?.username?.toLowerCase() === uname ? "me" : ""}`}
           style={u && onUser ? { cursor: "pointer" } : undefined}
-          onClick={() => u && onUser?.(u)}>{full}</span>);
+          onClick={(e) => u && onUser?.(u, e)}>{full}</span>);
       } else if (rmap?.has(uname)) {
         const r = rmap.get(uname);
         out.push(<span key={k++} className="md-mention role"

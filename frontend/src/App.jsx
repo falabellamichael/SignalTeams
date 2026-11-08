@@ -6,6 +6,13 @@ import { connectWS, disconnectWS, onWS, sendWS } from "./ws";
 import { getGuestChans, isGuestChan } from "./guestchan";
 import { onVoice, joinVoice, leaveVoice, toggleVoiceMute, toggleDeafen, toggleShare, toggleCam } from "./voice";
 import Rail from "./components/Rail";
+
+/* Discord's sidebar is ~240px — below that the me-bar (avatar + name +
+   mute/deafen/settings) starts wrapping onto two lines. Keep the drag
+   minimum there so the footer keeps its single-line shape; anything wider
+   just gives the channel list more room. */
+const SIDE_MIN_W = 240;
+import { UserPopout } from "./components/UserPopout";
 import { HomeSidebar, ServerSidebar, MeBar, VoiceConnectedBar } from "./components/Sidebar";
 import Bell from "./components/Bell";
 
@@ -68,7 +75,8 @@ export default function App() {
   const [focusMsg, setFocusMsg] = useState(null);  // {id, ch, n} — ChatView scrolls+flashes
   const [sideOpen, setSideOpen] = useState(
     () => !window.matchMedia?.("(max-width: 760px)").matches);
-  const [sideW, setSideW] = useState(() => +(localStorage.getItem("st.sidew") || 232));
+  const [sideW, setSideW] = useState(() =>
+    Math.max(SIDE_MIN_W, +(localStorage.getItem("st.sidew") || 232)));
 
   // drag the channel sidebar's right edge to resize it (desktop only; the
   // footer/me-bar are untouched — only the panel above them resizes)
@@ -78,7 +86,7 @@ export default function App() {
     const startX = e.clientX, startW = sideW;
     document.body.classList.add("col-resizing");
     const move = (ev) =>
-      setSideW(Math.min(480, Math.max(160, startW + ev.clientX - startX)));
+      setSideW(Math.min(480, Math.max(SIDE_MIN_W, startW + ev.clientX - startX)));
     const up = () => {
       document.body.classList.remove("col-resizing");
       window.removeEventListener("mousemove", move);
@@ -88,6 +96,7 @@ export default function App() {
     window.addEventListener("mouseup", up);
   }
   const [modal, setModal] = useState(null);            // {kind, ...props}
+  const [userPop, setUserPop] = useState(null);        // {u, x, y} — anchored user popout
   const [unread, setUnread] = useState({});            // channelId -> count
   const [mentions, setMentions] = useState({});        // channelId -> @me count
   const [blocked, setBlocked] = useState(new Set());   // user ids I've blocked
@@ -508,6 +517,31 @@ export default function App() {
     refreshLists();
   }
 
+  // click a user tag anywhere → anchored popout (mutuals + actions) at cursor
+  function openUserPop(u, e) {
+    if (!u) return;
+    setUserPop({
+      u,
+      x: e?.clientX ?? Math.round(window.innerWidth / 2),
+      y: e?.clientY ?? Math.round(window.innerHeight / 2),
+    });
+  }
+
+  async function blockUser(u) {
+    const wasBlocked = blocked.has(u.id);
+    if (!wasBlocked && !confirm(`Block ${u.display_name}? They can't DM you and their messages collapse.`)) return;
+    const r = await api.block(u.id).catch((e) => { alert(e.message); return null; });
+    if (!r) return;
+    setBlocked((s) => { const n = new Set(s); r.blocked ? n.add(u.id) : n.delete(u.id); return n; });
+    if (r.blocked) setModal(null);
+    refreshLists();
+  }
+
+  async function friendUser(u) {
+    await api.addFriend(u.username).catch((e) => alert(e.message));
+    setModal(null); setRefresh((r) => r + 1);
+  }
+
   const dmShape = (d) => (d.members || []).length > 1
     ? { id: d.id, kind: "dm", group: true,
         name: d.name || d.members.map((u) => u.display_name.split(" ")[0]).join(", "),
@@ -671,7 +705,7 @@ export default function App() {
       onOpenAgent={(id) => openAgent({ id })}
       onOpenPack={openPack}
       onOpenChannel={openChannelById}
-      onUser={(u) => setModal({ kind: "profile", user: u })} />
+      onUser={openUserPop} />
   );
   else if (view === "library") main = (
     <Library me={me} refreshKey={refresh}
@@ -705,7 +739,7 @@ export default function App() {
         channels: server?.channels || [], blocked, onDm: openDm,
         onAgentOpen: openAgent, onPackOpen: openPack,
         onShareAgent: () => setModal({ kind: "share", agent: null }),
-        onUserOpen: (u) => setModal({ kind: "profile", user: u }),
+        onUserOpen: openUserPop,
         onForward: (m) => setModal({ kind: "forward", msg: m }),
         onFwdJump: openChannelById,
       }} />
@@ -722,7 +756,7 @@ export default function App() {
       onToggleDeafen={toggleDeafen}
       onToggleShare={toggleShare}
       onToggleCam={toggleCam}
-      onUserOpen={(u) => setModal({ kind: "profile", user: u })}
+      onUserOpen={openUserPop}
       onDm={openDm}
       members={members}
       emojis={server?.emojis || []}
@@ -751,7 +785,7 @@ export default function App() {
         setNewSince({ ch: channel.id, n });
         if (channel.kind === "dm") api.markUnread(channel.id, m.id).catch(() => {});
       }}
-      onUserOpen={(u) => setModal({ kind: "profile", user: u })}
+      onUserOpen={openUserPop}
       onAgentOpen={openAgent}
       onPackOpen={openPack}
       onShareAgent={() => setModal({ kind: "share", agent: null })}
@@ -1026,19 +1060,8 @@ export default function App() {
           roles={server?.roles || []}
           onDm={(u) => { setModal(null); openDm(u); }}
           onOpenAgent={(a) => setModal({ kind: "agent", agent: a })}
-          onBlock={async (u) => {
-            const wasBlocked = blocked.has(u.id);
-            if (!wasBlocked && !confirm(`Block ${u.display_name}? They can't DM you and their messages collapse.`)) return;
-            const r = await api.block(u.id).catch((e) => { alert(e.message); return null; });
-            if (!r) return;
-            setBlocked((s) => { const n = new Set(s); r.blocked ? n.add(u.id) : n.delete(u.id); return n; });
-            if (r.blocked) setModal(null);
-            refreshLists();
-          }}
-          onFriend={async (u) => {
-            await api.addFriend(u.username).catch((e) => alert(e.message));
-            setModal(null); setRefresh((r) => r + 1);
-          }} />
+          onBlock={blockUser}
+          onFriend={friendUser} />
       )}
       {modal?.kind === "events" && (
         <EventsModal server={modal.server} me={me} onClose={() => setModal(null)} />
@@ -1117,6 +1140,17 @@ export default function App() {
         <ShortcutsModal onClose={() => setModal(null)} />
       )}
       </Suspense>
+      {userPop && (
+        <UserPopout user={userPop.u} me={me} x={userPop.x} y={userPop.y}
+          blockedIds={blocked}
+          onClose={() => setUserPop(null)}
+          onDm={openDm}
+          onFriend={friendUser}
+          onBlock={blockUser}
+          onProfile={(u) => setModal({ kind: "profile", user: u })}
+          onOpenAgent={openAgent}
+          onJumpServer={pickServer} />
+      )}
     </div>
   );
 }

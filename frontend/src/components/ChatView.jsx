@@ -6,6 +6,7 @@ import { Avatar, Md, agentSlug, msgDay } from "../util";
 import { onVoice, joinVoice, leaveVoice, toggleVoiceMute, toggleDeafen, toggleShare, toggleCam, askVoiceRoster } from "../voice";
 import { QUICK, EMOJI_PICK, SLASH_COMMANDS, STANDARD_EMOJIS } from "./chat/consts";
 import { Message } from "./chat/Message";
+import StageFocus, { VideoStack } from "./StageFocus";
 import { ChannelTools } from "./chat/ChannelTools";
 import { ThreadPanel } from "./chat/ThreadPanel";
 import { ForumFeed } from "./chat/ForumView";
@@ -98,11 +99,13 @@ export default function ChatView({ channel, server, onDm, members, me, emojis, r
   const [knocks, setKnocks] = useState([]);
   const [knocked, setKnocked] = useState(false);
   const [voice, setVoice] = useState({ channelId: 0, joined: false, muted: false, roster: [], rosters: {} });
+  const [vsFocus, setVsFocus] = useState(null);   // expanded video card id
+  const [vsSels, setVsSels] = useState({});       // picked feed index per card
   useEffect(() => onVoice(setVoice), []);
   useEffect(() => { if (voice.err) setSendErr(voice.err); }, [voice.err]);
   async function joinCall() {
     try { await joinVoice(channel.id, me); }
-    catch { setSendErr("No mic access — allow microphone to join voice"); }
+    catch (e) { console.warn("voice join failed:", e); setSendErr("No mic access — allow microphone to join voice"); }
   }
 
   // scroll near the top → pull the next older page (server paginates by id)
@@ -535,7 +538,14 @@ export default function ChatView({ channel, server, onDm, members, me, emojis, r
     if (mention && matches.length) {
       if (e.key === "ArrowDown") { e.preventDefault(); setMention({ ...mention, sel: (mention.sel + 1) % matches.length }); return; }
       if (e.key === "ArrowUp") { e.preventDefault(); setMention({ ...mention, sel: (mention.sel + matches.length - 1) % matches.length }); return; }
-      if (e.key === "Enter" || e.key === "Tab") { e.preventDefault(); pickMention(matches[mention.sel] || matches[0]); return; }
+      if (e.key === "Enter" || e.key === "Tab") {
+        const pick = matches[mention.sel] || matches[0];
+        // a fully-typed /command runs on Enter — re-picking it would just fill the same text
+        if (e.key === "Enter" && mention.sym === "/" && pick.insert === mention.query) {
+          e.preventDefault(); setMention(null); send(); return;
+        }
+        e.preventDefault(); pickMention(pick); return;
+      }
       if (e.key === "Escape") { setMention(null); return; }
     }
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
@@ -558,6 +568,29 @@ export default function ChatView({ channel, server, onDm, members, me, emojis, r
   const seenBy = channel.kind === "dm" && lastOwn
     ? dmMembers.filter((u) => u && u.id !== me?.id && (reads[u.id] || 0) >= lastOwn.created_at)
     : [];
+
+  // one card per video user — cam + screen feeds grouped on it; the strip
+  // stays up top and a focused card fills the chat area below
+  const videoCards = [];
+  const mine = [
+    voice.camStream && { stream: voice.camStream, kind: "cam" },
+    voice.screenStream && { stream: voice.screenStream, kind: "screen" },
+  ].filter(Boolean);
+  if (mine.length) videoCards.push({ id: "me", name: me?.display_name || "You", short: "your", feeds: mine });
+  const vidByUid = new Map();
+  for (const v of Object.values(voice.videos || {})) {
+    if (!vidByUid.has(v.uid)) vidByUid.set(v.uid, []);
+    vidByUid.get(v.uid).push(v);
+  }
+  for (const [uid, feeds] of vidByUid) {
+    // a sharer's screen is the feed people come to watch — default to it
+    feeds.sort((a, b) => (b.kind === "screen") - (a.kind === "screen"));
+    const m = voice.roster.find((x) => x.id === uid);
+    videoCards.push({ id: uid, name: m?.display_name || "…", short: `${m?.display_name || "…"}'s`, feeds });
+  }
+  const focusCard = videoCards.find((c) => c.id === vsFocus) || null;
+  const vsSel = (id) => vsSels[id] ?? 0;
+  const setVsSel = (id, v) => setVsSels((s) => ({ ...s, [id]: typeof v === "function" ? v(s[id] ?? 0) : v }));
 
   return (
     <div className="chat">
@@ -613,26 +646,19 @@ export default function ChatView({ channel, server, onDm, members, me, emojis, r
             <button className="ghost vb-btn" onClick={joinCall}>join</button>
           </div>
         ) : null}
-        {(Object.keys(voice.videos || {}).length > 0 || voice.camStream) && (
+        {videoCards.length > 0 && (
           <div className="voice-stage">
-            {voice.camStream && (
-              <div className="vs-tile">
-                <video autoPlay playsInline muted
-                  ref={(el) => { if (el && el.srcObject !== voice.camStream) el.srcObject = voice.camStream; }} />
-                <span className="vs-name">your camera</span>
-              </div>
-            )}
-            {Object.entries(voice.videos).map(([key, v]) => {
-              const m = voice.roster.find((x) => x.id === v.uid);
-              return (
-                <div key={key} className="vs-tile">
-                  <video autoPlay playsInline muted
-                    ref={(el) => { if (el && el.srcObject !== v.stream) el.srcObject = v.stream; }} />
-                  <span className="vs-name">{m?.display_name || "…"}'s {v.kind === "cam" ? "camera" : "screen"}</span>
-                </div>
-              );
-            })}
+            {videoCards.map((c) => (
+              <VsTile key={c.id} card={c} sel={vsSel(c.id)} onSel={(v) => setVsSel(c.id, v)}
+                active={vsFocus === c.id}
+                onZoom={() => setVsFocus((f) => (f === c.id ? null : c.id))} />
+            ))}
           </div>
+        )}
+        {focusCard && (
+          <StageFocus card={focusCard} sel={vsSel(focusCard.id)}
+            onSel={(v) => setVsSel(focusCard.id, v)}
+            onClose={() => setVsFocus(null)} />
         )}
         {knocks.length > 0 && (
           <div className="knock-bar">
@@ -677,7 +703,7 @@ export default function ChatView({ channel, server, onDm, members, me, emojis, r
               }}>✦ huddle</button>
           </div>
         )}
-        <div className="msgs" ref={listRef} onScroll={onListScroll}
+        <div className={`msgs${focusCard ? " hidden" : ""}`} ref={listRef} onScroll={onListScroll}
           onClick={(e) => {
             const a = e.target.closest?.("a");
             const m = a?.getAttribute("href")?.match(/#\/s\/(\d+)\/c\/(\d+)\/m\/(\d+)/);
@@ -774,7 +800,8 @@ export default function ChatView({ channel, server, onDm, members, me, emojis, r
             {atts.map((a) => (
               <span key={a.id} className="att-chip">
                 <Ico n="clip" s={12} /> {a.name}
-                <button className="ghost" onClick={() => setAtts((x) => x.filter((y) => y.id !== a.id))}><Ico n="x" s={11} /></button>
+                <button className="ghost" title={`Remove ${a.name}`} aria-label={`Remove ${a.name}`}
+                  onClick={() => setAtts((x) => x.filter((y) => y.id !== a.id))}><Ico n="x" s={11} /></button>
               </span>
             ))}
           </div>
@@ -899,7 +926,7 @@ export default function ChatView({ channel, server, onDm, members, me, emojis, r
             const mRoles = (roles || []).filter((r) => (m.role_ids || []).includes(r.id));
             return (
               <div className="mrow" key={m.id} style={{ cursor: "pointer" }}
-                onClick={() => onUserOpen?.(m)}
+                onClick={(e) => onUserOpen?.(m, e)}
                 onContextMenu={(e) => {
                   e.preventDefault();
                   setUserMenu({
@@ -928,7 +955,7 @@ export default function ChatView({ channel, server, onDm, members, me, emojis, r
             const mRoles = (roles || []).filter((r) => (m.role_ids || []).includes(r.id));
             return (
               <div className="mrow off" key={m.id} style={{ cursor: "pointer" }}
-                onClick={() => onUserOpen?.(m)}
+                onClick={(e) => onUserOpen?.(m, e)}
                 onContextMenu={(e) => {
                   e.preventDefault();
                   setUserMenu({
@@ -1042,14 +1069,14 @@ export default function ChatView({ channel, server, onDm, members, me, emojis, r
           <div className="menu-scrim" onClick={() => setUserMenu(null)}
             onContextMenu={(e) => { e.preventDefault(); setUserMenu(null); }} />
           <div className="msg-menu user-ctx-menu" style={{ left: userMenu.x, top: userMenu.y }}>
-            <div className="ucm-header" onClick={() => { onUserOpen?.(userMenu.u); setUserMenu(null); }}>
+            <div className="ucm-header" onClick={() => { onUserOpen?.(userMenu.u, { clientX: userMenu.x, clientY: userMenu.y }); setUserMenu(null); }}>
               <Avatar user={userMenu.u} size="sm" showStatus />
               <div className="ucm-who">
                 <div className="ucm-name">{userMenu.u.nickname || userMenu.u.display_name}</div>
                 <div className="ucm-handle">@{userMenu.u.username}</div>
               </div>
             </div>
-            <div className="mm-item" onClick={() => { onUserOpen?.(userMenu.u); setUserMenu(null); }}>
+            <div className="mm-item" onClick={() => { onUserOpen?.(userMenu.u, { clientX: userMenu.x, clientY: userMenu.y }); setUserMenu(null); }}>
               <Ico n="user" s={14} /> Profile
             </div>
             <div className="mm-item" onClick={() => {
@@ -1115,6 +1142,32 @@ export default function ChatView({ channel, server, onDm, members, me, emojis, r
         </>
       )}
 
+    </div>
+  );
+}
+
+
+function VsTile({ card, sel, onSel, onZoom, active }) {
+  const { feeds, short } = card;
+  const idx = Math.min(sel, feeds.length - 1);
+  const f = feeds[idx];
+  if (!f) return null;
+  return (
+    <div className={`vs-tile zoomable${active ? " active" : ""}`}
+      title={active ? "Back to chat" : "Expand"} onClick={onZoom}>
+      <VideoStack feeds={feeds} sel={sel} />
+      {feeds.length > 1 && (
+        <button type="button" className="vs-flip"
+          title={f.kind === "cam" ? "Show screen share" : "Show camera"}
+          onClick={(e) => { e.stopPropagation(); onSel((s) => (s + 1) % feeds.length); }}>
+          <Ico n="swap" s={13} />
+        </button>
+      )}
+      <button type="button" className="vs-zoom" title={active ? "Back to chat" : "Expand"}
+        onClick={(e) => { e.stopPropagation(); onZoom(); }}>
+        <Ico n="expand" s={12} />
+      </button>
+      <span className="vs-name">{short} {f.kind === "cam" ? "camera" : "screen"}</span>
     </div>
   );
 }

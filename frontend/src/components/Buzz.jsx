@@ -13,7 +13,7 @@ function line(item, onUser) {
   const p = item.payload || {};
   const who = (
     <b style={onUser ? { cursor: "pointer" } : undefined}
-      onClick={(e) => { if (onUser) { e.stopPropagation(); onUser(item.user); } }}>
+      onClick={(e) => { if (onUser) { e.stopPropagation(); onUser(item.user, e); } }}>
       {item.user.display_name}
     </b>
   );
@@ -82,7 +82,7 @@ export default function Buzz({ refreshKey, onOpenAgent, onOpenPack, onOpenChanne
           <div className={`buzz-item ${clickable ? "clickable" : ""}`} key={i.id}
             onClick={() => clickable && openItem(i)}>
             <div className="bicon" style={{ borderColor: `${i.user.avatar_color}66` }}
-              onClick={(e) => { if (onUser) { e.stopPropagation(); onUser(i.user); } }}>
+              onClick={(e) => { if (onUser) { e.stopPropagation(); onUser(i.user, e); } }}>
               {ICONS[i.kind] || "•"}
             </div>
             <div style={{ flex: 1, minWidth: 0 }}>

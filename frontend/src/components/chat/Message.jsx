@@ -36,7 +36,7 @@ export function Message({ m, grouped, me, members, agents, emojis, roles, channe
         <span className="sysmsg-body">
           <span className="sysmsg-ic">{ic}</span>{" "}
           <b style={{ color: m.author?.avatar_color, cursor: "pointer" }}
-            onClick={() => m.author && onUserOpen?.(m.author)}>
+            onClick={(e) => m.author && onUserOpen?.(m.author, e)}>
             {nickOf(m.author) || m.author?.display_name}
           </b>{" "}
           {txt}
@@ -75,7 +75,7 @@ export function Message({ m, grouped, me, members, agents, emojis, roles, channe
       onTouchMove={() => clearTimeout(pressT.current)}>
       {grouped
         ? <div className="gtime">{msgTime(m.created_at)}</div>
-        : <span style={{ cursor: "pointer" }} onClick={() => m.author && onUserOpen?.(m.author)}>
+        : <span style={{ cursor: "pointer" }} onClick={(e) => m.author && onUserOpen?.(m.author, e)}>
             <Avatar user={m.author} size="sm" /></span>}
       <div className="body">
         {m.reply && (
@@ -94,7 +94,7 @@ export function Message({ m, grouped, me, members, agents, emojis, roles, channe
         )}
         {!grouped && (
           <div className="meta">
-            <span className="author" style={{ color: topRole(m.author)?.color || m.author?.avatar_color, cursor: "pointer" }} onClick={() => m.author && onUserOpen?.(m.author)}
+            <span className="author" style={{ color: topRole(m.author)?.color || m.author?.avatar_color, cursor: "pointer" }} onClick={(e) => m.author && onUserOpen?.(m.author, e)}
               title={nickOf(m.author) !== m.author?.display_name ? `@${m.author?.username}` : undefined}>
               {nickOf(m.author)}</span>
             {m.author?.status === "bot" && <span className="bot-tag">BOT</span>}
@@ -211,21 +211,18 @@ export function Message({ m, grouped, me, members, agents, emojis, roles, channe
         )}
       </div>
       <div className="react-bar">
-        {QUICK.map((e) => (
-          <span key={e} onClick={() => onReact(m, e)}>{e}</span>
+        {QUICK.slice(0, 4).map((e) => (
+          <button key={e} type="button" onClick={() => onReact(m, e)}>{e}</button>
         ))}
-        <span title="Add reaction" onClick={(e) => {
+        <button type="button" title="Add reaction" onClick={(e) => {
           const r = e.currentTarget.getBoundingClientRect();
           onMenu?.(r.left, r.bottom + 4, m, setEditing);
-        }}><Ico n="emoji" s={13} /></span>
-        <span title="Reply" onClick={() => onReply(m)}><Ico n="reply" s={13} /></span>
-        <span title="Thread" onClick={() => onThread?.(m)}><Ico n="dots3" s={13} /></span>
-        {mine && m.content &&
-          <span title="Edit" onClick={() => { setEditDraft(m.content); setEditing(true); }}><Ico n="edit" s={13} /></span>}
-        <span title="More actions" onClick={(e) => {
+        }}><Ico n="emoji" s={13} /></button>
+        <button type="button" title="Reply" onClick={() => onReply(m)}><Ico n="reply" s={13} /></button>
+        <button type="button" title="More actions" onClick={(e) => {
           const r = e.currentTarget.getBoundingClientRect();
           onMenu?.(r.left, r.bottom + 4, m, setEditing);
-        }}><Ico n="dots" s={13} /></span>
+        }}><Ico n="dots" s={13} /></button>
       </div>
     </div>
   );

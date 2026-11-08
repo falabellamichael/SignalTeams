@@ -1,25 +1,36 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useState } from "react";
 import Ico from "./Ico";
+import StageFocus, { VideoStack } from "./StageFocus";
 import { Avatar } from "../util";
 import { SOUNDS, triggerSound, onSoundboard } from "../soundboard";
 import ChatView from "./ChatView";
 
-function VideoTile({ videoObj, label, isLive }) {
-  const vidRef = useRef(null);
+function VideoTile({ card, sel, onSel, onZoom, active }) {
+  const { feeds, name } = card;
+  const idx = Math.min(sel, feeds.length - 1);
+  const f = feeds[idx];
 
-  useEffect(() => {
-    if (vidRef.current && videoObj?.stream) {
-      vidRef.current.srcObject = videoObj.stream;
-      vidRef.current.play().catch(() => {});
-    }
-  }, [videoObj?.stream]);
-
+  if (!f) return null;
   return (
-    <div className="voice-tile video-tile">
-      <video ref={vidRef} autoPlay playsInline muted />
-      {isLive && <span className="live-badge">LIVE</span>}
+    <div className={`voice-tile video-tile zoomable${active ? " active" : ""}`}
+      title={active ? "Back to grid" : "Expand"} onClick={onZoom}>
+      {/* every feed stays mounted + playing — flipping is just an opacity swap,
+          no srcObject re-attach, no black flash, no relayout */}
+      <VideoStack feeds={feeds} sel={sel} />
+      {f.kind === "screen" && <span className="live-badge">LIVE</span>}
+      {feeds.length > 1 && (
+        <button type="button" className="tile-flip"
+          title={f.kind === "cam" ? "Show screen share" : "Show camera"}
+          onClick={(e) => { e.stopPropagation(); onSel((s) => (s + 1) % feeds.length); }}>
+          <Ico n="swap" s={14} />
+        </button>
+      )}
+      <button type="button" className="vs-zoom" title={active ? "Back to grid" : "Expand"}
+        onClick={(e) => { e.stopPropagation(); onZoom(); }}>
+        <Ico n="expand" s={13} />
+      </button>
       <div className="tile-footer">
-        <span className="tile-name">{label}</span>
+        <span className="tile-name">{name} ({f.kind === "cam" ? "Cam" : "Screen"})</span>
       </div>
     </div>
   );
@@ -38,6 +49,8 @@ export default function VoiceRoom({
   const [soundboardOpen, setSoundboardOpen] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
   const [lastSound, setLastSound] = useState(null);
+  const [focus, setFocus] = useState(null);        // expanded video card id
+  const [sels, setSels] = useState({});            // picked feed index per card
 
   const isInThisRoom = voice.joined && voice.channelId === channel.id;
   const currentRoster = isInThisRoom
@@ -58,6 +71,28 @@ export default function VoiceRoom({
       }
     });
   }, [channel.id]);
+
+  // one card per video user — cam + screen feeds grouped on it
+  const videoCards = [];
+  const myFeeds = [
+    voice.camOn && voice.camStream && { stream: voice.camStream, kind: "cam" },
+    voice.sharing && voice.screenStream && { stream: voice.screenStream, kind: "screen" },
+  ].filter(Boolean);
+  if (myFeeds.length) videoCards.push({ id: "me", name: me?.display_name || "You", feeds: myFeeds });
+  const vidByUid = new Map();
+  for (const v of Object.values(voice.videos || {})) {
+    if (!vidByUid.has(v.uid)) vidByUid.set(v.uid, []);
+    vidByUid.get(v.uid).push(v);
+  }
+  for (const [uid, feeds] of vidByUid) {
+    // a sharer's screen is the feed people come to watch — default to it
+    feeds.sort((a, b) => (b.kind === "screen") - (a.kind === "screen"));
+    const u = currentRoster.find((m) => m.id === uid);
+    videoCards.push({ id: uid, name: u?.display_name || "Video", feeds });
+  }
+  const focusCard = videoCards.find((c) => c.id === focus) || null;
+  const vSel = (id) => sels[id] ?? 0;
+  const setSelFor = (id, v) => setSels((s) => ({ ...s, [id]: typeof v === "function" ? v(s[id] ?? 0) : v }));
 
   return (
     <div className="voice-stage-layout">
@@ -118,27 +153,12 @@ export default function VoiceRoom({
           </div>
         ) : (
           <div className="voice-grid">
-            {/* If local camera is ON */}
-            {voice.camOn && voice.camStream && (
-              <VideoTile
-                videoObj={{ stream: voice.camStream }}
-                label={`${me?.display_name || "You"} (Camera)`}
-              />
-            )}
-
-            {/* Remote videos (cam & screen shares) */}
-            {Object.entries(voice.videos || {}).map(([key, v]) => {
-              const u = currentRoster.find((m) => m.id === v.uid);
-              const label = u ? `${u.display_name} (${v.kind === "screen" ? "Screen" : "Cam"})` : "Video";
-              return (
-                <VideoTile
-                  key={key}
-                  videoObj={v}
-                  label={label}
-                  isLive={v.kind === "screen"}
-                />
-              );
-            })}
+            {/* One card per video user — cam and/or screen share on a flippable card */}
+            {videoCards.map((c) => (
+              <VideoTile key={c.id} card={c} sel={vSel(c.id)} onSel={(v) => setSelFor(c.id, v)}
+                active={focus === c.id}
+                onZoom={() => setFocus((f) => (f === c.id ? null : c.id))} />
+            ))}
 
             {/* Avatar Tiles for all room participants */}
             {currentRoster.map((m) => {
@@ -151,7 +171,7 @@ export default function VoiceRoom({
                 <div
                   key={m.id}
                   className={`voice-tile avatar-tile ${isSpeaking ? "speaking" : ""}`}
-                  onClick={() => onUserOpen?.(m)}>
+                  onClick={(e) => onUserOpen?.(m, e)}>
                   <div className={`tile-avatar-wrap ${isSpeaking ? "glow" : ""}`}>
                     <Avatar user={m} size="lg" />
                   </div>
@@ -168,6 +188,13 @@ export default function VoiceRoom({
               );
             })}
           </div>
+        )}
+
+        {/* Focused feed — fills the stage; tiles stay mounted beneath */}
+        {focusCard && (
+          <StageFocus card={focusCard} sel={vSel(focusCard.id)}
+            onSel={(v) => setSelFor(focusCard.id, v)}
+            onClose={() => setFocus(null)} />
         )}
 
         {/* Floating Voice Control Dock */}
