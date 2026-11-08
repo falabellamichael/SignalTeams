@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import Ico from "../Ico";
 import { api } from "../../api";
+import { localAi, setLocalAi, useAi } from "../../aiFlags";
 import { timeAgo, hasSearchQuery } from "../../util";
 import { AgentShareCard, PackShareCard } from "../AgentCard";
 
@@ -13,14 +14,19 @@ export function ChannelTools({ channel, me, onAgentOpen, onPackOpen, onJump, voi
   const [aiOpen, setAiOpen] = useState(false);
   const aiRef = useRef(null);
 
-  // per-channel AI capability toggles, persisted locally
-  const AI_KEY = `signalteams.ai.${channel.id}`;
-  const [ai, setAi] = useState(() => {
-    try { return JSON.parse(localStorage.getItem(AI_KEY) || "{}"); } catch { return {}; }
-  });
-  useEffect(() => {
-    try { localStorage.setItem(AI_KEY, JSON.stringify(ai)); } catch { /* ignore */ }
-  }, [ai, AI_KEY]);
+  // per-channel AI capability toggles — server-persisted via channel.ai (PATCH
+  // broadcasts to all members); localStorage is the fallback for channels that
+  // don't carry an ai object (DMs)
+  const ai = useAi(channel);
+
+  async function toggleAi(id) {
+    const next = { ...ai, [id]: !ai[id] };
+    setLocalAi(channel.id, next);                        // optimistic
+    try {
+      const r = await api.channelAi(channel.id, { [id]: next[id] });
+      if (r?.ai) setLocalAi(channel.id, { ...localAi(channel.id), ...r.ai });
+    } catch { setLocalAi(channel.id, ai); }              // rollback
+  }
 
   // close the AI dropdown on outside click / Escape
   useEffect(() => {
@@ -34,12 +40,12 @@ export function ChannelTools({ channel, me, onAgentOpen, onPackOpen, onJump, voi
   }, [aiOpen]);
 
   const AI_ITEMS = [
-    { id: "web", icon: "🌐", label: "Web search", hint: "agents can pull fresh pages into replies" },
-    { id: "stt", icon: "🎙", label: "Speech to text", hint: "dictate messages with your voice" },
-    { id: "tts", icon: "🔊", label: "Text to speech", hint: "read agent replies aloud" },
-    { id: "vision", icon: "👁", label: "Vision", hint: "let agents read images & screenshots" },
-    { id: "translate", icon: "🌍", label: "Translate", hint: "auto-translate incoming messages" },
-    { id: "summarize", icon: "✂️", label: "Auto-summarize", hint: "condense long threads into a recap" },
+    { id: "web", icon: "globe", label: "Web search", hint: "agents can search & read live pages" },
+    { id: "stt", icon: "mic", label: "Speech to text", hint: "dictate messages with your voice" },
+    { id: "tts", icon: "speaker", label: "Text to speech", hint: "read agent replies aloud" },
+    { id: "vision", icon: "eye", label: "Vision", hint: "let agents see attached images" },
+    { id: "translate", icon: "translate", label: "Translate", hint: "translate line under foreign messages" },
+    { id: "summarize", icon: "article", label: "Auto-summarize", hint: "Scribe recap every ~60 messages" },
   ];
   const aiOn = Object.values(ai).filter(Boolean).length;
 
@@ -115,7 +121,7 @@ export function ChannelTools({ channel, me, onAgentOpen, onPackOpen, onJump, voi
           <div className="ch-panel ai-panel" role="menu">
             <label style={{ fontSize: 10.5, textTransform: "uppercase", color: "var(--dim)",
                 display: "flex", alignItems: "center", gap: 6 }}>
-              ✨ AI in this channel
+              <Ico n="sparkle" s={12} /> AI in this channel
               {aiOn > 0 && <span style={{ textTransform: "none", color: "var(--accent)" }}>
                 {aiOn} on</span>}
             </label>
@@ -123,8 +129,8 @@ export function ChannelTools({ channel, me, onAgentOpen, onPackOpen, onJump, voi
               {AI_ITEMS.map((it) => (
                 <button key={it.id} role="menuitemcheckbox" aria-checked={!!ai[it.id]}
                   className={`ai-item ${ai[it.id] ? "on" : ""}`}
-                  onClick={() => setAi((s) => ({ ...s, [it.id]: !s[it.id] }))}>
-                  <span className="ai-ico">{it.icon}</span>
+                  onClick={() => toggleAi(it.id)}>
+                  <span className="ai-ico"><Ico n={it.icon} s={15} /></span>
                   <span className="ai-txt"><b>{it.label}</b>
                     <small>{it.hint}</small></span>
                   <span className="ai-sw" />

@@ -382,13 +382,26 @@ def chat(system_prompt, history, message, model=None, provider=None, temperature
 
 
 def chat_stream(system_prompt, history, message, model=None, provider=None, temperature=None,
-                endpoint=None):
-    """Yield (kind, data): ('meta', {provider,model}), ('token', text), ('done', {})."""
+                endpoint=None, images=None):
+    """Yield (kind, data): ('meta', {provider,model}), ('token', text), ('done', {}).
+
+    `images` = [{"mime","b64"}] — attaches vision content to the LAST user
+    message for OpenAI-compatible endpoints and Ollama (both accept inline
+    images); other provider shapes just don't see them."""
     msgs = ([{"role": "system", "content": system_prompt}] if system_prompt else [])
     msgs += [{"role": h.get("role", "user"), "content": h.get("content", "")}
              for h in history[-20:]]
     msgs.append({"role": "user", "content": message})
     temp = _temp(temperature)
+
+    def _oai_msgs():
+        if not images:
+            return msgs
+        parts = [{"type": "text", "text": message}] + [
+            {"type": "image_url",
+             "image_url": {"url": f"data:{im['mime']};base64,{im['b64']}"}}
+            for im in images]
+        return msgs[:-1] + [{"role": "user", "content": parts}]
 
     if endpoint and endpoint.get("url") and provider in (None, "custom") \
             and (endpoint.get("kind") or "openai") == "openai":
@@ -401,7 +414,7 @@ def chat_stream(system_prompt, history, message, model=None, provider=None, temp
                 hdrs["Authorization"] = f"Bearer {endpoint['key']}"
             req = urllib.request.Request(
                 f"{_oai_base(endpoint['url'])}/chat/completions",
-                data=json.dumps({"model": use, "messages": msgs, "temperature": temp,
+                data=json.dumps({"model": use, "messages": _oai_msgs(), "temperature": temp,
                                  "max_tokens": 2048, "stream": True}).encode(),
                 headers=hdrs,
                 method="POST")
@@ -471,9 +484,11 @@ def chat_stream(system_prompt, history, message, model=None, provider=None, temp
     if provider in (None, "ollama") and models:
         use = pick(model, models, models[0])
         yield ("meta", {"provider": "ollama", "model": use})
+        o_msgs = ([dict(m, images=[im["b64"] for im in images])
+                   if m is msgs[-1] else m for m in msgs] if images else msgs)
         req = urllib.request.Request(
             f"{OLLAMA}/api/chat",
-            data=json.dumps({"model": use, "messages": msgs, "stream": True,
+            data=json.dumps({"model": use, "messages": o_msgs, "stream": True,
                              "options": {"temperature": temp}}).encode(),
             headers={"User-Agent": DEFAULT_UA, "Content-Type": "application/json"}, method="POST")
         with urllib.request.urlopen(req, timeout=TIMEOUT) as r:

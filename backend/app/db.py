@@ -461,6 +461,7 @@ def init():
             ("channels.forum_tags", "ALTER TABLE channels ADD COLUMN forum_tags TEXT NOT NULL DEFAULT '[]'"),
             ("messages.tags", "ALTER TABLE messages ADD COLUMN tags TEXT NOT NULL DEFAULT '[]'"),
             ("users.banner_color", "ALTER TABLE users ADD COLUMN banner_color TEXT NOT NULL DEFAULT ''"),
+            ("channels.ai_flags", "ALTER TABLE channels ADD COLUMN ai_flags TEXT NOT NULL DEFAULT '{}'"),
             ("users.pronouns", "ALTER TABLE users ADD COLUMN pronouns TEXT NOT NULL DEFAULT ''"),
             ("channels.workspace_id", "ALTER TABLE channels ADD COLUMN workspace_id INTEGER"),
             ("workspaces.chat_channel_id", "ALTER TABLE workspaces ADD COLUMN chat_channel_id INTEGER"),

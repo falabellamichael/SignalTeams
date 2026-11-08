@@ -505,6 +505,13 @@ a { color: var(--accent); text-decoration: none; }
 .ai-item.on .ai-sw { background: var(--accent); }
 .ai-item.on .ai-sw::after { transform: translateX(11px); }
 .ai-item.on .ai-txt b { color: var(--accent); }
+.ai-item .ai-ico { color: var(--dim); display: inline-flex; }
+.ai-item.on .ai-ico { color: var(--accent); }
+.m-tl { margin-top: 4px; font-size: 11px; color: var(--dim); display: flex;
+  align-items: baseline; gap: 5px; border-left: 2px solid var(--border); padding-left: 6px; }
+.m-tl svg { position: relative; top: 1px; flex-shrink: 0; }
+.cbtn.mic.rec { color: var(--bad); animation: micpulse 1.4s ease-in-out infinite; }
+@keyframes micpulse { 0%,100% { opacity: 1; } 50% { opacity: .45; } }
 .pin-flag { font-size: 10px; margin-left: 4px; color: var(--honey); display: inline-flex; align-items: center; }
 .bot-tag { font-size: 9px; font-weight: 700; letter-spacing: .4px; margin-left: 5px;
   padding: 1px 5px; border-radius: 4px; vertical-align: 1px;

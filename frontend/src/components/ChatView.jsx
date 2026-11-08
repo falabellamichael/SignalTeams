@@ -11,6 +11,16 @@ import { ThreadPanel } from "./chat/ThreadPanel";
 import { ForumFeed } from "./chat/ForumView";
 import { MessageAiModal } from "./modals/aimessage";
 import { playCue } from "../audioCues";
+import { useAi } from "../aiFlags";
+
+// rough "is this message mostly non-Latin script" — the translate flag only
+// fires on text worth translating (CJK, Cyrillic, Arabic, …)
+function _nonLatin(s) {
+  const t = (s || "").replace(/[\s\p{P}\p{N}]/gu, "");
+  if (t.length < 8) return false;
+  const latin = (t.match(/[a-zA-ZÀ-ÿ]/g) || []).length;
+  return latin / t.length < 0.5;
+}
 
 export default function ChatView({ channel, server, onDm, members, me, emojis, roles, channels = [], onAgentOpen, onPackOpen, onShareAgent, onUserOpen, onForward, onFwdJump, focusMsg, newSince = 0, onGroupAdd, onGroupRename, blocked, onMarkUnread, onWorkspace }) {
   const [msgs, setMsgs] = useState([]);
@@ -47,6 +57,12 @@ export default function ChatView({ channel, server, onDm, members, me, emojis, r
   const atBottom = useRef(true);      // scrolled to the live edge
   const prevLen = useRef(0);
   const [pendingNew, setPendingNew] = useState(0);
+  const [listening, setListening] = useState(false);   // AI "speech to text" dictation
+  const recRef = useRef(null);
+  const dictBase = useRef("");                          // draft text before dictation began
+  const aiFlags = useAi(channel);                       // AI capability toggles (server + local)
+  const aiFlagsRef = useRef(aiFlags);
+  aiFlagsRef.current = aiFlags;                         // WS handlers read fresh flags
 
   const mentionables = (members || [channel.other, me])
     .filter((u) => u && u.id !== me?.id);
@@ -62,6 +78,7 @@ export default function ChatView({ channel, server, onDm, members, me, emojis, r
 
   useEffect(() => {
     setMsgs([]); setThread(null); setHasMore(false); loadingOlder.current = false;
+    recRef.current?.stop(); setListening(false);
     newSeen.current = false;
     setDraft(localStorage.getItem("st.draft." + channel.id) || "");
     setSendErr(""); setLastSent(0);
@@ -194,6 +211,22 @@ export default function ChatView({ channel, server, onDm, members, me, emojis, r
           && m.author?.id !== me?.id)
         setPendingNew((n) => n + 1);
       if (channel.kind === "dm") api.markRead(channel.id).catch(() => {});
+      // AI toggles — read agent replies aloud / translate foreign messages
+      const uname = m.author?.username || "";
+      if (aiFlagsRef.current.tts && m.author?.id !== me?.id && m.content
+          && /^(agent|bot):/.test(uname)) {
+        try {
+          speechSynthesis.cancel();
+          speechSynthesis.speak(new SpeechSynthesisUtterance(
+            m.content.replace(/[*_`#>|[\]]/g, "").slice(0, 600)));
+        } catch { /* speech synthesis unavailable */ }
+      }
+      if (aiFlagsRef.current.translate && m.author?.id !== me?.id
+          && _nonLatin(m.content)) {
+        api.translate(channel.id, m.content).then((r) => r?.text &&
+          setMsgs((prev) => prev.map((p) => p.id === m.id ? { ...p, _tl: r.text } : p))
+        ).catch(() => {});
+      }
     };
     channel._onRead = (uid, ts) => setReads((r) => ({ ...r, [uid]: Math.max(r[uid] || 0, ts) }));
     channel._onTyping = (u, on) => setTypers((t) =>
@@ -314,6 +347,30 @@ export default function ChatView({ channel, server, onDm, members, me, emojis, r
     requestAnimationFrame(() => {
       if (ta) { ta.selectionStart = ta.selectionEnd = s + e.length; ta.focus(); }
     });
+  }
+
+  // AI "speech to text" — dictate into the composer via the Web Speech API;
+  // interim results paint live, committed finals stay in the draft
+  function toggleDictate() {
+    if (listening) { recRef.current?.stop(); return; }
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) return;
+    const r = new SR();
+    recRef.current = r;
+    dictBase.current = draft ? draft.replace(/\s+$/, "") + " " : "";
+    r.continuous = true;
+    r.interimResults = true;
+    r.lang = navigator.language || "en-US";
+    r.onresult = (e) => {
+      let finals = "", inter = "";
+      for (const res of e.results) {
+        if (res.isFinal) finals += res[0].transcript;
+        else inter += res[0].transcript;
+      }
+      setDraft((dictBase.current + finals + inter).trimStart());
+    };
+    r.onend = r.onerror = () => setListening(false);
+    try { r.start(); setListening(true); } catch { setListening(false); }
   }
 
   async function send() {
@@ -777,6 +834,11 @@ export default function ChatView({ channel, server, onDm, members, me, emojis, r
             onClick={() => setEmojiOpen((o) => !o)}><Ico n="emoji" /></button>
           <button className={`ghost cbtn ${preview ? "on" : ""}`} title="Preview markdown"
             onClick={() => setPreview((p) => !p)}><Ico n="eye" /></button>
+          {aiFlags.stt && (window.SpeechRecognition || window.webkitSpeechRecognition) && (
+            <button className={`ghost cbtn mic ${listening ? "on rec" : ""}`}
+              title={listening ? "Stop dictation" : "Dictate message (speech to text)"}
+              onClick={toggleDictate}><Ico n={listening ? "micOff" : "mic"} /></button>
+          )}
           <textarea ref={inputRef} rows={1} value={draft}
             placeholder={`Message ${channel.kind === "dm" ? "@" + (channel.other?.display_name || channel.name || "") : "#" + channel.name}`}
             onChange={onType} onKeyDown={key}

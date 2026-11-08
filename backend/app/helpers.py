@@ -158,6 +158,11 @@ def channel_json(conn, ch, uid=None):
         d["forum_tags"] = json.loads(d.get("forum_tags") or "[]")
     except Exception:
         d["forum_tags"] = []
+    try:
+        d["ai"] = json.loads(d.get("ai_flags") or "{}")
+    except Exception:
+        d["ai"] = {}
+    d.pop("ai_flags", None)
     wid = d.get("workspace_id")
     if wid:
         w = conn.execute("SELECT id, name, icon FROM workspaces WHERE id=?", (wid,)).fetchone()
@@ -505,17 +510,32 @@ def _split_model(spec):
     return None, s
 
 
+JOIN_GREETINGS = [
+    "joined the server.",
+    "hopped into the server.",
+    "just showed up. Everyone look busy!",
+    "joined the party.",
+    "is here. Welcome!",
+    "slid into the server.",
+    "spawned in the server.",
+    "just landed. We hope you brought pizza.",
+    "arrived. Say hello!",
+]
+
+
 def _sys_post(conn, sid, uid, kind):
     """Insert a join/leave system message into the server's first text channel.
     Returns (channel_id, member_ids, message_json) for the caller to broadcast."""
+    import random
     ch = conn.execute(
         "SELECT * FROM channels WHERE server_id=? AND kind IN ('text','forum') "
         "ORDER BY position, id LIMIT 1", (sid,)).fetchone()
     if not ch:
         return None
+    content = random.choice(JOIN_GREETINGS) if kind == "join" else "left the server."
     cur = conn.execute(
         "INSERT INTO messages(channel_id, author_id, content, system, created_at) "
-        "VALUES (?,?,'',?,?)", (ch["id"], uid, kind, now()))
+        "VALUES (?,?,?,?,?)", (ch["id"], uid, content, kind, now()))
     m = conn.execute("SELECT * FROM messages WHERE id=?", (cur.lastrowid,)).fetchone()
     return ch["id"], channel_member_ids(conn, ch), message_json(conn, m, uid)
 

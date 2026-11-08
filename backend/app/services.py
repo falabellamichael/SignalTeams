@@ -366,6 +366,75 @@ def _scrub_echoes(text):
     return "\n\n".join(paras).strip()
 
 
+WEB_TOOLS = ("web_search", "web_fetch")
+
+
+def _ai_web_tool(name, args):
+    """Channel-AI web tools for agent replies — live page fetch + DDG-lite
+    search. Runs outside workspaces; results shaped like wsx.run_tool."""
+    import urllib.request as _u
+    import urllib.parse as _up
+    args = args or {}
+    try:
+        if name == "web_fetch":
+            url = str(args.get("url") or "")[:500].strip()
+            if not url.startswith(("http://", "https://")):
+                return {"ok": False, "error": "url must start with http(s)://"}
+            req = _u.Request(url, headers={"User-Agent": "SignalTeams-agent/1.0"})
+            with _u.urlopen(req, timeout=8) as r:
+                raw = r.read(400_000)
+                ctype = r.headers.get("Content-Type", "")
+            txt = raw.decode("utf-8", "replace")
+            if "html" in ctype or "<html" in txt[:400].lower():
+                txt = re.sub(r"(?is)<(script|style)[^>]*>.*?</\1>", " ", txt)
+                txt = re.sub(r"(?s)<[^>]+>", " ", txt)
+                txt = re.sub(r"[ \t]+", " ", txt)
+                txt = re.sub(r"\n\s*\n+", "\n\n", txt).strip()
+            return {"ok": True, "url": url, "text": txt[:3500]}
+        if name == "web_search":
+            q = str(args.get("q") or args.get("query") or "")[:200].strip()
+            if not q:
+                return {"ok": False, "error": "empty query"}
+            req = _u.Request(
+                "https://lite.duckduckgo.com/lite/?q=" + _up.quote(q),
+                headers={"User-Agent": "Mozilla/5.0 SignalTeams-agent/1.0"})
+            with _u.urlopen(req, timeout=8) as r:
+                html = r.read(300_000).decode("utf-8", "replace")
+            hits = []
+            for m_ in re.finditer(
+                    r"<a[^>]+class=['\"]result-link['\"][^>]+href=['\"]([^'\"]+)['\"][^>]*>(.*?)</a>",
+                    html, re.S):
+                title = re.sub(r"<[^>]+>", "", m_.group(2)).strip()
+                if title:
+                    hits.append(f"{title} — {m_.group(1)}")
+                if len(hits) >= 6:
+                    break
+            if not hits:  # layout drift fallback: any outbound link
+                for m_ in re.finditer(r'href="(https?://[^"]+)"', html):
+                    if "duckduckgo" not in m_.group(1):
+                        hits.append(m_.group(1))
+                    if len(hits) >= 6:
+                        break
+            return {"ok": bool(hits), "results": hits[:6],
+                    "error": "" if hits else "no results"}
+    except Exception as e:
+        return {"ok": False, "error": str(e)[:160]}
+    return {"ok": False, "error": f"unknown tool {name}"}
+
+
+_recap_n = {}   # cid -> messages since last auto-recap
+
+
+def note_message_for_recap(cid, enabled):
+    """AI auto-summarize: every 60 new messages in a flagged channel earns a
+    Scribe recap. Returns True once, when the threshold is crossed."""
+    if not enabled:
+        return False
+    n = _recap_n.get(cid, 0) + 1
+    _recap_n[cid] = 0 if n >= 60 else n
+    return n >= 60
+
+
 def _workspace_for_channel(conn, ch, uid):
     """The workspace an agent channel is wired to (if any) + the asker's level."""
     if not ch or not ch["server_id"] or not WORKSPACE_AGENT_TOOLS:
@@ -412,6 +481,28 @@ async def agent_reply(cid, aid, asker_id, msg_id, depth=0, ping=True):
             bot = agent_bot_user(conn, a)
             members = channel_member_ids(conn, ch)
             ws, ws_lvl = _workspace_for_channel(conn, ch, asker_id)
+            try:
+                ai_flags = json.loads(ch["ai_flags"] or "{}") \
+                    if "ai_flags" in ch.keys() else {}
+            except Exception:
+                ai_flags = {}
+            ai_web = bool(ai_flags.get("web"))
+            # vision: attach the summon's image attachments to the model call
+            images = []
+            if ai_flags.get("vision"):
+                try:
+                    for att in json.loads(msg["attachments"] or "[]")[:3]:
+                        if not str(att.get("mime") or "").startswith("image/"):
+                            continue
+                        f = conn.execute(
+                            "SELECT data, mime FROM files WHERE id=?",
+                            (att.get("id"),)).fetchone()
+                        if f and f["data"] and len(f["data"]) < 3_000_000:
+                            import base64 as _b64
+                            images.append({"mime": f["mime"] or att["mime"],
+                                           "b64": _b64.b64encode(f["data"]).decode()})
+                except Exception:
+                    images = []
             asker_llm = _agent_llm(a) \
                 or (_server_llm(conn, ch["server_id"]) if ch["server_id"] else None) \
                 or _user_llm(conn, asker_id)   # agent's own API connection wins, then server, then asker
@@ -504,6 +595,14 @@ async def agent_reply(cid, aid, asker_id, msg_id, depth=0, ping=True):
             with db() as conn:
                 sysp += "\n\n" + wsx.agent_prompt(
                     conn, ws, asker_id, _focus_for(conn, ws, asker_id))
+        if ai_web:
+            sysp += ("\n\nYou may also use web tools — reply with ONLY JSON like "
+                     '{"tool":"web_search","args":{"q":"query"}} to search, or '
+                     '{"tool":"web_fetch","args":{"url":"https://…"}} to read a '
+                     "live page. Use them when fresh info would help.")
+        if images:
+            sysp += ("\n\nThe user attached image(s) — look at them and answer "
+                     "about what you see.")
         tool_steps = []
         _aprov, _amdl = _split_model(a["model"])
 
@@ -513,7 +612,7 @@ async def agent_reply(cid, aid, asker_id, msg_id, depth=0, ping=True):
                         sysp, history[:-1], user_msg,
                         model=_amdl, provider=_aprov,
                         temperature=a["temperature"],
-                        endpoint=asker_llm):
+                        endpoint=asker_llm, images=images):
                     if kind == "token":
                         q.put(("TOK", data))
                     elif kind == "thinking":
@@ -568,9 +667,9 @@ async def agent_reply(cid, aid, asker_id, msg_id, depth=0, ping=True):
         reply, errored, stopped = await _round(history[-1]["content"])
         await hub.send_many(members, {**typing, "on": False})
         reply = _strip_echo_prefix(reply, asker["username"], asker["display_name"], a["name"])
-        # workspace tool calls — the agent acts on files, then answers for real
+        # tool calls — workspace file tools + channel-AI web tools, same loop
         hit_cap = False
-        if ws and not errored and not stopped and reply:
+        if (ws or ai_web) and not errored and not stopped and reply:
             done_calls = set()    # (tool, args-json) — identical repeats don't re-run
             for _ in range(8):
                 if _stop_hit():
@@ -597,8 +696,15 @@ async def agent_reply(cid, aid, asker_id, msg_id, depth=0, ping=True):
                     await _paint(prefix + "⚙ " + (done_txt + " · " if done_txt else "")
                                  + c["name"] + "…▌")
                     t0 = time.time()
-                    with db() as conn:
-                        res = wsx.run_tool(conn, ws, asker_id, a["id"], c["name"], c["args"])
+                    if c["name"] in WEB_TOOLS:
+                        res = _ai_web_tool(c["name"], c["args"]) if ai_web else \
+                            {"ok": False, "error": "web tools are off in this channel"}
+                    elif ws:
+                        with db() as conn:
+                            res = wsx.run_tool(conn, ws, asker_id, a["id"],
+                                               c["name"], c["args"])
+                    else:
+                        res = {"ok": False, "error": f"unknown tool {c['name']}"}
                     tool_steps.append({"tool": c["name"], "args": c["args"], "result": res,
                                        "secs": round(time.time() - t0, 1)})
                     results.append(f"TOOL RESULT {c['name']}: {json.dumps(res)[:4000]}")

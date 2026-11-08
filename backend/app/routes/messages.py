@@ -11,7 +11,8 @@ from ..hub import hub
 
 from ..helpers import STAR_EMOJI, URL_RE, _automod_check, _parse_search, _server_llm, _user_llm, audit, can_see_agent, can_see_pack, channel_member_ids, is_blocked, message_json, public_user, reactions_json, unfurl
 from ..schemas import AiIn, EditIn, MessageIn, ReactIn
-from ..services import _agent_cool, agent_reply, starboard_check
+from ..services import (_agent_cool, _summarize_task, agent_reply,
+                        note_message_for_recap, starboard_check)
 
 router = APIRouter()
 
@@ -384,6 +385,14 @@ async def post_message(cid: int, body: MessageIn, user=Depends(current_user)):
                 asyncio.create_task(
                     agent_reply(cid, aid, user["id"], m["id"], ping=False))
             break
+    # AI "auto-summarize" — a Scribe recap every ~60 new msgs in flagged channels
+    try:
+        _ai = json.loads(ch["ai_flags"] or "{}") if "ai_flags" in ch.keys() else {}
+    except Exception:
+        _ai = {}
+    if _ai.get("summarize") and not body.thread_root \
+            and note_message_for_recap(cid, True):
+        asyncio.create_task(_summarize_task(cid, user["id"], 40))
     return payload["message"]
 
 

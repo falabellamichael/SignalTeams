@@ -5,7 +5,7 @@ import { Avatar, Md, msgTime, timeAgo } from "../../util";
 import { AgentShareCard, PackShareCard } from "../AgentCard";
 import { QUICK, POLL_EMOJI } from "./consts";
 
-export function Message({ m, grouped, me, members, agents, emojis, roles, channels, onAgentOpen, onPackOpen, onDelete, onReact, onPin, onImgLoad, onReply, onUserOpen, onFwdJump, onThread, onMenu, onLightbox, blocked }) {
+export function Message({ m, grouped, me, members, agents, emojis, roles, channels, onAgentOpen, onPackOpen, onDelete, onReact, onPin, onImgLoad, onReply, onUserOpen, onFwdJump, onThread, onMenu, onLightbox, blocked, onWave }) {
   const emap = new Map((emojis || []).map((x) => [x.name, x.file_id]));
   const mine = m.author?.id === me?.id;
   const nickOf = (u) => (members || []).find((x) => x?.id === u?.id)?.nickname || u?.display_name;
@@ -26,14 +26,28 @@ export function Message({ m, grouped, me, members, agents, emojis, roles, channe
   }
 
   if (m.system) {
-    const txt = m.system === "join" ? "joined the server"
-      : m.system === "leave" ? "left the server" : m.system;
-    const ic = m.system === "join" ? "🚪" : m.system === "leave" ? "👋" : "ℹ️";
+    const isJoin = m.system === "join";
+    const isLeave = m.system === "leave";
+    const txt = m.content || (isJoin ? "joined the server." : isLeave ? "left the server." : m.system);
+    const ic = isJoin ? "🎉" : isLeave ? "👋" : "ℹ️";
+    const isOther = m.author?.id !== me?.id;
     return (
-      <div className="sysmsg" id={"msg-" + m.id}>
-        {ic} <b style={{ color: m.author?.avatar_color }}>
-          {nickOf(m.author) || m.author?.display_name}</b> {txt}
-        <span className="sysmsg-time">{timeAgo(m.created_at)}</span>
+      <div className={`sysmsg ${isJoin ? "sysmsg-join" : ""}`} id={"msg-" + m.id}>
+        <span className="sysmsg-body">
+          <span className="sysmsg-ic">{ic}</span>{" "}
+          <b style={{ color: m.author?.avatar_color, cursor: "pointer" }}
+            onClick={() => m.author && onUserOpen?.(m.author)}>
+            {nickOf(m.author) || m.author?.display_name}
+          </b>{" "}
+          {txt}
+          <span className="sysmsg-time">{timeAgo(m.created_at)}</span>
+        </span>
+        {isJoin && isOther && onWave && (
+          <button className="ghost sysmsg-wave-btn" title={`Wave to say hello to ${nickOf(m.author) || m.author?.display_name}`}
+            onClick={() => onWave(m.author)}>
+            👋 Wave
+          </button>
+        )}
       </div>
     );
   }
@@ -116,6 +130,7 @@ export function Message({ m, grouped, me, members, agents, emojis, roles, channe
               onUser={onUserOpen} onAgent={onAgentOpen} />
               {grouped && m.edited_at &&
                 <span className="edited" title={new Date(m.edited_at * 1000).toLocaleString()}> (edited)</span>}
+              {m._tl && <div className="m-tl"><Ico n="translate" s={11} /> {m._tl}</div>}
             </div>
           )
         )}

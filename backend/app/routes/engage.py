@@ -8,9 +8,11 @@ from ..auth import current_user
 from ..db import db, now
 from ..hub import hub
 
-from ..helpers import _fmt_due, _gated_channel, audit, can_see_agent, channel_member_ids, public_user
+from ..helpers import (_fmt_due, _gated_channel, _server_llm, _user_llm, audit,
+                       can_see_agent, channel_member_ids, public_user)
 from ..schemas import EventIn, KnockIn, ReminderIn, SummarizeIn
-from ..services import (REMIND_BOT, _agent_cool, _reply_cancel, _summarize_task,
+from ..services import (REMIND_BOT, _agent_cool, _reply_cancel, _server_changed,
+                        _summarize_task,
                         agent_reply, bot_post)
 
 router = APIRouter()
@@ -315,6 +317,61 @@ async def huddle(cid: int, user=Depends(current_user)):
             await agent_reply(cid, a, user["id"], last["id"])
         asyncio.create_task(delayed())
     return {"summoned": summoned}
+
+
+AI_FLAG_KEYS = ("web", "stt", "tts", "vision", "translate", "summarize")
+
+
+@router.patch("/api/channels/{cid}/ai")
+async def set_channel_ai(cid: int, body: dict, user=Depends(current_user)):
+    """Per-channel AI capability toggles — any member may flip them; they affect
+    agent replies (web tools, vision), auto-recaps, and client-side features
+    (dictation, speak-aloud, translate line) for everyone in the channel."""
+    with db() as conn:
+        ch = conn.execute("SELECT * FROM channels WHERE id=?", (cid,)).fetchone()
+        if not ch:
+            raise HTTPException(404, "No such channel")
+        if user["id"] not in channel_member_ids(conn, ch):
+            raise HTTPException(403, "Not a member")
+        try:
+            cur = json.loads(ch["ai_flags"] or "{}")
+        except Exception:
+            cur = {}
+        for k in AI_FLAG_KEYS:
+            if k in (body or {}):
+                cur[k] = bool(body[k])
+        conn.execute("UPDATE channels SET ai_flags=? WHERE id=?",
+                     (json.dumps(cur), cid))
+        sid = ch["server_id"]
+    if sid:  # members on other clients see the new toggles immediately
+        with db() as conn:
+            await _server_changed(conn, sid)
+    return {"ai": cur}
+
+
+@router.post("/api/channels/{cid}/translate")
+async def translate_text(cid: int, body: dict, user=Depends(current_user)):
+    """Translate a message via the requester's configured LLM."""
+    from ..llm import chat as llm_chat
+    text = str((body or {}).get("text") or "")[:2000]
+    if not text.strip():
+        raise HTTPException(400, "No text")
+    with db() as conn:
+        ch = conn.execute("SELECT * FROM channels WHERE id=?", (cid,)).fetchone()
+        if not ch or user["id"] not in channel_member_ids(conn, ch):
+            raise HTTPException(404, "No such channel")
+        ep = _server_llm(conn, ch["server_id"]) or _user_llm(conn, user["id"])
+    if not ep:
+        raise HTTPException(503, "No LLM configured")
+    try:
+        out, _p, _m = await asyncio.to_thread(
+            llm_chat,
+            "Translate the user's message to English. Reply with ONLY the "
+            "translation — no commentary, no quotes, no explanation.", [],
+            text, endpoint=ep)
+    except Exception as e:
+        raise HTTPException(502, f"translation failed — {e}")
+    return {"text": out.strip()}
 
 
 @router.post("/api/channels/{cid}/agents/stop")

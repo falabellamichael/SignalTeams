@@ -11,7 +11,7 @@ import { Paperclip, Smiley, Eye, Sparkle, PaperPlaneRight, Gear, Bell, BellSlash
   PaperPlaneTilt, ChatDots, UsersThree, EnvelopeSimple, At, Image as ImageIc,
   Tray, List, ArrowBendUpLeft, ArrowBendUpRight, CornersOut, ArrowSquareOut,
   GitFork, Sliders, Broadcast, Robot, DoorOpen, Checks, Timer, ChartBar,
-  Keyboard, TerminalWindow }
+  Keyboard, TerminalWindow, Globe, Translate, Article }
   from "@phosphor-icons/react";
 
 const MAP = {
@@ -40,6 +40,7 @@ const MAP = {
   expand: CornersOut, ext: ArrowSquareOut, fork: GitFork, sliders: Sliders,
   dish: Broadcast, bot: Robot, door: DoorOpen, timer: Timer, chart: ChartBar,
   kb: Keyboard, term: TerminalWindow,
+  globe: Globe, speaker: SpeakerHigh, translate: Translate, article: Article,
 };
 
 /** Icon shorthand — <Ico n="clip" /> renders a Phosphor glyph. */
