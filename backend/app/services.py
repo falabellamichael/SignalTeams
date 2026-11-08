@@ -534,6 +534,9 @@ async def agent_reply(cid, aid, asker_id, msg_id, depth=0, ping=True):
                         if not l.lstrip().startswith("⚙")).strip()
                     clean_bot = re.sub(r"\s*\*\(interrupted\)\*\s*$", "",
                                        clean_bot).strip()
+                    # a reply that leaked raw {"tool":…} JSON feeds the same
+                    # mimicry — strip it from history too
+                    clean_bot = wsx.strip_tool_calls(clean_bot)
                     if clean_bot:
                         history.append({"role": "assistant", "content": clean_bot})
                 else:
@@ -667,9 +670,13 @@ async def agent_reply(cid, aid, asker_id, msg_id, depth=0, ping=True):
         reply, errored, stopped = await _round(history[-1]["content"])
         await hub.send_many(members, {**typing, "on": False})
         reply = _strip_echo_prefix(reply, asker["username"], asker["display_name"], a["name"])
-        # tool calls — workspace file tools + channel-AI web tools, same loop
+        # tool calls — workspace file tools + channel-AI web tools, same loop.
+        # Enter whenever the reply contains ANY {"tool":…} call, even with all
+        # tools off — the dispatch returns honest "tool off" results and the
+        # model writes a real answer instead of painting raw JSON.
         hit_cap = False
-        if (ws or ai_web) and not errored and not stopped and reply:
+        if not errored and not stopped and reply and \
+                (ws or ai_web or wsx.parse_tool_calls(reply)):
             done_calls = set()    # (tool, args-json) — identical repeats don't re-run
             for _ in range(8):
                 if _stop_hit():
@@ -727,9 +734,15 @@ async def agent_reply(cid, aid, asker_id, msg_id, depth=0, ping=True):
                                            asker["display_name"], a["name"])
             else:
                 hit_cap = bool(tool_steps)   # loop exhausted mid-work
-            reply = wsx.strip_tool_calls(reply)
-            if tool_steps and not reply:
+            if tool_steps and not wsx.strip_tool_calls(reply):
                 reply = "Done — see the tool steps above."
+        # always scrub tool-call JSON — a model that emits {"tool":…} for an
+        # OFF/unavailable tool would otherwise paint raw JSON as the reply
+        _pre_strip = reply
+        reply = wsx.strip_tool_calls(reply)
+        if _pre_strip != reply and not reply.strip() and not tool_steps:
+            reply = ('*(I tried to call a tool that\'s off in this channel — '
+                     'turn it on in ✨ AI in this channel, then ask again)*')
         if errored or not reply:
             reply = ("⏹ stopped before it could answer." if stopped
                      else "hmm, my brain's offline — no local LLM reachable right now")
