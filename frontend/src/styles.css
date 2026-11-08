@@ -301,6 +301,10 @@ a { color: var(--accent); text-decoration: none; }
 .fpost-last { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fpost-reacts { margin-left: auto; }
 .post-title { font-weight: 700; font-size: 15px; margin: 1px 0 2px; color: var(--honey); }
+.lurk-chip { flex: none; font-size: 10px; padding: 1px 6px; border-radius: 8px;
+  border: 1px dashed var(--border); color: var(--dim); cursor: pointer; }
+.lurk-chip.on { border: 1px solid var(--honey); color: var(--honey);
+  background: color-mix(in srgb, var(--honey) 12%, transparent); }
 
 /* message context menu */
 .menu-scrim { position: fixed; inset: 0; z-index: 49; }

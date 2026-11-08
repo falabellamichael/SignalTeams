@@ -408,16 +408,18 @@ def add_channel(sid: int, body: ChannelIn, user=Depends(current_user)):
                            (sid,)).fetchone()["p"]
         roster = [aid for aid in body.roster[:10] if conn.execute(
             "SELECT 1 FROM agents WHERE id=?", (aid,)).fetchone()]
+        lurkers = [aid for aid in body.lurkers[:10] if conn.execute(
+            "SELECT 1 FROM agents WHERE id=?", (aid,)).fetchone()]
         if body.role_id and not conn.execute(
                 "SELECT 1 FROM server_roles WHERE id=? AND server_id=?",
                 (body.role_id, sid)).fetchone():
             raise HTTPException(404, "No such role")
         kind = body.kind if body.kind in ("text", "agents", "forum") else "text"
         cur = conn.execute(
-            "INSERT INTO channels(server_id, kind, name, topic, position, roster, category, role_id, voice_cap, created_at) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO channels(server_id, kind, name, topic, position, roster, lurkers, category, role_id, voice_cap, created_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
             (sid, kind, body.name.lstrip("#"), body.topic, pos,
-             json.dumps(roster), body.category[:48], body.role_id or None,
+             json.dumps(roster), json.dumps(lurkers), body.category[:48], body.role_id or None,
              max(0, min(int(body.voice_cap or 0), 99)), now()))
         audit(conn, sid, user["id"], "channel.create",
               f"#{body.name.lstrip('#')}", body.kind)
@@ -456,10 +458,15 @@ async def edit_channel(cid: int, body: ChannelPatch, user=Depends(current_user))
                 raise HTTPException(404, "No such role")
             conn.execute("UPDATE channels SET role_id=? WHERE id=?",
                          (body.role_id or None, cid))
+        if body.lurkers is not None:
+            lurkers = [aid for aid in body.lurkers[:10] if conn.execute(
+                "SELECT 1 FROM agents WHERE id=?", (aid,)).fetchone()]
+            conn.execute("UPDATE channels SET lurkers=? WHERE id=?",
+                         (json.dumps(lurkers), cid))
         changed = [k for k, v in (("name", body.name), ("topic", body.topic),
                                 ("category", body.category), ("slowmode", body.slowmode_secs),
                                 ("voice cap", body.voice_cap), ("roster", body.roster),
-                                ("role gate", body.role_id))
+                                ("lurkers", body.lurkers), ("role gate", body.role_id))
                    if v is not None]
         audit(conn, ch["server_id"], user["id"], "channel.update",
               f"#{ch['name']}", "changed " + ", ".join(changed) if changed else "")

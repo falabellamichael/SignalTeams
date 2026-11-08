@@ -47,6 +47,7 @@ class ChannelIn(BaseModel):
     category: str = ""
     role_id: int | None = None
     voice_cap: int = 0
+    lurkers: list[int] = []
 
 
 class MessageIn(BaseModel):
@@ -139,6 +140,7 @@ class ChannelPatch(BaseModel):
     slowmode_secs: int | None = None
     voice_cap: int | None = None  # absent = unchanged · 0 = unlimited voice occupancy
     role_id: int | None = None    # absent = unchanged · 0 = open to all · N = gate to role
+    lurkers: list[int] | None = None  # agent ids that auto-reply in this channel
 
 
 class GroupDmIn(BaseModel):

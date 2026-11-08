@@ -284,6 +284,27 @@ async def post_message(cid: int, body: MessageIn, user=Depends(current_user)):
             continue
         _agent_cool[key] = time.time()
         asyncio.create_task(agent_reply(cid, a["id"], user["id"], m["id"]))
+    # lurking residents — ambient replies in agent channels, no summon needed.
+    # One lurker per message, 60s shared cooldown, only when nobody was @-summoned.
+    if (not silent and not hit_agents and not body.thread_root
+            and ch["server_id"]
+            and not (user["username"] or "").startswith(("agent:", "bot:", "hook:"))):
+        try:
+            lurk_ids = json.loads(ch["lurkers"] or "[]")
+        except Exception:
+            lurk_ids = []
+        for aid in lurk_ids:
+            key = (aid, cid)
+            if time.time() - _agent_cool.get(key, 0) < 60:
+                continue
+            with db() as conn:
+                la = conn.execute("SELECT * FROM agents WHERE id=?", (aid,)).fetchone()
+                ok = la and can_see_agent(conn, la, user["id"])
+            if ok:
+                _agent_cool[key] = time.time()
+                asyncio.create_task(
+                    agent_reply(cid, aid, user["id"], m["id"], ping=False))
+            break
     return payload["message"]
 
 

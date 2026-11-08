@@ -301,10 +301,11 @@ def _strip_echo_prefix(text: str, asker_un: str, asker_dn: str = "", agent_name:
     return s
 
 
-async def agent_reply(cid, aid, asker_id, msg_id, depth=0):
+async def agent_reply(cid, aid, asker_id, msg_id, depth=0, ping=True):
     """Generate a reply from an agent @mentioned in chat and post it in-channel.
     Bot replies may themselves @mention other agents — those get summoned too,
-    bounded by depth (max 3 hops) + per-agent cooldown so convos can't runaway."""
+    bounded by depth (max 3 hops) + per-agent cooldown so convos can't runaway.
+    ping=False makes it ambient (lurking) — no @prefix and no mention buzz."""
     from .llm import chat_stream as llm_stream
     try:
         with db() as conn:
@@ -349,7 +350,7 @@ async def agent_reply(cid, aid, asker_id, msg_id, depth=0):
         typing = {"type": "typing", "channel_id": cid,
                   "user": {"id": bot["id"], "display_name": a["name"]}}
         await hub.send_many(members, {**typing, "on": True})
-        prefix = f"@{asker['username']} "
+        prefix = f"@{asker['username']} " if ping else ""
         with db() as conn:
             cur = conn.execute(
                 "INSERT INTO messages(channel_id, author_id, content, reply_to, thread_root, created_at) "
@@ -424,9 +425,10 @@ async def agent_reply(cid, aid, asker_id, msg_id, depth=0):
             m2 = conn.execute("SELECT * FROM messages WHERE id=?", (mid,)).fetchone()
             payload = {"type": "message_updated", "channel_id": cid,
                        "message": message_json(conn, m2, asker_id)}
-            emit_buzz(conn, bot["id"], "mentioned", {
-                "to": asker_id, "channel_id": cid, "server_id": ch["server_id"],
-                "channel": ch["name"], "msg_id": m2["id"], "excerpt": text[:100]})
+            if ping:
+                emit_buzz(conn, bot["id"], "mentioned", {
+                    "to": asker_id, "channel_id": cid, "server_id": ch["server_id"],
+                    "channel": ch["name"], "msg_id": m2["id"], "excerpt": text[:100]})
             # feed event so the agent's owner's friends see it working
             emit_buzz(conn, bot["id"], "answered", {
                 "name": a["name"], "asker": asker["display_name"] or asker["username"],

@@ -425,16 +425,16 @@ export default function App() {
     if (d) { setModal(null); openDmEntry(d); }
   }
 
-  async function addChannel(name, kind, topic, roster, category, slowmode, vcap, roleId) {
-    const c = await api.addChannel(server.id, name, kind, topic, roster, category, slowmode, roleId || 0, vcap || 0);
+  async function addChannel(name, kind, topic, roster, category, slowmode, vcap, roleId, lurkers = []) {
+    const c = await api.addChannel(server.id, name, kind, topic, roster, category, slowmode, roleId || 0, vcap || 0, lurkers);
     const full = await api.server(server.id);
     setServer(full);
     setChannel(full.channels.find((x) => x.id === c.id));
     setModal(null);
   }
 
-  async function saveChannel(name, kind, topic, roster, category, slowmode, vcap, roleId) {
-    const c = await api.editChannel(modal.channel.id, { name, topic, roster, category, slowmode_secs: slowmode, role_id: roleId ?? 0, voice_cap: vcap ?? 0 }).catch((e) => (alert(e.message), null));
+  async function saveChannel(name, kind, topic, roster, category, slowmode, vcap, roleId, lurkers) {
+    const c = await api.editChannel(modal.channel.id, { name, topic, roster, category, slowmode_secs: slowmode, role_id: roleId ?? 0, voice_cap: vcap ?? 0, ...(lurkers !== undefined ? { lurkers } : {}) }).catch((e) => (alert(e.message), null));
     if (!c) return;
     const full = await api.server(server.id);
     setServer(full);

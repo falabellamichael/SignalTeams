@@ -87,8 +87,8 @@ export const api = {
   kickMember: (sid, uid) => req("DELETE", `/api/servers/${sid}/members/${uid}`),
   transferServer: (sid, user_id) => req("POST", `/api/servers/${sid}/transfer`, { user_id }),
   setNick: (sid, nickname) => req("POST", `/api/servers/${sid}/nick`, { nickname }),
-  addChannel: (sid, name, kind, topic, roster, category, slowmode_secs = 0, role_id = 0, voice_cap = 0) =>
-    req("POST", `/api/servers/${sid}/channels`, { name, kind, topic, roster, category, slowmode_secs, role_id, voice_cap }),
+  addChannel: (sid, name, kind, topic, roster, category, slowmode_secs = 0, role_id = 0, voice_cap = 0, lurkers = []) =>
+    req("POST", `/api/servers/${sid}/channels`, { name, kind, topic, roster, category, slowmode_secs, role_id, voice_cap, lurkers }),
 
   // dms
   dms: () => req("GET", "/api/dms"),

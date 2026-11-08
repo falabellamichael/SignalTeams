@@ -140,6 +140,15 @@ def channel_json(conn, ch, uid=None):
             out.append({"id": a["id"], "name": a["name"], "icon": a["icon"],
                         "owner_id": a["owner_id"]})
     d["roster"] = out
+    try:
+        lurk = json.loads(d.get("lurkers") or "[]")
+    except Exception:
+        lurk = []
+    d["lurkers"] = []
+    for aid in lurk:
+        la = conn.execute("SELECT * FROM agents WHERE id=?", (aid,)).fetchone()
+        if la and (uid is None or can_see_agent(conn, la, uid)):
+            d["lurkers"].append(aid)
     d["locked"] = bool(d.get("role_id")) and uid is not None and \
         uid not in channel_member_ids(conn, ch)
     if d["locked"]:

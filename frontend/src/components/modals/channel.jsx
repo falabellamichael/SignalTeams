@@ -188,6 +188,7 @@ export function ChannelModal({ kind, channel, me, roles, onClose, onDone, onDele
   const [vcap, setVcap] = useState(channel?.voice_cap || 0);
   const [roleId, setRoleId] = useState(channel?.role_id || 0);
   const [picked, setPicked] = useState(new Set((channel?.roster || []).map((a) => a.id)));
+  const [lurk, setLurk] = useState(new Set(channel?.lurkers || []));
   const [agents, setAgents] = useState([]);
   useEffect(() => {
     if (selKind === "agents") api.agents({ sort: "name" }).then((all) =>
@@ -195,6 +196,7 @@ export function ChannelModal({ kind, channel, me, roles, onClose, onDone, onDele
     ).catch(() => {});
   }, [selKind, me?.id]);
   const toggle = (id) => setPicked((p) => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const toggleLurk = (id) => setLurk((p) => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n; });
   return (
     <Modal title={editing ? `Edit ${selKind === "agents" ? "✦" : selKind === "forum" ? "📋" : "#"}${channel.name}`
         : `New ${selKind === "agents" ? "agent" : selKind === "forum" ? "forum" : "text"} channel`} onClose={onClose}
@@ -249,18 +251,28 @@ export function ChannelModal({ kind, channel, me, roles, onClose, onDone, onDele
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <b>{a.name}</b> <span className="ver">{a.owner?.display_name}</span>
                 </div>
+                {picked.has(a.id) && (
+                  <span className={`lurk-chip ${lurk.has(a.id) ? "on" : ""}`}
+                    title={lurk.has(a.id) ? "Lurking — auto-replies to messages" : "Click to let it lurk (auto-replies)"}
+                    onClick={(e) => { e.stopPropagation(); toggleLurk(a.id); }}>⚡ lurks</span>
+                )}
                 <span className="stat">{picked.has(a.id) ? <Ico n="check" s={13} /> : ""}</span>
               </div>
             ))}
             {agents.length === 0 && <div className="idehint">No agents visible.</div>}
           </div>
+          {[...picked].some((id) => lurk.has(id)) && (
+            <div className="idehint" style={{ marginTop: 4 }}>
+              ⚡ lurkers auto-reply to new messages — one per message, ~60s cooldown each.
+            </div>
+          )}
         </>
       )}
       <div className="mfoot">
         {editing && <button className="danger" onClick={() => onDelete(channel)}><Ico n="trash" s={13} /> Delete</button>}
         <button onClick={onClose}>Cancel</button>
         <button className="primary" disabled={!name.trim()}
-          onClick={() => onDone(name.trim(), selKind, topic.trim(), [...picked], category.trim(), slow, vcap, roleId)}>
+          onClick={() => onDone(name.trim(), selKind, topic.trim(), [...picked], category.trim(), slow, vcap, roleId, [...lurk].filter((id) => picked.has(id)))}>
           {editing ? "Save" : "Create"}
         </button>
       </div>

@@ -142,6 +142,8 @@ export function ServerSidebar({ server, channel, me, onChannel, onAddChannel, on
           {c.voice_cap > 0 && (
             <span className="ch-slow" title={`Voice capacity ${vroom.length}/${c.voice_cap}`}>
               {vroom.length}/{c.voice_cap}</span>)}
+          {(c.lurkers || []).length > 0 && (
+            <span className="ch-slow" title="Lurking agents — auto-reply to new messages">⚡</span>)}
           {owner && <span className="ch-gear" title="Move up"
             onClick={(e) => { e.stopPropagation(); onMoveChannel?.(c, -1); }}><Ico n="up" s={11} /></span>}
           {owner && <span className="ch-gear" title="Move down"
