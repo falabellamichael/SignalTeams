@@ -24,12 +24,10 @@
       p { max-width: 360px; margin: 0; color: #8b949e; font-size: 12.5px; line-height: 1.4; }
       #status { min-height: 16px; }
       .spinner {
-        width: 18px;
-        height: 18px;
-        border: 2px solid #d4af3740;
-        border-top-color: #d4af37;
-        border-radius: 50%;
-        animation: spin .8s linear infinite;
+        width: 26px;
+        height: 26px;
+        object-fit: contain;
+        filter: drop-shadow(0 0 8px rgba(232, 181, 74, .45));
       }
       .boot-bar {
         position: fixed;
@@ -51,7 +49,6 @@
       body[data-startup-error] .spinner,
       body[data-startup-error] .boot-bar,
       body[data-startup-error] .hint { display: none; }
-      @keyframes spin { to { transform: rotate(360deg); } }
       @keyframes sweep { from { transform: translateX(-40%); } to { transform: translateX(290%); } }
       @media (prefers-reduced-motion: reduce) {
         .spinner, .boot-fill { animation: none; }
@@ -65,7 +62,7 @@
         <img src="./signalteams-logo.png" alt="SignalTeams" width="56" height="56" />
         <span>Signal<span class="word">Teams</span></span>
       </h1>
-      <div class="status"><span class="spinner" aria-hidden="true"></span><span id="startup-label">Starting SignalTeams…</span></div>
+      <div class="status"><img class="spinner" src="./knot-loop.png" alt="" aria-hidden="true" /><span id="startup-label">Starting SignalTeams…</span></div>
       <p id="status" role="status">Connecting to your local AgentHive server…</p>
       <p class="hint">Hang tight while the local FastAPI hub warms up on :8075.</p>
     </main>

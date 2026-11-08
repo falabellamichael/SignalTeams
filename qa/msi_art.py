@@ -109,7 +109,7 @@ def make_dialog(path):
 
     # faint watermark knot bottom-right on the paper
     wm = scaled_knot(KNOT, 150)
-    wm_alpha = wm.getchannel("A").point(lambda a: int(a * 0.05))
+    wm_alpha = wm.getchannel("A").point(lambda a: int(a * 0.065))
     wm.putalpha(wm_alpha)
     img.alpha_composite(wm, (W - wm.width - 22, H - wm.height - 18))
 
@@ -156,10 +156,15 @@ def make_dialog(path):
         "C:/Windows/Fonts/consola.ttf") else "C:/Windows/Fonts/georgia.ttf", 10)
     d.text((14, H - 20), "v1.0.0", font=vf, fill=(*GOLD, 110))
 
-    # hairline gold divider + soft shadow onto the paper
+    # hairline gold divider + soft shadow onto the paper, plus a quiet
+    # baseline rule on the paper side echoing the banner strip
     d.line([(PANEL - 1, 0), (PANEL - 1, H)], fill=(*GOLD, 140), width=1)
     img.alpha_composite(panel, (0, 0))
     img.alpha_composite(panel_shadow(PANEL, H), (PANEL, 0))
+    base = ImageDraw.Draw(img)
+    for x in range(PANEL, W):
+        t = (x - PANEL) / (W - PANEL)
+        base.line([(x, H - 1), (x, H - 1)], fill=(*GOLD, int(90 * (0.4 + 0.6 * t))))
 
     img.convert("RGB").save(path, "BMP")
 
@@ -191,6 +196,10 @@ if __name__ == "__main__":
     ban = os.path.join(OUT, "banner.bmp")
     make_dialog(dlg)
     make_banner(ban)
+
+    # 2x variants — if WiX stretches to the control, HiDPI renders stay crisp
+    Image.open(dlg).resize((986, 624), Image.LANCZOS).save(os.path.join(OUT, "dialog_2x.bmp"), "BMP")
+    Image.open(ban).resize((986, 116), Image.LANCZOS).save(os.path.join(OUT, "banner_2x.bmp"), "BMP")
 
     # contact-sheet preview
     d_im = Image.open(dlg)

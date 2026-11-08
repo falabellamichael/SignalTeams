@@ -44,8 +44,8 @@
       "wix": {
         "language": "en-US",
         "upgradeCode": "406ffb1e-1adf-5c17-9a58-a1fb45b35664",
-        "bannerPath": "msi/banner.bmp",
-        "dialogImagePath": "msi/dialog.bmp"
+        "bannerPath": "msi/banner_2x.bmp",
+        "dialogImagePath": "msi/dialog_2x.bmp"
       }
     }
   }
