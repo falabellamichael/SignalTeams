@@ -271,6 +271,10 @@ def update_me(body: ProfileIn, user=Depends(current_user)):
         fields["notify_mentions"] = json.dumps(fields["notify_mentions"][:50])
     if "server_muted" in fields:
         fields["server_muted"] = json.dumps(fields["server_muted"][:50])
+    if "keywords" in fields:
+        fields["keywords"] = json.dumps(
+            [k.strip().lower()[:40] for k in fields["keywords"]
+             if str(k).strip()][:25])
     if "server_order" in fields:
         with db() as conn:
             mine = {r["server_id"] for r in conn.execute(

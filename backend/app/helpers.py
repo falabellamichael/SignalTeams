@@ -26,6 +26,8 @@ def public_user(u):
                          if "server_muted" in u.keys() and u["server_muted"] else []),
         "notify_mentions": (json.loads(u["notify_mentions"])
                             if "notify_mentions" in u.keys() and u["notify_mentions"] else []),
+        "keywords": (json.loads(u["keywords"])
+                     if "keywords" in u.keys() and u["keywords"] else []),
     }
 
 

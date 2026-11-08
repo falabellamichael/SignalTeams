@@ -24,6 +24,7 @@ class ProfileIn(BaseModel):
     server_muted: list[int] | None = None
     server_order: list[int] | None = None
     status_text: str | None = None
+    keywords: list[str] | None = None
 
 
 class FriendIn(BaseModel):

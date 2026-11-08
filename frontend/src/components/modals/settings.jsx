@@ -9,6 +9,7 @@ export function SettingsModal({ me, theme, onTheme, onClose, onSaved, onLogout }
     display_name: me.display_name, bio: me.bio,
     avatar_emoji: me.avatar_emoji, avatar_color: me.avatar_color, status: me.status,
     status_text: me.status_text || "",
+    keywords: (me.keywords || []).join(", "),
   });
   const [acct, setAcct] = useState(me);        // fresh flags from /api/me
   const [density, setDensity] = useState(localStorage.getItem("st.density") || "cozy");
@@ -70,7 +71,9 @@ export function SettingsModal({ me, theme, onTheme, onClose, onSaved, onLogout }
   }
 
   async function save() {
-    const u = await api.updateMe(f);
+    const payload = { ...f,
+      keywords: f.keywords.split(",").map((k) => k.trim()).filter(Boolean) };
+    const u = await api.updateMe(payload);
     onSaved(u);
   }
 
@@ -160,6 +163,11 @@ export function SettingsModal({ me, theme, onTheme, onClose, onSaved, onLogout }
       <label>Bio</label>
       <input value={f.bio} onChange={(e) => setF({ ...f, bio: e.target.value })}
         placeholder="A line about you" />
+      <label>Keyword notifications <span style={{ color: "var(--dim)", fontWeight: 400 }}>
+        (get pinged when these words appear in channels you're in — comma-separated)</span></label>
+      <input value={f.keywords}
+        onChange={(e) => setF({ ...f, keywords: e.target.value })}
+        placeholder="deploy, incident, your name…" maxLength={300} />
       <label>Custom LLM endpoint {llmHealth !== null &&
         <span title={llmHealth ? "last test passed" : "last test failed"}
           style={{ color: llmHealth ? "#3fb950" : "var(--bad)", fontSize: 14 }}>

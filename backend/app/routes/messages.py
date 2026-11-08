@@ -301,6 +301,30 @@ async def post_message(cid: int, body: MessageIn, user=Depends(current_user)):
                         if all(x["id"] != a["id"] for x in hit_agents):
                             hit_agents.append(dict(a))
                         break
+        # keyword notifications — members get pinged when their highlight
+        # words show up in a channel they can see (@silent mutes these too)
+        if not silent and content:
+            kws = conn.execute(
+                "SELECT id, keywords FROM users WHERE id IN (%s) "
+                "AND keywords NOT IN ('[]', '') AND keywords IS NOT NULL" %
+                ",".join("?" * len(members)), members).fetchall()
+            low = content.lower()
+            for ku in kws:
+                try:
+                    words = json.loads(ku["keywords"] or "[]")
+                except Exception:
+                    words = []
+                hit = next((w for w in words
+                            if re.search(r"(?<!\w)" + re.escape(w) + r"(?!\w)",
+                                         low)), None)
+                if (hit and ku["id"] != user["id"] and ku["id"] not in pinged
+                        and not is_blocked(conn, ku["id"], user["id"])):
+                    pinged.append(ku["id"])
+                    emit_buzz(conn, user["id"], "keyword", {
+                        "to": ku["id"], "channel_id": cid,
+                        "server_id": ch["server_id"], "channel": ch["name"],
+                        "msg_id": m["id"], "word": hit,
+                        "excerpt": content[:100]})
     payload["mentions"] = pinged
     await hub.send_many(members, payload)
     for uid in pinged:
