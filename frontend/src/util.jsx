@@ -1,13 +1,17 @@
 import React, { useState } from "react";
 import { api } from "./api";
 import Ico from "./components/Ico";
+import KnotMark from "./components/KnotMark";
+
+const BOT_UN = /^(agent|bot|hook):/;
 
 export function Avatar({ user, size, showStatus }) {
   if (!user) return <div className={`avatar ${size || ""}`} />;
   const status = showStatus ? (user.online === false ? "offline" : (user.status || "online")) : null;
+  const bot = BOT_UN.test(user.username || "");
   return (
-    <div className={`avatar ${size || ""}`} style={{ background: `${user.avatar_color}33`, border: `1px solid ${user.avatar_color}55` }}>
-      <span>{user.avatar_emoji}</span>
+    <div className={`avatar ${size || ""}${bot ? " bot" : ""}`} style={{ background: `${user.avatar_color}33`, border: `1px solid ${user.avatar_color}55` }}>
+      {bot ? <KnotMark /> : <span>{user.avatar_emoji}</span>}
       {status && <span className={`dot ${status}`} />}
     </div>
   );

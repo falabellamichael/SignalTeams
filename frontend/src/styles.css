@@ -224,6 +224,9 @@ a { color: var(--accent); text-decoration: none; }
   position: relative; background: var(--panel2); }
 .avatar.sm { width: 26px; height: 26px; font-size: 13px; }
 .avatar.lg { width: 40px; height: 40px; font-size: 20px; }
+/* bot avatars render the flat 2D knot mark — currentColor = var(--honey),
+   so every theme recolors it (gold on dark, amber on light, silver on obsidian) */
+.avatar .knotmark { width: 62%; height: 62%; color: var(--honey); flex-shrink: 0; }
 .dot { position: absolute; right: -1px; bottom: -1px; width: 10px; height: 10px;
   border-radius: 50%; border: 2px solid var(--panel); background: var(--dim); }
 .dot.online { background: var(--good); }
@@ -459,6 +462,9 @@ a { color: var(--accent); text-decoration: none; }
 .nav-item .ch-mute:hover { color: var(--text); opacity: 1; }
 .side-head .srv-gear { cursor: pointer; font-size: 12px; color: var(--dim); margin-left: 6px; }
 .side-head .srv-gear:hover { color: var(--text); }
+/* icon-action classes are now <button>s — strip button chrome so they stay inline/compact */
+button.add, button.ch-mute, button.ch-gear, button.srv-gear {
+  padding: 0; border: none; background: none; font: inherit; color: inherit; line-height: inherit; }
 .roster { display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
   padding: 5px 14px; border-bottom: 1px solid var(--border); background: var(--panel); }
 .roster .r-huddle { margin-left: auto; border-color: var(--honey); color: var(--honey); }
@@ -472,13 +478,15 @@ a { color: var(--accent); text-decoration: none; }
 .r-chip.working { border-color: var(--honey); color: var(--honey);
   box-shadow: 0 0 8px rgba(232,164,60,.25); }
 .r-knot { width: 12px; height: 12px; margin-right: -1px; }
-.react-bar { position: absolute; top: -10px; right: 8px; display: none; gap: 2px;
+.react-bar { position: absolute; top: -10px; right: 8px; display: flex; gap: 2px;
   align-items: center; background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
-  padding: 2px 5px; box-shadow: 0 4px 14px var(--shadow); z-index: 4; }
-.react-bar span { cursor: pointer; font-size: 14px; padding: 2px 4px; border-radius: 5px;
-  display: inline-flex; align-items: center; justify-content: center; }
-.react-bar span:hover { background: var(--hover); transform: scale(1.12); }
-.msg:hover .react-bar { display: flex; }
+  padding: 2px 5px; box-shadow: 0 4px 14px var(--shadow); z-index: 4;
+  opacity: 0; visibility: hidden; transition: opacity .12s ease, visibility 0s .12s; }
+.react-bar button { cursor: pointer; font-size: 14px; padding: 2px 4px; border-radius: 5px;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: none; border: none; font: inherit; line-height: 1; }
+.react-bar button:hover { background: var(--hover); transform: scale(1.12); }
+.msg:hover .react-bar { opacity: 1; visibility: visible; transition: opacity .12s ease; }
 .reacts { display: flex; gap: 5px; margin-top: 5px; flex-wrap: wrap; }
 .rchip { font-size: 11.5px; padding: 1px 8px; border-radius: 11px;
   border: 1px solid var(--border); background: var(--panel2); }
@@ -1098,8 +1106,32 @@ button > svg { vertical-align: -2px; }
   overflow-y: auto; font-family: ui-monospace, Consolas, monospace; }
 
 /* settings */
+.modal.settings-modal { width: 720px; max-width: 94vw; height: min(620px, 86vh);
+  padding: 0; overflow: hidden; display: flex; flex-direction: column; }
+.set-shell { display: flex; flex: 1; min-height: 0; min-width: 0; }
+.set-rail { width: 52px; flex-shrink: 0; background: var(--bg2);
+  border-right: 1px solid var(--border); display: flex; flex-direction: column;
+  align-items: center; gap: 4px; padding: 10px 0; }
+.set-rail-gap { flex: 1; }
+.set-rail button { width: 36px; height: 36px; padding: 0; border: none; border-radius: 8px;
+  background: transparent; color: var(--dim); display: grid; place-items: center;
+  position: relative; }
+.set-rail button:hover { background: var(--hover); color: var(--fg); border-color: transparent; }
+.set-rail button.on { background: var(--sel2); color: var(--accent); }
+.set-rail button.on::before { content: ""; position: absolute; left: -8px; top: 8px; bottom: 8px;
+  width: 2px; border-radius: 2px; background: var(--accent); }
+.set-main { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.set-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px;
+  padding: 16px 18px 8px; border-bottom: 1px solid var(--border); }
+.set-head h3 { margin: 0; font-size: 16px; }
+.set-head .msub { margin: 2px 0 0; }
+.set-body { flex: 1; min-height: 0; overflow-y: auto; padding: 6px 20px 18px; }
 .set-row { display: flex; align-items: center; justify-content: space-between;
   padding: 10px 0; border-bottom: 1px solid var(--border); gap: 12px; }
+@media (max-width: 760px) {
+  .settings-modal .set-row { flex-direction: column; align-items: flex-start; }
+  .settings-modal .set-row .seg { flex-wrap: wrap; max-width: 100%; }
+}
 .set-row .lab { font-size: 13px; }
 .set-row .lab .d { font-size: 11px; color: var(--dim); }
 .seg { display: flex; border: 1px solid var(--border); border-radius: 7px; overflow: hidden; }
