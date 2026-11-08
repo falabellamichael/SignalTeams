@@ -212,14 +212,25 @@ async def post_message(cid: int, body: MessageIn, user=Depends(current_user)):
         else:
             embed = await asyncio.to_thread(unfurl, u.group(0)) if u else None
         title = (body.title or "").strip()[:120] or None
+        tags = []
+        if ch["kind"] == "forum" and not body.thread_root and body.tags:
+            try:
+                allowed = json.loads(ch["forum_tags"] or "[]")
+            except Exception:
+                allowed = []
+            wanted = [str(x).strip()[:24] for x in body.tags[:5] if str(x).strip()]
+            if any(t not in allowed for t in wanted) and allowed:
+                raise HTTPException(400, "Tags must come from the channel's tag list")
+            tags = wanted
         cur = conn.execute(
             "INSERT INTO messages(channel_id, author_id, content, agent_id, pack_id, reply_to, "
-            "thread_root, attachments, embed, fwd_of, poll, title, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "thread_root, attachments, embed, fwd_of, poll, title, tags, created_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (cid, user["id"], content, body.agent_id, body.pack_id, body.reply_to,
              body.thread_root, json.dumps(atts),
              json.dumps(embed) if embed else None, body.fwd_of,
              json.dumps(poll) if poll else None,
-             title if not body.thread_root else None, now()))
+             title if not body.thread_root else None, json.dumps(tags), now()))
         m = conn.execute("SELECT * FROM messages WHERE id=?", (cur.lastrowid,)).fetchone()
         payload = {"type": "message", "channel_id": cid,
                    "message": message_json(conn, m, user["id"])}

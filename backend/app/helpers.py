@@ -151,6 +151,10 @@ def channel_json(conn, ch, uid=None):
         la = conn.execute("SELECT * FROM agents WHERE id=?", (aid,)).fetchone()
         if la and (uid is None or can_see_agent(conn, la, uid)):
             d["lurkers"].append(aid)
+    try:
+        d["forum_tags"] = json.loads(d.get("forum_tags") or "[]")
+    except Exception:
+        d["forum_tags"] = []
     d["locked"] = bool(d.get("role_id")) and uid is not None and \
         uid not in channel_member_ids(conn, ch)
     if d["locked"]:
@@ -234,6 +238,11 @@ def message_json(conn, m, viewer_id=None):
             d["poll"] = json.loads(m["poll"])
         except Exception:
             d["poll"] = None
+    if "tags" in m.keys():
+        try:
+            d["tags"] = json.loads(m["tags"] or "[]")
+        except Exception:
+            d["tags"] = []
     return d
 
 

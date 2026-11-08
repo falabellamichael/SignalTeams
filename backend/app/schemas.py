@@ -49,6 +49,7 @@ class ChannelIn(BaseModel):
     role_id: int | None = None
     voice_cap: int = 0
     lurkers: list[int] = []
+    forum_tags: list[str] = []
 
 
 class MessageIn(BaseModel):
@@ -61,6 +62,7 @@ class MessageIn(BaseModel):
     attachments: list[dict] = []
     poll: dict | None = None     # {q, options:[str..]} — votes live in message_reactions
     title: str | None = Field(default=None, max_length=120)   # forum post title
+    tags: list[str] | None = None                             # forum post tags
 
 
 class DigestIn(BaseModel):
@@ -151,6 +153,7 @@ class ChannelPatch(BaseModel):
     voice_cap: int | None = None  # absent = unchanged · 0 = unlimited voice occupancy
     role_id: int | None = None    # absent = unchanged · 0 = open to all · N = gate to role
     lurkers: list[int] | None = None  # agent ids that auto-reply in this channel
+    forum_tags: list[str] | None = None  # allowed tag chips on forum posts
 
 
 class GroupDmIn(BaseModel):

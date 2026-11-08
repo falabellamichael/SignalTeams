@@ -9,11 +9,16 @@ export function ForumFeed({ channel, me, msgs, onOpen, onPosted }) {
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
   const [atts, setAtts] = useState([]);
+  const [tags, setTags] = useState([]);
+  const [filter, setFilter] = useState(null);
   const [err, setErr] = useState("");
   const fileRef = useRef(null);
+  const chanTags = channel.forum_tags || [];
 
   // bump order — a thread reply lifts its post to the top
-  const posts = [...msgs].sort((a, b) =>
+  const posts = [...msgs]
+    .filter((m) => !filter || (m.tags || []).includes(filter))
+    .sort((a, b) =>
     Math.max(b.created_at, b.last_reply?.created_at || 0) -
     Math.max(a.created_at, a.last_reply?.created_at || 0));
 
@@ -30,14 +35,24 @@ export function ForumFeed({ channel, me, msgs, onOpen, onPosted }) {
     if (!t) { setErr("Give the post a title"); return; }
     if (!v && !atts.length) { setErr("Say something — or attach a file"); return; }
     try {
-      const m = await api.send(channel.id, v, null, atts, null, null, null, null, null, t);
+      const m = await api.send(channel.id, v, null, atts, null, null, null, null, null, t, tags);
       onPosted?.(m);
-      setTitle(""); setBody(""); setAtts([]); setOpen(false); setErr("");
+      setTitle(""); setBody(""); setAtts([]); setTags([]); setOpen(false); setErr("");
     } catch (e) { setErr(e.message); }
   }
 
   return (
     <div className="forum-feed">
+      {chanTags.length > 0 && (
+        <div className="ftagbar">
+          <span className={`ftag ${filter === null ? "on" : ""}`}
+            onClick={() => setFilter(null)}>All</span>
+          {chanTags.map((t) => (
+            <span key={t} className={`ftag ${filter === t ? "on" : ""}`}
+              onClick={() => setFilter((f) => (f === t ? null : t))}>{t}</span>
+          ))}
+        </div>
+      )}
       <div className="forum-tools">
         <span className="idehint">{posts.length} post{posts.length === 1 ? "" : "s"}</span>
         {!channel.locked &&
@@ -50,6 +65,15 @@ export function ForumFeed({ channel, me, msgs, onOpen, onPosted }) {
           <input className="np-title" value={title} maxLength={120}
             placeholder="Post title — e.g. Q3 launch retro"
             onChange={(e) => setTitle(e.target.value)} autoFocus />
+          {chanTags.length > 0 && (
+            <div className="ftagbar">
+              {chanTags.map((t) => (
+                <span key={t} className={`ftag ${tags.includes(t) ? "on" : ""}`}
+                  onClick={() => setTags((x) => x.includes(t)
+                    ? x.filter((z) => z !== t) : [...x, t])}>{t}</span>
+              ))}
+            </div>
+          )}
           <textarea rows={3} value={body}
             placeholder="Write the post — markdown, @mentions, and emoji all work"
             onChange={(e) => setBody(e.target.value)}
@@ -97,6 +121,11 @@ export function ForumFeed({ channel, me, msgs, onOpen, onPosted }) {
             <span className="fpost-time" title={new Date(m.created_at * 1000).toLocaleString()}>
               {timeAgo(m.created_at)}</span>
           </div>
+          {(m.tags || []).length > 0 && (
+            <div className="ftagbar" style={{ margin: "4px 0 0 34px" }}>
+              {m.tags.map((t) => <span key={t} className="ftag sm">{t}</span>)}
+            </div>
+          )}
           {(m.content || "").trim() && (
             <div className="fpost-snip">
               {(m.title ? m.content : (m.content || "").split("\n").slice(1).join(" ") || "")

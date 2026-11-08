@@ -650,12 +650,14 @@ def add_channel(sid: int, body: ChannelIn, user=Depends(current_user)):
                 (body.role_id, sid)).fetchone():
             raise HTTPException(404, "No such role")
         kind = body.kind if body.kind in ("text", "agents", "forum") else "text"
+        ftags = [t.strip()[:24] for t in body.forum_tags[:10] if str(t).strip()]
         cur = conn.execute(
-            "INSERT INTO channels(server_id, kind, name, topic, position, roster, lurkers, category, role_id, voice_cap, created_at) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO channels(server_id, kind, name, topic, position, roster, lurkers, category, role_id, voice_cap, forum_tags, created_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
             (sid, kind, body.name.lstrip("#"), body.topic, pos,
              json.dumps(roster), json.dumps(lurkers), body.category[:48], body.role_id or None,
-             max(0, min(int(body.voice_cap or 0), 99)), now()))
+             max(0, min(int(body.voice_cap or 0), 99)),
+             json.dumps(ftags), now()))
         audit(conn, sid, user["id"], "channel.create",
               f"#{body.name.lstrip('#')}", body.kind)
         return channel_json(conn, conn.execute(
@@ -698,6 +700,10 @@ async def edit_channel(cid: int, body: ChannelPatch, user=Depends(current_user))
                 "SELECT 1 FROM agents WHERE id=?", (aid,)).fetchone()]
             conn.execute("UPDATE channels SET lurkers=? WHERE id=?",
                          (json.dumps(lurkers), cid))
+        if body.forum_tags is not None:
+            conn.execute("UPDATE channels SET forum_tags=? WHERE id=?",
+                         (json.dumps([t.strip()[:24] for t in body.forum_tags[:10]
+                                      if str(t).strip()]), cid))
         changed = [k for k, v in (("name", body.name), ("topic", body.topic),
                                 ("category", body.category), ("slowmode", body.slowmode_secs),
                                 ("voice cap", body.voice_cap), ("roster", body.roster),

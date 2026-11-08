@@ -189,6 +189,7 @@ export function ChannelModal({ kind, channel, me, roles, onClose, onDone, onDele
   const [roleId, setRoleId] = useState(channel?.role_id || 0);
   const [picked, setPicked] = useState(new Set((channel?.roster || []).map((a) => a.id)));
   const [lurk, setLurk] = useState(new Set(channel?.lurkers || []));
+  const [ftags, setFtags] = useState((channel?.forum_tags || []).join(", "));
   const [agents, setAgents] = useState([]);
   useEffect(() => {
     if (selKind === "agents") api.agents({ sort: "name" }).then((all) =>
@@ -227,6 +228,14 @@ export function ChannelModal({ kind, channel, me, roles, onClose, onDone, onDele
           <label>Voice cap <span style={{ color: "var(--dim)", fontWeight: 400 }}>(max people in 🎧 — 0 = unlimited)</span></label>
           <input type="number" min={0} max={99} value={vcap}
             onChange={(e) => setVcap(Math.max(0, Math.min(+e.target.value || 0, 99)))} />
+        </>
+      )}
+      {selKind === "forum" && (
+        <>
+          <label>Post tags <span style={{ color: "var(--dim)", fontWeight: 400 }}>
+            (comma-separated — posters pick from these; empty = freeform)</span></label>
+          <input value={ftags} onChange={(e) => setFtags(e.target.value)}
+            placeholder="bug, feature, question" maxLength={200} />
         </>
       )}
       {editing && <WebhookSection channel={channel} />}
@@ -272,7 +281,8 @@ export function ChannelModal({ kind, channel, me, roles, onClose, onDone, onDele
         {editing && <button className="danger" onClick={() => onDelete(channel)}><Ico n="trash" s={13} /> Delete</button>}
         <button onClick={onClose}>Cancel</button>
         <button className="primary" disabled={!name.trim()}
-          onClick={() => onDone(name.trim(), selKind, topic.trim(), [...picked], category.trim(), slow, vcap, roleId, [...lurk].filter((id) => picked.has(id)))}>
+          onClick={() => onDone(name.trim(), selKind, topic.trim(), [...picked], category.trim(), slow, vcap, roleId, [...lurk].filter((id) => picked.has(id)),
+            ftags.split(",").map((t) => t.trim()).filter(Boolean))}>
           {editing ? "Save" : "Create"}
         </button>
       </div>

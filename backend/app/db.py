@@ -390,6 +390,8 @@ def init():
             ("messages.system", "ALTER TABLE messages ADD COLUMN system TEXT NOT NULL DEFAULT ''"),
             ("server_members.timeout_until", "ALTER TABLE server_members ADD COLUMN timeout_until REAL"),
             ("users.keywords", "ALTER TABLE users ADD COLUMN keywords TEXT NOT NULL DEFAULT '[]'"),
+            ("channels.forum_tags", "ALTER TABLE channels ADD COLUMN forum_tags TEXT NOT NULL DEFAULT '[]'"),
+            ("messages.tags", "ALTER TABLE messages ADD COLUMN tags TEXT NOT NULL DEFAULT '[]'"),
         ]:
             table, c = col.split(".")
             try:

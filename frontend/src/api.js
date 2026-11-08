@@ -87,8 +87,8 @@ export const api = {
   kickMember: (sid, uid) => req("DELETE", `/api/servers/${sid}/members/${uid}`),
   transferServer: (sid, user_id) => req("POST", `/api/servers/${sid}/transfer`, { user_id }),
   setNick: (sid, nickname) => req("POST", `/api/servers/${sid}/nick`, { nickname }),
-  addChannel: (sid, name, kind, topic, roster, category, slowmode_secs = 0, role_id = 0, voice_cap = 0, lurkers = []) =>
-    req("POST", `/api/servers/${sid}/channels`, { name, kind, topic, roster, category, slowmode_secs, role_id, voice_cap, lurkers }),
+  addChannel: (sid, name, kind, topic, roster, category, slowmode_secs = 0, role_id = 0, voice_cap = 0, lurkers = [], forum_tags = []) =>
+    req("POST", `/api/servers/${sid}/channels`, { name, kind, topic, roster, category, slowmode_secs, role_id, voice_cap, lurkers, forum_tags }),
 
   // dms
   dms: () => req("GET", "/api/dms"),
@@ -108,9 +108,9 @@ export const api = {
   // messages
   messages: (cid, before) =>
     req("GET", `/api/channels/${cid}/messages${before ? `?before=${before}` : ""}`),
-  send: (cid, content, agent_id, attachments, pack_id, reply_to, thread_root, fwd_of, poll, title) =>
+  send: (cid, content, agent_id, attachments, pack_id, reply_to, thread_root, fwd_of, poll, title, tags) =>
     req("POST", `/api/channels/${cid}/messages`,
-      { content, agent_id, pack_id, reply_to, thread_root, fwd_of, attachments, poll, title }),
+      { content, agent_id, pack_id, reply_to, thread_root, fwd_of, attachments, poll, title, tags }),
   messageAi: (mid, op, extra = "") => req("POST", `/api/messages/${mid}/ai`, { op, extra }),
   thread: (mid) => req("GET", `/api/messages/${mid}/thread`),
   markRead: (cid) => req("POST", `/api/channels/${cid}/read`, {}),
