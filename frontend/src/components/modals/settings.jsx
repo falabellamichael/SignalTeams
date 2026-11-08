@@ -90,10 +90,12 @@ export function SettingsModal({ me, theme, onTheme, onClose, onSaved, onLogout }
     <Modal title={<span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}><Ico n="gear" s={16} /> Settings</span>}
       sub={`@${me.username} · build ${__APP_BUILD__?.slice(0, 10) || "dev"}`} onClose={onClose}>
       <div className="set-row">
-        <div className="lab">Theme<div className="d">Dark = night ops. Light = warm paper.</div></div>
-        <div className="seg">
-          <button className={theme === "dark" ? "on" : ""} onClick={() => onTheme("dark")}><Ico n="moon" s={12} /> Dark</button>
-          <button className={theme === "light" ? "on" : ""} onClick={() => onTheme("light")}><Ico n="sun" s={12} /> Light</button>
+        <div className="lab">Theme<div className="d">Two dark palettes, two light palettes.</div></div>
+        <div className="seg" style={{ flexWrap: "wrap" }}>
+          <button className={theme === "dark" ? "on" : ""} onClick={() => onTheme("dark")}><Ico n="moon" s={12} /> Tokyo Night</button>
+          <button className={theme === "obsidian" ? "on" : ""} onClick={() => onTheme("obsidian")}><Ico n="moon" s={12} /> Obsidian</button>
+          <button className={theme === "light" ? "on" : ""} onClick={() => onTheme("light")}><Ico n="sun" s={12} /> Warm Theme</button>
+          <button className={theme === "daylight" ? "on" : ""} onClick={() => onTheme("daylight")}><Ico n="sun" s={12} /> Daylight</button>
         </div>
       </div>
       <div className="set-row">

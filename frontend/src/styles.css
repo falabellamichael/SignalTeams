@@ -1,4 +1,5 @@
-:root {
+/* Tokyo Night (default dark) */
+:root, [data-theme="dark"] {
   --bg: #0d1117; --bg2: #0a0d12; --panel: #161b22; --panel2: #1c2129;
   --border: #2d333b; --line: #2d333b; --fg: #e6edf3; --text: #e6edf3; --dim: #8b949e;
   --accent: #4da3ff; --honey: #d4af37;
@@ -7,6 +8,18 @@
   --shadow: #0008; --overlay: #000a;
   --serif: Georgia, "Times New Roman", serif; --radius: 8px;
 }
+/* Obsidian (pure black & neutral grey) */
+[data-theme="obsidian"] {
+  --bg: #050505; --bg2: #000000; --panel: #141414; --panel2: #1f1f1f;
+  --border: #2e2e2e; --line: #292929; --fg: #f2f2f2; --text: #f2f2f2; --dim: #8c8c8c;
+  --accent: #d4d4d4; --honey: #bdbdbd;
+  --good: #4ade80; --bad: #f87171; --warn: #eab308; --idle: #eab308;
+  --hover: rgba(255, 255, 255, .08); --sel: rgba(255, 255, 255, .10);
+  --sel2: rgba(255, 255, 255, .16); --selb: rgba(255, 255, 255, .32);
+  --shadow: rgba(0, 0, 0, .85); --overlay: rgba(0, 0, 0, .80);
+  --serif: Georgia, "Times New Roman", serif; --radius: 8px;
+}
+/* Warm Theme (warm paper light) */
 [data-theme="light"] {
   --bg: #ffffff; --bg2: #faf7f0; --panel: #f4efe4; --panel2: #efe9da;
   --border: #e2dac6; --line: #e2dac6; --fg: #2b2722; --text: #2b2722; --dim: #8a7c67;
@@ -15,6 +28,17 @@
   --hover: rgba(95, 76, 45, .08); --sel: rgba(162, 89, 39, .12);
   --sel2: rgba(162, 89, 39, .17); --selb: rgba(162, 89, 39, .32);
   --shadow: rgba(80, 65, 40, .22); --overlay: rgba(60, 50, 30, .40);
+  --serif: Georgia, "Times New Roman", serif; --radius: 8px;
+}
+/* Daylight (crisp slate light) */
+[data-theme="daylight"] {
+  --bg: #ffffff; --bg2: #f8fafc; --panel: #f1f5f9; --panel2: #e2e8f0;
+  --border: #cbd5e1; --line: #cbd5e1; --fg: #0f172a; --text: #0f172a; --dim: #64748b;
+  --accent: #2563eb; --honey: #d97706;
+  --good: #16a34a; --bad: #dc2626; --warn: #d97706; --idle: #d97706;
+  --hover: rgba(15, 23, 42, .06); --sel: rgba(37, 99, 235, .10);
+  --sel2: rgba(37, 99, 235, .16); --selb: rgba(37, 99, 235, .32);
+  --shadow: rgba(15, 23, 42, .14); --overlay: rgba(15, 23, 42, .40);
   --serif: Georgia, "Times New Roman", serif; --radius: 8px;
 }
 * { box-sizing: border-box; }
@@ -26,7 +50,8 @@ button, select, input, textarea { font: inherit; color: var(--fg);
 button { padding: 4px 10px; cursor: pointer; }
 button:hover { border-color: var(--accent); }
 button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
-[data-theme="light"] button.primary { color: #fff; }
+[data-theme="light"] button.primary, [data-theme="daylight"] button.primary { color: #fff; }
+[data-theme="obsidian"] button.primary { color: #0a0a0a; font-weight: 600; }
 button.primary:hover { filter: brightness(1.1); }
 button.ghost { border: none; background: none; color: var(--dim); padding: 4px 6px; }
 button.ghost:hover { background: var(--hover); color: var(--fg); }
