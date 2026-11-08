@@ -702,6 +702,8 @@ def agent_prompt(conn, ws, uid, focus=""):
         "- When you are done, summarize what you changed in plain language.",
         "- If a tool returns an error, read it and adjust — don't repeat the "
         "same failing call.",
+        "- A tool result with \"ok\": false means it FAILED — never claim the "
+        "action succeeded; fix the call or explain the failure.",
         "- Tool paths are relative to the workspace root — pass \"\" for the "
         "root itself.",
         "- Never narrate or fake tool steps — no ⚙ receipt lines, no "
@@ -796,50 +798,74 @@ def agent_tools(conn, ws, uid):
     return tools
 
 
+_REQUIRED = {
+    "read_file": ("path", "README.md"),
+    "search_files": ("query", "def main"),
+    "file_info": ("path", "README.md"),
+    "write_file": ("path", "README.md"),
+    "edit_file": ("path", "README.md"),
+    "delete_file": ("path", "old.txt"),
+    "move_file": ("path", "old.txt"),
+    "make_dir": ("path", "newdir"),
+    "run_command": ("cmd", "git status"),
+}
+
+
+def _missing(name, key, example):
+    return {"ok": False, "error": (
+        f'{name} needs a "{key}" arg — emit exactly '
+        f'{{"tool":"{name}","args":{{"{key}":"{example}"}}}}')}
+
+
 def run_tool(conn, ws, uid, agent_id, name, args):
     """Execute one agent tool call. Returns a JSON-able result dict."""
-    args = args or {}
+    args = _canon_args(args) if isinstance(args, dict) else {}
     try:
+        need = _REQUIRED.get(name)
+        if need and str(_arg(args, need[0]) or "").strip() == "":
+            return _missing(name, *need)
         if name == "list_files":
-            t = tree(conn, ws, args.get("path") or "", depth=2)
+            t = tree(conn, ws, _arg(args, "path") or "", depth=2)
             return {"ok": True, "entries": [
                 {"path": e["path"], "dir": e["dir"], "size": e["size"]}
                 for e in t["entries"][:200]]}
         if name == "read_file":
-            r = read_file(conn, ws, args.get("path"), uid=uid, agent_id=agent_id)
+            r = read_file(conn, ws, _arg(args, "path"),
+                          uid=uid, agent_id=agent_id)
             return {"ok": True, "path": r["path"], "content": r["content"][:20000]}
         if name == "search_files":
-            return {"ok": True, "hits": search(conn, ws, args.get("query"))}
+            return {"ok": True, "hits": search(conn, ws, _arg(args, "query"))}
         if name == "file_info":
-            return {"ok": True, **file_meta(conn, ws, args.get("path"))}
+            return {"ok": True, **file_meta(conn, ws, _arg(args, "path"))}
         if name == "write_file":
             require(conn, ws, uid, "write")
-            r = write_file(conn, ws, args.get("path"), args.get("content", ""),
+            r = write_file(conn, ws, _arg(args, "path"),
+                           _arg(args, "content") or "",
                            uid=uid, agent_id=agent_id, source="agent",
-                           note=args.get("note") or "agent edit")
+                           note=_arg(args, "note") or "agent edit")
             return {"ok": True, **r}
         if name == "edit_file":
             require(conn, ws, uid, "write")
             return {"ok": True, **edit_file(
-                conn, ws, args.get("path"), args.get("find", ""),
-                args.get("replace", ""), uid=uid, agent_id=agent_id,
-                note=args.get("note") or "agent edit")}
+                conn, ws, _arg(args, "path"), _arg(args, "find") or "",
+                _arg(args, "replace") or "", uid=uid, agent_id=agent_id,
+                note=_arg(args, "note") or "agent edit")}
         if name == "delete_file":
             require(conn, ws, uid, "write")
-            return {"ok": True, **delete_path(conn, ws, args.get("path"),
+            return {"ok": True, **delete_path(conn, ws, _arg(args, "path"),
                                               uid=uid, agent_id=agent_id)}
         if name == "move_file":
             require(conn, ws, uid, "write")
-            return {"ok": True, **move_path(conn, ws, args.get("path"),
-                                             args.get("to"), uid=uid,
+            return {"ok": True, **move_path(conn, ws, _arg(args, "path"),
+                                             _arg(args, "to"), uid=uid,
                                              agent_id=agent_id)}
         if name == "make_dir":
             require(conn, ws, uid, "write")
-            return {"ok": True, **mkdir(conn, ws, args.get("path"),
+            return {"ok": True, **mkdir(conn, ws, _arg(args, "path"),
                                          uid=uid, agent_id=agent_id)}
         if name == "run_command":
             require(conn, ws, uid, "admin")
-            return {"ok": True, **run_command(conn, ws, args.get("cmd"),
+            return {"ok": True, **run_command(conn, ws, str(_arg(args, "cmd")),
                                               uid=uid, agent_id=agent_id)}
         return {"ok": False, "error": f"unknown tool {name}"}
     except WorkspaceError as e:
@@ -883,19 +909,63 @@ def _json_spans(text):
     return spans
 
 
+_ARG_ALIASES = {
+    "path": ("file", "filename", "file_path", "filepath", "source", "src"),
+    "query": ("q", "term", "pattern", "text"),
+    "content": ("text", "body", "data", "new_content"),
+    "to": ("destination", "dest", "new_path", "target"),
+    "find": ("old", "old_text", "match", "search"),
+    "replace": ("new", "new_text", "replacement"),
+    "note": ("summary", "message"),
+    "cmd": ("command", "command_line", "shell", "script", "line"),
+}
+_CALL_KEYS = ("tool", "name", "function", "args", "arguments",
+              "parameters", "input")
+
+
+def _arg(args, key):
+    """Read a canonical arg key, tolerating the alias names models invent."""
+    for cand in (key, *_ARG_ALIASES.get(key, ())):
+        v = args.get(cand)
+        if v not in (None, ""):
+            return v
+    return None
+
+
+def _canon_args(args):
+    """Fold alias keys into their canonical names so every downstream
+    consumer (dispatch, dedup, step display) sees the schema's key."""
+    out = dict(args)
+    for canon, alts in _ARG_ALIASES.items():
+        if out.get(canon) in (None, ""):
+            for a in alts:
+                if out.get(a) not in (None, ""):
+                    out[canon] = out.pop(a)
+                    break
+    return out
+
+
 def _call_items(d, out):
     for it in (d if isinstance(d, list) else [d]):
         if not isinstance(it, dict):
             continue
         name = it.get("tool") or it.get("name") or it.get("function")
-        args = it.get("args") or it.get("arguments") or it.get("parameters") or {}
+        args = it.get("args") or it.get("arguments") or it.get("parameters") \
+            or it.get("input") or {}
         if isinstance(args, str):
             try:
                 args = json.loads(args)
             except Exception:
                 args = {}
+        if not isinstance(args, dict):
+            args = {}
+        # models often hoist arg keys up next to "tool" — anything that isn't
+        # part of the call envelope becomes an arg
+        extras = {k: v for k, v in it.items() if k not in _CALL_KEYS}
+        if extras:
+            args = {**extras, **args}
         if name in _TOOL_NAMES:
-            out.append({"name": name, "args": args})
+            out.append({"name": name, "args": _canon_args(args)})
     return out
 
 
@@ -939,11 +1009,3 @@ def strip_tool_calls(text):
     out = re.sub(r"[^\S\n]+\n", "\n", out)       # trailing spaces before newlines
     out = re.sub(r"\n\s*\n\s*\n+", "\n\n", out)  # collapse blank-line runs
     return out.strip()
-
-# qa save test
-
-# qa save test
-
-# x
-
-# x

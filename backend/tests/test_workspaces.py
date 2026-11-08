@@ -377,6 +377,85 @@ class Workspaces(unittest.TestCase):
                  {"path": "nope.txt", "content": "x"},
                  token=guest["token"], expect=403)
 
+    def test_tool_arg_aliases(self):
+        """Models don't always emit the schema's exact keys — args like
+        {"command": ...} or a hoisted {"cmd": ...} next to "tool" must still
+        run, and a genuinely empty call gets an error that names the arg."""
+        self.root = self.fresh_root()
+        owner = self.req("POST", "/api/register",
+                         {"username": "wsalias", "password": "pw12345"})
+        tok = owner["token"]
+        srv = self.req("POST", "/api/servers", {"name": "Alias", "icon": "🧪"}, token=tok)
+        ws = self.req("POST", f"/api/servers/{srv['id']}/workspaces",
+                      {"name": "a", "root": self.root}, token=tok)
+        wid = ws["id"]
+
+        import threading
+        from http.server import BaseHTTPRequestHandler, HTTPServer
+
+        script = [
+            {"tool": "run_command", "args": {"command": "echo alias-ok"}},
+            {"tool": "run_command", "cmd": "echo hoisted-ok"},
+            {"tool": "run_command", "args": {}},
+        ]
+        state = {"i": 0}
+
+        class Stub(BaseHTTPRequestHandler):
+            def log_message(self, *a):
+                pass
+
+            def _send(self, b):
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(b)))
+                self.end_headers()
+                self.wfile.write(b)
+
+            def do_GET(self):
+                self._send(json.dumps({"data": [{"id": "stub-agent"}]}).encode())
+
+            def do_POST(self):
+                n = int(self.headers.get("Content-Length") or 0)
+                self.rfile.read(n)
+                i = state["i"]
+                state["i"] += 1
+                reply = (json.dumps(script[i]) if i < len(script)
+                         else "ran the commands")
+                self._send(json.dumps({"choices": [{"message": {
+                    "role": "assistant", "content": reply}}]}).encode())
+
+        httpd = HTTPServer(("127.0.0.1", 0), Stub)
+        threading.Thread(target=httpd.serve_forever, daemon=True).start()
+        try:
+            agent = self.req("POST", "/api/agents", {
+                "name": f"AliasBot{int(time.time())}", "icon": "🤖", "tagline": "stub",
+                "system_prompt": "You are a coding agent.", "api_kind": "openai",
+                "api_url": f"http://127.0.0.1:{httpd.server_address[1]}/v1",
+                "model": "stub-agent", "visibility": "private"}, token=tok)
+            rq = urllib.request.Request(
+                f"http://127.0.0.1:{self.port}/api/workspaces/{wid}/agent",
+                data=json.dumps({"agent_id": agent["id"],
+                                 "message": "run some commands"}).encode(),
+                headers={"Content-Type": "application/json",
+                         "Authorization": f"Bearer {tok}"},
+                method="POST")
+            events = [json.loads(l) for l in
+                      urllib.request.urlopen(rq).read().decode().splitlines()
+                      if l.strip()]
+            out = events[-1]
+            runs = [s for s in out["steps"] if s["tool"] == "run_command"]
+            self.assertEqual(len(runs), 3, f"expected 3 run_command steps: {out['steps']}")
+            self.assertTrue(runs[0]["result"]["ok"], runs[0]["result"])
+            self.assertIn("alias-ok", runs[0]["result"].get("stdout", ""))
+            self.assertTrue(runs[1]["result"]["ok"], runs[1]["result"])
+            self.assertIn("hoisted-ok", runs[1]["result"].get("stdout", ""))
+            self.assertFalse(runs[2]["result"]["ok"])
+            self.assertIn('"cmd"', runs[2]["result"]["error"])
+            self.assertIn("git status", runs[2]["result"]["error"])
+        finally:
+            httpd.shutdown()
+            httpd.server_close()
+
     def test_conflict_and_raw(self):
         self.root = self.fresh_root()
         owner = self.req("POST", "/api/register",
