@@ -110,6 +110,20 @@ export default function Workspace({ workspace, me, members = [], agents = [], on
     return () => clearInterval(iv);
   }, [agentBusy]);
 
+  // the reply box grows freely now; the desk region follows the stream
+  // unless the user scrolled up to read earlier output. A new run snaps
+  // to the bottom once so the fresh draft is in view.
+  const deskBodyRef = useRef(null);
+  const wasBusy = useRef(false);
+  useEffect(() => {
+    const el = deskBodyRef.current;
+    if (!el) return;
+    const justStarted = agentBusy && !wasBusy.current;
+    wasBusy.current = agentBusy;
+    if (justStarted || el.scrollHeight - el.scrollTop - el.clientHeight < 160)
+      el.scrollTop = el.scrollHeight;
+  }, [agentDraft, agentReply, agentSteps, agentBusy]);
+
   const canWrite = ws?.can_write;
   const canAdmin = ws?.can_admin;
   const cur = tabs.find((t) => t.path === active) || null;
@@ -724,6 +738,7 @@ export default function Workspace({ workspace, me, members = [], agents = [], on
                 }}>✕</button>
             </div>
           )}
+          <div className="ws-desk-body" ref={deskBodyRef}>
           {agentSteps.length > 0 && (
             <div className="ws-steps">
               {agentSteps.map((s, i) => (
@@ -762,6 +777,7 @@ export default function Workspace({ workspace, me, members = [], agents = [], on
               )}
             </>
           )}
+          </div>
         </div>
       </div>
     </div>

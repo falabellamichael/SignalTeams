@@ -1387,8 +1387,11 @@ button > svg { vertical-align: -2px; }
 .ws-person select { font-size: 11.5px; padding: 2px 6px; }
 
 .ws-agent { width: 280px; flex-shrink: 0; border-left: 1px solid var(--border);
-  padding: 10px 12px; overflow-y: auto; overflow-x: hidden; background: var(--bg2);
+  padding: 10px 12px; overflow: hidden; background: var(--bg2);
   display: flex; flex-direction: column; gap: 6px; box-sizing: border-box; }
+.ws-desk-body { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden;
+  display: flex; flex-direction: column; gap: 6px; margin: 0 -4px 0 0;
+  padding-right: 4px; }
 .ws-agent > * { max-width: 100%; min-width: 0; box-sizing: border-box; }
 .ws-agent .idehint { white-space: normal; overflow-wrap: anywhere; line-height: 1.45;
   font-size: 11px; }
@@ -1411,7 +1414,7 @@ button > svg { vertical-align: -2px; }
 .ws-meta { font-size: 10px; color: var(--dim); margin-top: 2px; }
 .ws-reply { font-size: 12px; white-space: pre-wrap; background: var(--panel);
   border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px;
-  max-height: 260px; overflow-y: auto; }
+  overflow-wrap: anywhere; }
 .ws-term { display: flex; gap: 4px; align-items: stretch; }
 .ws-term input { flex: 1; min-width: 0; font: 11.5px ui-monospace, Consolas, monospace; }
 .ws-term button { width: auto; flex-shrink: 0; }
