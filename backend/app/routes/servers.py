@@ -8,7 +8,7 @@ from ..auth import current_user
 from ..db import db, emit_buzz, now
 from ..hub import hub
 
-from ..helpers import _pub_server, audit, channel_json, public_user
+from ..helpers import _clean_automod, _pub_server, audit, channel_json, public_user
 from ..schemas import ChannelIn, ChannelPatch, DigestIn, JoinIn, MemberRoleIn, NickIn, RoleIn, ServerIn, ServerPatch, TransferIn
 from ..services import _server_changed
 
@@ -109,10 +109,14 @@ async def edit_server(sid: int, body: ServerPatch, user=Depends(current_user)):
         if body.llm_kind is not None:
             conn.execute("UPDATE servers SET llm_kind=? WHERE id=?",
                          (body.llm_kind in ("openai", "webhook") and body.llm_kind or "openai", sid))
+        if body.automod is not None:
+            conn.execute("UPDATE servers SET automod=? WHERE id=?",
+                         (json.dumps(_clean_automod(body.automod)), sid))
         changed = [k for k, v in (("name", body.name), ("icon", body.icon),
                                 ("icon_file", body.icon_file), ("star_threshold", body.star_threshold),
                                 ("llm endpoint", body.llm_url), ("llm key", body.llm_key),
-                                ("llm model", body.llm_model), ("llm kind", body.llm_kind))
+                                ("llm model", body.llm_model), ("llm kind", body.llm_kind),
+                                ("automod rules", body.automod))
                    if v is not None]
         if changed:
             audit(conn, sid, user["id"], "server.update", s["name"],

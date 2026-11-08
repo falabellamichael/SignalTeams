@@ -9,7 +9,7 @@ from ..auth import current_user
 from ..db import db, emit_buzz, now
 from ..hub import hub
 
-from ..helpers import STAR_EMOJI, URL_RE, _parse_search, _server_llm, _user_llm, audit, can_see_agent, can_see_pack, channel_member_ids, is_blocked, message_json, public_user, reactions_json, unfurl
+from ..helpers import STAR_EMOJI, URL_RE, _automod_check, _parse_search, _server_llm, _user_llm, audit, can_see_agent, can_see_pack, channel_member_ids, is_blocked, message_json, public_user, reactions_json, unfurl
 from ..schemas import AiIn, EditIn, MessageIn, ReactIn
 from ..services import _agent_cool, agent_reply, starboard_check
 
@@ -162,6 +162,25 @@ async def post_message(cid: int, body: MessageIn, user=Depends(current_user)):
             silent = True
         if not content and not body.agent_id and not body.pack_id and not body.attachments:
             raise HTTPException(400, "Empty message")
+        # server automod — the owner and bots/webhooks are exempt
+        if ch["server_id"] and \
+                not (user["username"] or "").startswith(("agent:", "bot:", "hook:")):
+            sv = conn.execute("SELECT owner_id, automod FROM servers WHERE id=?",
+                              (ch["server_id"],)).fetchone()
+            if sv and sv["owner_id"] != user["id"]:
+                try:
+                    _cfg = json.loads(sv["automod"] or "{}")
+                except Exception:
+                    _cfg = {}
+                reason = _automod_check(content, _cfg)
+                if reason:
+                    sid_am = ch["server_id"]
+                    un_am = user["username"]
+                    # own transaction — the 400 below rolls back this one
+                    with db() as ac:
+                        audit(ac, sid_am, user["id"], "automod.block",
+                              f"@{un_am}", f"{reason} in #{ch['name']}")
+                    raise HTTPException(400, f"Automod blocked it — {reason}")
         atts = [{"id": f["id"], "name": str(f.get("name", "file"))[:120],
                  "mime": str(f.get("mime", "application/octet-stream"))[:80],
                  "size": int(f.get("size", 0))} for f in body.attachments[:4]

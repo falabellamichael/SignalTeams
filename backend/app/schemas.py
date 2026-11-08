@@ -113,6 +113,7 @@ class ServerPatch(BaseModel):
     llm_key: str | None = None                 # write-only — never serialized back
     llm_model: str | None = None
     llm_kind: str | None = None
+    automod: dict | None = None                   # word/link/caps/mention rules
 
 
 class NickIn(BaseModel):

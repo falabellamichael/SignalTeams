@@ -489,7 +489,64 @@ def _pub_server(d):
     """Strip secrets from a serialized server — llm_key is write-only."""
     if isinstance(d, dict) and "llm_key" in d:
         d["has_llm_key"] = bool(d.pop("llm_key"))
+    if isinstance(d, dict) and "automod" in d:
+        try:
+            d["automod"] = json.loads(d["automod"] or "{}")
+        except Exception:
+            d["automod"] = {}
     return d
+
+
+_AUTOMOD_KEYS = {"words", "block_links", "link_allow", "caps_min_len",
+                 "caps_pct", "max_mentions"}
+
+
+def _clean_automod(cfg):
+    """Normalize an automod rule blob — unknown keys dropped, sizes clamped."""
+    if not isinstance(cfg, dict):
+        return {}
+    out = {}
+    if cfg.get("words"):
+        out["words"] = [str(w).strip()[:60] for w in cfg["words"][:100]
+                        if str(w).strip()]
+    if cfg.get("block_links"):
+        out["block_links"] = True
+        out["link_allow"] = [
+            re.sub(r"^https?://", "", str(d).strip().lower()).split("/")[0][:80]
+            for d in (cfg.get("link_allow") or [])[:50] if str(d).strip()]
+    if cfg.get("caps_min_len"):
+        out["caps_min_len"] = max(4, min(int(cfg["caps_min_len"]), 500))
+        out["caps_pct"] = max(50, min(int(cfg.get("caps_pct") or 70), 100))
+    if cfg.get("max_mentions"):
+        out["max_mentions"] = max(1, min(int(cfg["max_mentions"]), 25))
+    return {k: v for k, v in out.items() if k in _AUTOMOD_KEYS}
+
+
+def _automod_check(content, cfg):
+    """Return a block reason if content violates server automod rules, else None."""
+    if not cfg:
+        return None
+    low = (content or "").lower()
+    if any(w.lower() in low for w in cfg.get("words") or []):
+        return "contains a blocked word"
+    if cfg.get("block_links"):
+        allow = [d.lower() for d in cfg.get("link_allow") or []]
+        for u in URL_RE.findall(content):
+            host = re.sub(r"^www\.", "",
+                          (u.split("/", 3)[2] if "//" in u else u.split("/")[0])
+                          .split(":")[0].lower())
+            if not any(host == d or host.endswith("." + d) for d in allow):
+                return "links aren't allowed in this server"
+    msl = int(cfg.get("caps_min_len") or 0)
+    if msl and len(content) >= msl:
+        alpha = [c for c in content if c.isalpha()]
+        if alpha and 100 * sum(c.isupper() for c in alpha) / len(alpha) \
+                >= int(cfg.get("caps_pct") or 70):
+            return "too much shouting — turn caps lock down"
+    mx = int(cfg.get("max_mentions") or 0)
+    if mx and len(re.findall(r"@\w+", content or "")) > mx:
+        return f"too many mentions (max {mx})"
+    return None
 
 
 def _grounding(url, method="GET", message="", headers=None):

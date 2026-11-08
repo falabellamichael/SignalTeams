@@ -53,6 +53,14 @@ export function ServerSettingsModal({ server, me, onClose, onSaved, onDeleted, o
   const [audit, setAudit] = useState(null);
   const [auditOpen, setAuditOpen] = useState(false);
   const [auditMore, setAuditMore] = useState(false);
+  const [am, setAm] = useState({
+    words: (server.automod?.words || []).join(", "),
+    block_links: !!server.automod?.block_links,
+    link_allow: (server.automod?.link_allow || []).join(", "),
+    caps: !!server.automod?.caps_min_len,
+    max_mentions: server.automod?.max_mentions || 0,
+  });
+  const [amMsg, setAmMsg] = useState("");
   useEffect(() => {
     if (owner && auditOpen && audit === null) {
       api.serverAudit(server.id)
@@ -233,6 +241,51 @@ export function ServerSettingsModal({ server, me, onClose, onSaved, onDeleted, o
             }}>Test</button>
           </div>
           {srvLlmMsg && <div className="idehint" style={{ color: srvLlmHealth === false ? "var(--bad)" : srvLlmHealth === true ? "var(--good)" : undefined }}>{srvLlmMsg}</div>}
+          <label><Ico n="lock" s={13} /> Automod{" "}
+            <span style={{ color: "var(--dim)", fontWeight: 400 }}>
+              (blocks messages before they land — owner & bots exempt, blocks hit the audit log)</span></label>
+          <textarea rows={2} value={am.words}
+            placeholder="blocked words — comma separated"
+            onChange={(e) => setAm({ ...am, words: e.target.value })} />
+          <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center",
+            fontSize: 12.5, margin: "6px 0" }}>
+            <label style={{ display: "flex", gap: 5, alignItems: "center", margin: 0 }}>
+              <input type="checkbox" checked={am.block_links}
+                onChange={(e) => setAm({ ...am, block_links: e.target.checked })} />
+              block links</label>
+            <label style={{ display: "flex", gap: 5, alignItems: "center", margin: 0 }}>
+              <input type="checkbox" checked={am.caps}
+                onChange={(e) => setAm({ ...am, caps: e.target.checked })} />
+              block mostly-caps (10+ chars)</label>
+            <label style={{ display: "flex", gap: 5, alignItems: "center", margin: 0 }}>
+              max mentions
+              <input type="number" min={0} max={25} value={am.max_mentions}
+                style={{ width: 54 }}
+                onChange={(e) => setAm({ ...am, max_mentions: Math.max(0, Math.min(25, +e.target.value || 0)) })} />
+              <span style={{ color: "var(--dim)", fontSize: 11 }}>(0 = off)</span></label>
+          </div>
+          {am.block_links && (
+            <input value={am.link_allow}
+              placeholder="allowed domains — e.g. github.com, discord.gg (blank = block all)"
+              onChange={(e) => setAm({ ...am, link_allow: e.target.value })} />
+          )}
+          <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
+            <button onClick={async () => {
+              const cfg = {
+                words: am.words.split(",").map((w) => w.trim()).filter(Boolean),
+                ...(am.block_links ? {
+                  block_links: true,
+                  link_allow: am.link_allow.split(",").map((d) => d.trim()).filter(Boolean),
+                } : {}),
+                ...(am.caps ? { caps_min_len: 10, caps_pct: 70 } : {}),
+                ...(am.max_mentions > 0 ? { max_mentions: am.max_mentions } : {}),
+              };
+              const s = await api.editServer(server.id, { automod: cfg })
+                .catch((e) => (setAmMsg(e.message), null));
+              if (s) { onSaved(s); setAmMsg("Saved — rules are live."); }
+            }}>Save rules</button>
+            {amMsg && <span className="idehint" style={{ alignSelf: "center" }}>{amMsg}</span>}
+          </div>
           <label>Roles <span style={{ color: "var(--dim)", fontWeight: 400 }}>
             ({roles.length}/20 — colored names + pills)</span></label>
           {roles.length > 0 && (
