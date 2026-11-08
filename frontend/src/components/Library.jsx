@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { api } from "../api";
 import { AgentCard, PackCard } from "./AgentCard";
+import Ico from "./Ico";
 
 const SORTS = [["new", "Newest"], ["stars", "Most starred"], ["installs", "Most benched"], ["summons", "Most summoned"], ["name", "A–Z"]];
 
@@ -10,15 +11,23 @@ export default function Library({ me, onOpenAgent, onStar, onInstall, onShare, o
   const [packs, setPacks] = useState([]);
   const [trending, setTrending] = useState([]);
   const [tab, setTab] = useState("agents");
+  // library scope — Public = the shared catalog everybody sees; Private =
+  // my own agents regardless of their visibility (work locally only)
+  const [scope, setScope] = useState(() => localStorage.getItem("st.libscope") || "public");
   const [q, setQ] = useState("");
   const [tag, setTag] = useState("");
   const [sort, setSort] = useState("new");
   const [err, setErr] = useState("");
 
   useEffect(() => {
-    const call = benchOnly ? api.bench() : api.agents({ q, tag, sort });
+    localStorage.setItem("st.libscope", scope);
+  }, [scope]);
+
+  useEffect(() => {
+    const call = benchOnly ? api.bench()
+      : api.agents({ q, tag, sort, mine: scope === "private" ? 1 : 0 });
     call.then(setAgents).catch((e) => setErr(e.message));
-  }, [q, tag, sort, refreshKey, benchOnly]);
+  }, [q, tag, sort, scope, refreshKey, benchOnly]);
 
   useEffect(() => {
     if (!benchOnly) {
@@ -42,13 +51,26 @@ export default function Library({ me, onOpenAgent, onStar, onInstall, onShare, o
       <div className="lib-sub">
         {benchOnly
           ? "Agents you've benched — ready to run."
-          : "Every agent your crew has published. Star the good ones, bench the useful ones."}
+          : scope === "public"
+          ? "Every agent the crew has shared publicly. Star the good ones, bench the useful ones."
+          : "Your own agents — published or kept local. Flip one to Public when it's ready to share."}
       </div>
       {!benchOnly && (
         <div className="ftabs" style={{ margin: "0 0 14px" }}>
           <button className={`ftab ${tab === "agents" ? "on" : ""}`} onClick={() => setTab("agents")}>Agents</button>
           <button className={`ftab ${tab === "packs" ? "on" : ""}`} onClick={() => setTab("packs")}>
             📦 Packs{packs.length ? ` (${packs.length})` : ""}</button>
+          <span style={{ flex: 1 }} />
+          {tab === "agents" && (
+            <div className="seg" role="tablist" title="Public = shared catalog · Private = just your agents">
+              <button role="tab" aria-selected={scope === "public"}
+                className={scope === "public" ? "on" : ""}
+                onClick={() => setScope("public")}><Ico n="globe" s={12} /> Public</button>
+              <button role="tab" aria-selected={scope === "private"}
+                className={scope === "private" ? "on" : ""}
+                onClick={() => setScope("private")}><Ico n="lock" s={12} /> Private</button>
+            </div>
+          )}
         </div>
       )}
       <div className="lib-tools">
@@ -70,7 +92,7 @@ export default function Library({ me, onOpenAgent, onStar, onInstall, onShare, o
         </div>
       )}
       {err && <div style={{ color: "var(--bad)" }}>{err}</div>}
-      {tab === "agents" && !benchOnly && !q && !tag && trending.length > 0 && (
+      {tab === "agents" && !benchOnly && scope === "public" && !q && !tag && trending.length > 0 && (
         <div className="trend-strip">
           <div className="trend-lab">📈 trending this week</div>
           <div className="trend-row">
@@ -105,15 +127,18 @@ export default function Library({ me, onOpenAgent, onStar, onInstall, onShare, o
         )
       ) : agents.length === 0 ? (
         <div className="empty">
-          <div className="big">🧰</div>
+          <div className="big">{scope === "private" ? "🔒" : "🧰"}</div>
           <div className="serif">Nothing here yet.</div>
           <div>{benchOnly ? "Bench an agent from the library to fill this up."
-            : "Publish your first agent — your friends are waiting."}</div>
+            : scope === "private"
+            ? "No agents of your own yet — publish one, or keep it local-only with visibility set to Private."
+            : "Publish your first agent — the crew is waiting."}</div>
         </div>
       ) : (
         <div className="agent-grid">
           {agents.map((a) => (
             <AgentCard key={a.id} agent={a} me={me} onOpen={onOpenAgent}
+              showVis={scope === "private"}
               onStar={onStar} onInstall={onInstall} onShare={onShare} onDm={onDm} />
           ))}
         </div>

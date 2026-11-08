@@ -2,8 +2,10 @@ import React from "react";
 import Ico from "./Ico";
 
 // Grid card for the library
-export function AgentCard({ agent, me, onOpen, onStar, onInstall, onShare, onDm }) {
+export function AgentCard({ agent, me, onOpen, onStar, onInstall, onShare, onDm, showVis }) {
   const mine = agent.owner_id === me?.id;
+  const VIS = { public: ["globe", "public", "var(--good)"], friends: ["users", "friends", "var(--honey)"],
+                private: ["lock", "private", "var(--bad)"] };
   return (
     <div className="acard" onClick={() => onOpen(agent)}>
       <div className="top">
@@ -11,7 +13,11 @@ export function AgentCard({ agent, me, onOpen, onStar, onInstall, onShare, onDm 
         <div style={{ minWidth: 0 }}>
           <div className="an">{agent.name} <span className="ver">v{agent.version}</span></div>
           <div className="by">by {agent.owner?.display_name}{mine ? " (you)" : ""}
-            {agent.forked_from && <span title={`Forked from ${agent.forked_from}`}> · ⑂</span>}</div>
+            {agent.forked_from && <span title={`Forked from ${agent.forked_from}`}> · ⑂</span>}
+            {(showVis || mine) && agent.visibility && agent.visibility !== "public" && (
+              <span className="vis-chip" style={{ color: VIS[agent.visibility]?.[2] }}
+                title={`Visibility: ${agent.visibility}`}> · <Ico n={VIS[agent.visibility]?.[0]} s={11} /> {VIS[agent.visibility]?.[1]}</span>)}
+          </div>
         </div>
       </div>
       <div className="tagline">{agent.tagline || agent.description?.slice(0, 100)}</div>
