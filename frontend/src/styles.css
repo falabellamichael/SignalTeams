@@ -1041,6 +1041,7 @@ a.de-title:hover { text-decoration: underline; }
 .modal { width: 560px; max-width: 94vw; max-height: 88vh; overflow-y: auto;
   background: var(--panel); border: 1px solid var(--border); border-radius: 14px;
   box-shadow: 0 16px 50px var(--shadow); padding: 20px 22px; }
+.modal:focus { outline: none; }
 
 /* Discord User Profile Popout */
 .profile-modal { padding: 0 !important; overflow: hidden !important; width: 440px !important; }

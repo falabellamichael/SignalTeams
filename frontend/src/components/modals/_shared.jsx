@@ -1,20 +1,47 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import Ico from "../Ico";
 import { api } from "../../api";
 
 
-export function Modal({ title, sub, onClose, children, wide }) {
+export function Modal({ title, sub, onClose, children, wide, className, bare }) {
+  const ref = useRef(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const prev = document.activeElement;
+    // focus lands on the first real control (not the X), else the modal box
+    const first = el.querySelector("input,textarea,select,[tabindex],button:not(.modal-x)");
+    (first || el).focus?.();
+    const trap = (e) => {
+      if (e.key !== "Tab") return;
+      const f = [...el.querySelectorAll(
+        "input,textarea,select,button,[tabindex],a[href]")]
+        .filter((x) => !x.disabled && x.offsetParent !== null);
+      if (!f.length) return;
+      const head = f[0], tail = f[f.length - 1];
+      if (e.shiftKey && document.activeElement === head) { e.preventDefault(); tail.focus(); }
+      else if (!e.shiftKey && document.activeElement === tail) { e.preventDefault(); head.focus(); }
+      else if (!el.contains(document.activeElement)) { e.preventDefault(); head.focus(); }
+    };
+    window.addEventListener("keydown", trap, true);
+    return () => { window.removeEventListener("keydown", trap, true); prev?.focus?.(); };
+  }, []);
   return (
     <div className="shade" onClick={onClose}>
-      <div className="modal" style={wide ? { width: 640 } : undefined}
+      <div className={`modal${className ? " " + className : ""}`} ref={ref} tabIndex={-1}
+        style={wide ? { width: 640 } : undefined}
         onClick={(e) => e.stopPropagation()}>
-        <div className="modal-head">
-          <h3>{title}</h3>
-          <button className="ghost modal-x" onClick={onClose} title="Close (Esc)">
-            <Ico n="x" s={15} />
-          </button>
-        </div>
-        {sub && <div className="msub">{sub}</div>}
+        {!bare && (
+          <>
+            <div className="modal-head">
+              <h3>{title}</h3>
+              <button className="ghost modal-x" onClick={onClose} title="Close (Esc)">
+                <Ico n="x" s={15} />
+              </button>
+            </div>
+            {sub && <div className="msub">{sub}</div>}
+          </>
+        )}
         {children}
       </div>
     </div>
