@@ -129,15 +129,16 @@ export default function Login({ onAuth, joinCode }) {
             <>
               <label>Email</label>
               <input type="email" value={email} onChange={(e) => setEmail(e.target.value)}
-                placeholder="you@example.com" autoFocus />
+                placeholder="you@example.com" autoFocus autoComplete="username" />
               {mode === "register" && <>
                 <label>Display name</label>
                 <input value={display} onChange={(e) => setDisplay(e.target.value)}
-                  placeholder="optional" />
+                  placeholder="optional" autoComplete="name" />
               </>}
               <label>Password</label>
               <input type="password" value={password}
                 onChange={(e) => setPassword(e.target.value)}
+                autoComplete={mode === "register" ? "new-password" : "current-password"}
                 placeholder={mode === "register" ? "6+ characters" : ""} />
               <button className="primary"
                 disabled={busy || !email.includes("@") || password.length < (mode === "register" ? 6 : 1)}>
@@ -148,13 +149,14 @@ export default function Login({ onAuth, joinCode }) {
             <>
               <label>Username</label>
               <input value={username} onChange={(e) => setUsername(e.target.value)}
-                autoFocus={!cfg?.supabase} />
+                autoFocus={!cfg?.supabase} autoComplete="username" />
               {mode === "register" && <>
                 <label>Display name</label>
-                <input value={display} onChange={(e) => setDisplay(e.target.value)} placeholder="optional" />
+                <input value={display} onChange={(e) => setDisplay(e.target.value)} placeholder="optional" autoComplete="name" />
               </>}
               <label>Password</label>
-              <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
+              <input type="password" value={password} onChange={(e) => setPassword(e.target.value)}
+                autoComplete={mode === "register" ? "new-password" : "current-password"} />
               <button className="primary" disabled={busy || !username.trim() || !password}>
                 {busy ? "…" : mode === "login" ? "Sign in" : "Create account"}
               </button>
@@ -163,9 +165,9 @@ export default function Login({ onAuth, joinCode }) {
           {err && <div className="err">{err}</div>}
           <div className="swap">
             {mode === "login" ? (
-              <>New here? <a onClick={() => setMode("register")}>Create an account</a></>
+              <>New here? <a href="#" onClick={(e) => { e.preventDefault(); setMode("register"); }}>Create an account</a></>
             ) : (
-              <>Already on the team? <a onClick={() => setMode("login")}>Sign in</a></>
+              <>Already on the team? <a href="#" onClick={(e) => { e.preventDefault(); setMode("login"); }}>Sign in</a></>
             )}
           </div>
         </form>
