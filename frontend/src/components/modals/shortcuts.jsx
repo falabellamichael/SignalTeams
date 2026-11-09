@@ -11,6 +11,8 @@ const KEY_SHORTCUTS = [
   ["Ctrl + Alt + ↑ / ↓", "Jump to previous / next unread channel"],
   ["Shift + Esc", "Mark all channels in current server as read"],
   ["↑ (empty composer)", "Edit your last sent message"],
+  ["Ctrl + B / I / U", "Bold / italic / underline the selection"],
+  ["Ctrl + Shift + X / Ctrl + `", "Strikethrough / inline code"],
   ["Shift + Enter", "Insert a newline in the composer"],
   ["Esc", "Close active modal, cancel reply, or clear unread"],
 ];
