@@ -615,6 +615,9 @@ export default function ChatView({ channel, server, onDm, members, me, emojis, r
         const s = agentSlug(r.name), q = mention.query.toLowerCase();
         return s.startsWith(q) || r.name.toLowerCase().startsWith(q);
       }).map((r) => ({ kind: "role", id: "r" + r.id, insert: agentSlug(r.name), r })),
+      ...(["everyone", "here"].filter((w) =>
+        w.startsWith(mention.query.toLowerCase()) && mention.query)
+        .map((w) => ({ kind: "broadcast", id: "b" + w, insert: w, bc: w }))),
     ].slice(0, 6)
     : [];
 
@@ -931,6 +934,10 @@ export default function ChatView({ channel, server, onDm, members, me, emojis, r
                     <><span className="aicon" style={{ color: o.r.color }}>🏷</span>
                       <b style={{ color: o.r.color }}>@{o.insert}</b>
                       <span>{o.r.name} · role — pings holders</span></>
+                  ) : o.kind === "broadcast" ? (
+                    <><span className="aicon">📣</span>
+                      <b>@{o.bc}</b>
+                      <span>{o.bc === "everyone" ? "notify everyone in this channel" : "notify online members"}</span></>
                   ) : (
                     <><span className="aicon">{o.a.icon}</span>
                       <b>@{o.insert}</b><span>{o.a.name} · ✦ agent — it replies</span></>
