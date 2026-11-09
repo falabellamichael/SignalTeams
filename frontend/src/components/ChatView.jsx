@@ -44,6 +44,7 @@ export default function ChatView({ channel, server, onDm, members, me, emojis, r
   const [hasMore, setHasMore] = useState(false);
   const [savedIds, setSavedIds] = useState(new Set());
   const [emojiOpen, setEmojiOpen] = useState(false);
+  const [emojiQ, setEmojiQ] = useState("");
   const [lastSent, setLastSent] = useState(0);
   const [sendErr, setSendErr] = useState("");
   const loadingOlder = useRef(false);
@@ -520,9 +521,14 @@ export default function ChatView({ channel, server, onDm, members, me, emojis, r
 
   const matches = mention
     ? mention.sym === ":"
-      ? (emojis || []).filter((e) =>
-          e.name.toLowerCase().startsWith(mention.query.toLowerCase()))
-          .slice(0, 6).map((e) => ({ kind: "emoji", id: "e" + e.id, insert: e.name, e }))
+      ? [
+          ...(emojis || []).filter((e) =>
+            e.name.toLowerCase().startsWith(mention.query.toLowerCase()))
+            .slice(0, 5).map((e) => ({ kind: "emoji", id: "e" + e.id, insert: e.name, e })),
+          ...STANDARD_EMOJIS.filter((e) =>
+            e.name.startsWith(mention.query.toLowerCase()))
+            .slice(0, 5).map((e) => ({ kind: "stdemoji", id: "s" + e.name, insert: e.name, char: e.char, e })),
+        ]
     : mention.sym === "#"
       ? (channels || []).filter((c) =>
           c.name.toLowerCase().replace(/-/g, "").includes(
@@ -828,7 +834,9 @@ export default function ChatView({ channel, server, onDm, members, me, emojis, r
           <div className="att-pending">
             {atts.map((a) => (
               <span key={a.id} className="att-chip">
-                <Ico n="clip" s={12} /> {a.name}
+                {(a.mime || "").startsWith("image/")
+                  ? <img className="att-thumb" src={api.fileUrl(a.id)} alt={a.name} />
+                  : <Ico n="clip" s={12} />} {a.name}
                 <button className="ghost" title={`Remove ${a.name}`} aria-label={`Remove ${a.name}`}
                   onClick={() => setAtts((x) => x.filter((y) => y.id !== a.id))}><Ico n="x" s={11} /></button>
               </span>
@@ -854,6 +862,9 @@ export default function ChatView({ channel, server, onDm, members, me, emojis, r
                   ) : o.kind === "emoji" ? (
                     <><img className="md-emoji" src={api.fileUrl(o.e.file_id)} alt="" />
                       <b>:{o.insert}:</b><span>custom emoji</span></>
+                  ) : o.kind === "stdemoji" ? (
+                    <><span className="aicon">{o.char}</span>
+                      <b>:{o.insert}:</b><span>emoji</span></>
                   ) : o.kind === "user" ? (
                     <><Avatar user={o.u} size="sm" />
                       <b>@{o.u.username}</b><span>{o.u.display_name}</span></>
@@ -871,21 +882,41 @@ export default function ChatView({ channel, server, onDm, members, me, emojis, r
           )}
           {emojiOpen && (
             <div className="emoji-pop">
-              {(emojis || []).length > 0 && (
-                <>
-                  <div className="ep-head">Server emoji</div>
-                  {(emojis || []).map((e) => (
-                    <span key={"c" + e.id} title={":" + e.name + ":"}
-                      onClick={() => insertEmoji(":" + e.name + ":")}>
-                      <img className="md-emoji" src={api.fileUrl(e.file_id)} alt={":" + e.name + ":"} />
-                    </span>
+              <input className="ep-search" autoFocus placeholder="Find an emoji…"
+                value={emojiQ} onChange={(e) => setEmojiQ(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Escape") setEmojiOpen(false);
+                  if (e.key === "Enter") {
+                    const q = emojiQ.toLowerCase(), hit =
+                      (emojis || []).find((x) => x.name.toLowerCase().includes(q)) ||
+                      STANDARD_EMOJIS.find((x) => x.name.includes(q));
+                    if (hit) { insertEmoji(hit.char || ":" + hit.name + ":"); setEmojiQ(""); }
+                  }
+                }} />
+              {(() => {
+                const q = emojiQ.toLowerCase();
+                const srv = (emojis || []).filter((e) => !q || e.name.toLowerCase().includes(q));
+                const std = q ? STANDARD_EMOJIS.filter((e) => e.name.includes(q)) : EMOJI_PICK.map((c) => ({ char: c }));
+                return (<>
+                  {srv.length > 0 && (
+                    <>
+                      <div className="ep-head">Server emoji</div>
+                      {srv.map((e) => (
+                        <span key={"c" + e.id} title={":" + e.name + ":"}
+                          onClick={() => { insertEmoji(":" + e.name + ":"); setEmojiQ(""); }}>
+                          <img className="md-emoji" src={api.fileUrl(e.file_id)} alt={":" + e.name + ":"} />
+                        </span>
+                      ))}
+                    </>)}
+                  {std.length > 0 && <div className="ep-head">Emoji</div>}
+                  {std.map((e) => (
+                    <span key={e.name || e.char} title={e.name ? ":" + e.name + ":" : e.char}
+                      onClick={() => { insertEmoji(e.char); setEmojiQ(""); }}>{e.char}</span>
                   ))}
-                  <div className="ep-head">Emoji</div>
-                </>
-              )}
-              {EMOJI_PICK.map((e) => (
-                <span key={e} onClick={() => insertEmoji(e)}>{e}</span>
-              ))}
+                  {q && srv.length + std.length === 0 && (
+                    <div className="ep-head">No emoji match “{emojiQ}”</div>)}
+                </>);
+              })()}
             </div>
           )}
           {preview && (
@@ -900,7 +931,7 @@ export default function ChatView({ channel, server, onDm, members, me, emojis, r
           <button className="ghost cbtn" title="Attach file"
             onClick={() => fileRef.current?.click()}><Ico n="clip" /></button>
           <button className={`ghost cbtn ${emojiOpen ? "on" : ""}`} title="Emoji"
-            onClick={() => setEmojiOpen((o) => !o)}><Ico n="emoji" /></button>
+            onClick={() => { setEmojiOpen((o) => !o); setEmojiQ(""); }}><Ico n="emoji" /></button>
           <button className={`ghost cbtn ${preview ? "on" : ""}`} title="Preview markdown"
             onClick={() => setPreview((p) => !p)}><Ico n="eye" /></button>
           {aiFlags.stt && (window.SpeechRecognition || window.webkitSpeechRecognition) && (
