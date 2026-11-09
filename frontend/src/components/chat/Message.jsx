@@ -5,7 +5,7 @@ import { Avatar, Md, msgTime, timeAgo } from "../../util";
 import { AgentShareCard, PackShareCard } from "../AgentCard";
 import { QUICK, POLL_EMOJI } from "./consts";
 
-export function Message({ m, grouped, me, members, agents, emojis, roles, channels, onAgentOpen, onPackOpen, onDelete, onReact, onPin, onImgLoad, onReply, onUserOpen, onFwdJump, onThread, onMenu, onLightbox, blocked, onWave, editTarget, onJump }) {
+export const Message = React.memo(function Message({ m, grouped, me, members, agents, emojis, roles, channels, onAgentOpen, onPackOpen, onDelete, onReact, onPin, onImgLoad, onReply, onUserOpen, onFwdJump, onThread, onMenu, onLightbox, blocked, onWave, editTarget, onJump }) {
   const emap = new Map((emojis || []).map((x) => [x.name, x.file_id]));
   const mine = m.author?.id === me?.id;
   const nickOf = (u) => (members || []).find((x) => x?.id === u?.id)?.nickname || u?.display_name;
@@ -234,7 +234,13 @@ export function Message({ m, grouped, me, members, agents, emojis, roles, channe
       </div>
     </div>
   );
-}
+}, (a, b) =>
+  // skip re-render unless the data a row actually displays changed — callbacks
+  // only touch setters/refs/api so a stale closure can never misbehave
+  a.m === b.m && a.grouped === b.grouped && a.me === b.me &&
+  a.blocked === b.blocked && a.editTarget === b.editTarget &&
+  a.members === b.members && a.agents === b.agents &&
+  a.emojis === b.emojis && a.roles === b.roles && a.channels === b.channels);
 
 
 function DiscordEmbed({ embed }) {
