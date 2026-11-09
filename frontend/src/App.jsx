@@ -359,6 +359,14 @@ export default function App() {
           setUnread((u) => u[evt.channel_id] ? { ...u, [evt.channel_id]: 0 } : u);
           setMentions((mp) => mp[evt.channel_id] ? { ...mp, [evt.channel_id]: 0 } : mp);
         }
+        // you're "in" this channel so it never earns an unread badge — but
+        // while the tab is hidden you're not actually reading it. Grow the
+        // NEW divider instead so it still marks where you left off.
+        if (isActive && document.hidden) {
+          setNewSince((s) => s?.ch === evt.channel_id
+            ? { ch: evt.channel_id, n: s.n + 1 }
+            : { ch: evt.channel_id, n: 1 });
+        }
         if (!isActive && !guestActive) {
           setUnread((u) => ({ ...u, [evt.channel_id]: (u[evt.channel_id] || 0) + 1 }));
           if (evt.mentions?.includes(me.id))
