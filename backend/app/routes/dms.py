@@ -23,7 +23,7 @@ def my_dms(user=Depends(current_user)):
                 "SELECT u.* FROM users u JOIN channel_members m ON m.user_id=u.id "
                 "WHERE m.channel_id=? AND u.id != ?", (ch["id"], user["id"])).fetchall()]
             last = conn.execute(
-                "SELECT content, created_at FROM messages WHERE channel_id=? ORDER BY id DESC LIMIT 1",
+                "SELECT id, content, created_at FROM messages WHERE channel_id=? ORDER BY id DESC LIMIT 1",
                 (ch["id"],)).fetchone()
             d = {"id": ch["id"], "kind": "dm",
                  "name": ch["name"] if ch["name"] != "dm" else "",
@@ -34,6 +34,8 @@ def my_dms(user=Depends(current_user)):
                      "SELECT user_id, last_read FROM channel_members WHERE channel_id=?",
                      (ch["id"],)).fetchall()}}
             out.append(d)
+        # newest activity first — DM list bumps on incoming messages
+        out.sort(key=lambda d: (d["last"] or {}).get("id") or 0, reverse=True)
         return out
 
 
