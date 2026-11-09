@@ -55,6 +55,7 @@ export default function ChatView({ channel, server, onDm, members, me, emojis, r
   const typingSent = useRef(0);
   const pendingJump = useRef(null);   // msg id to scroll+flash once rendered
   const jumpTries = useRef(0);        // pages pulled while hunting a pendingJump target
+  const scrollMem = useRef({});       // channel.id -> scrollTop when we left it
   const justPaged = useRef(false);    // suppress bottom-scroll after prepending a page
   const newSeen = useRef(false);      // landed on the unread divider once per channel open
   const atBottom = useRef(true);      // scrolled to the live edge
@@ -81,6 +82,7 @@ export default function ChatView({ channel, server, onDm, members, me, emojis, r
   }, [slowLeft > 0]);
 
   useEffect(() => {
+    const cid = channel.id;
     setMsgs([]); setThread(null); setHasMore(false); loadingOlder.current = false;
     recRef.current?.stop(); setListening(false);
     newSeen.current = false;
@@ -99,6 +101,9 @@ export default function ChatView({ channel, server, onDm, members, me, emojis, r
       if (channel.role_id) api.knocks(channel.id).then(setKnocks).catch(() => setKnocks([]));
       else setKnocks([]);
     }
+    // leaving this channel — stash the scroll offset so coming back
+    // puts you where you were, not the bottom
+    return () => { scrollMem.current[cid] = listRef.current?.scrollTop ?? null; };
   }, [channel.id, channel.locked]);
 
   const [knocks, setKnocks] = useState([]);
@@ -174,6 +179,16 @@ export default function ChatView({ channel, server, onDm, members, me, emojis, r
       return;
     }
     if (justPaged.current) { justPaged.current = false; prevLen.current = msgs.length; return; }
+    if (prevLen.current === 0 && msgs.length) {
+      // returning to a channel you had scrolled — put the view back where it was
+      const mem = scrollMem.current[channel.id];
+      const el = listRef.current;
+      if (mem != null && mem > 120 && el) {
+        el.scrollTop = mem; atBottom.current = false; newSeen.current = true;
+        prevLen.current = msgs.length;
+        return;
+      }
+    }
     if (newSince > 0 && !newSeen.current) {
       const nd = document.querySelector(".new-div");
       if (nd) { newSeen.current = true; nd.scrollIntoView({ block: "start" }); prevLen.current = msgs.length; return; }
