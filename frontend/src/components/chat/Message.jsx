@@ -147,6 +147,14 @@ export const Message = React.memo(function Message({ m, grouped, me, members, ag
             <img key={a.id} className="att-img" src={api.fileUrl(a.id)} alt={a.name} loading="lazy"
               onLoad={onImgLoad} title={`${a.name} — click to expand`}
               onClick={() => onLightbox?.(a)} style={{ cursor: "zoom-in" }} />
+          ) : a.mime?.startsWith("video/") ? (
+            <video key={a.id} className="att-video" src={api.fileUrl(a.id)} controls preload="metadata"
+              title={a.name} />
+          ) : a.mime?.startsWith("audio/") ? (
+            <span key={a.id} className="att-audio">
+              <audio src={api.fileUrl(a.id)} controls preload="metadata" />
+              <span className="att-aname">{a.name}</span>
+            </span>
           ) : (
             <a key={a.id} className="att-file" href={api.fileUrl(a.id)} download={a.name}>
               <Ico n="clip" s={13} /> {a.name} <span className="att-size">{Math.ceil(a.size / 1024)} KB</span>

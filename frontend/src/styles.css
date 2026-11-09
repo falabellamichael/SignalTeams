@@ -592,6 +592,12 @@ button.add, button.ch-mute, button.ch-gear, button.srv-gear {
   padding: 5px 10px; border: 1px solid var(--border); border-radius: 8px;
   background: var(--panel2); font-size: 12px; }
 .att-file:hover { border-color: var(--accent); }
+.att-video { max-width: 340px; max-height: 240px; border-radius: 8px; margin-top: 5px;
+  border: 1px solid var(--border); display: block; background: #000; }
+.att-audio { display: inline-flex; flex-direction: column; gap: 2px; margin-top: 5px;
+  border: 1px solid var(--border); border-radius: 8px; background: var(--panel2); padding: 6px 8px; }
+.att-audio audio { height: 32px; max-width: 340px; }
+.att-aname { font-size: 10.5px; color: var(--dim); }
 .att-size { color: var(--dim); font-size: 10.5px; }
 
 .md-quote { border-left: 3px solid var(--border); padding: 1px 0 1px 10px; margin: 2px 0;
