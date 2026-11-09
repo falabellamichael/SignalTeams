@@ -510,6 +510,7 @@ export default function ChatView({ channel, server, onDm, members, me, emojis, r
       return;
     }
     const content = slashExpand(v);
+    if (content.length > 4000) { setSendErr("Message too long — 4000 characters max"); return; }
     if (!content && !atts.length) return;
     const payload = atts;
     const r = replyTo;
@@ -1013,6 +1014,10 @@ export default function ChatView({ channel, server, onDm, members, me, emojis, r
             {(sendErr || slowLeft > 0) && (
               <span className={`slow-chip ${sendErr ? "err" : ""}`}>
                 {sendErr || `🐌 ${slowLeft}s`}</span>
+            )}
+            {draft.length > 3400 && (
+              <span className={`slow-chip char-count${draft.length > 4000 ? " err" : ""}`}>
+                {4000 - draft.length}</span>
             )}
             <button className="ghost cbtn" title="Share an agent" onClick={onShareAgent}><Ico n="sparkle" /></button>
             <button className="ghost cbtn" title="Send" onClick={send}><Ico n="send" /></button>
