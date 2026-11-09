@@ -1,4 +1,4 @@
-import { getToken } from "./api";
+import { getToken, setToken } from "./api";
 
 const listeners = new Set();
 let sock = null, retries = 0, closed = false;
@@ -15,8 +15,11 @@ export function connectWS() {
   sock = new WebSocket(wsUrl());
   sock.onopen = () => { retries = 0; emit({ type: "ws:open" }); };
   sock.onmessage = (e) => { try { emit(JSON.parse(e.data)); } catch { /* ignore */ } };
-  sock.onclose = () => {
+  sock.onclose = (e) => {
     emit({ type: "ws:close" });
+    if (e?.code === 4401) {          // token rejected — reload lands on sign-in
+      setToken(null); location.reload(); return;
+    }
     if (!closed && getToken()) {
       retries += 1;
       emit({ type: "ws:down", retries });

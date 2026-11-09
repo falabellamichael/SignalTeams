@@ -4,6 +4,17 @@ const TOKEN_KEY = "signalteams.token";
 export function getToken() { return localStorage.getItem(TOKEN_KEY) || ""; }
 export function setToken(t) { t ? localStorage.setItem(TOKEN_KEY, t) : localStorage.removeItem(TOKEN_KEY); }
 
+// a 401 on a protected route means the stored token died — drop it and
+// land back on sign-in instead of erroring on every subsequent call
+function checkSession(res, path) {
+  if (res.status === 401 && getToken() &&
+      !path.startsWith("/api/login") && !path.startsWith("/api/register") &&
+      !path.startsWith("/api/auth/")) {
+    setToken(null);
+    location.reload();
+  }
+}
+
 async function req(method, path, body) {
   const res = await fetch(path, {
     method,
@@ -16,6 +27,7 @@ async function req(method, path, body) {
   if (res.status === 204) return null;
   const data = await res.json().catch(() => null);
   if (!res.ok) {
+    checkSession(res, path);
     const err = new Error(data?.detail || `HTTP ${res.status}`);
     err.status = res.status;
     throw err;
@@ -30,7 +42,10 @@ async function reqForm(path, fd) {
     body: fd,
   });
   const data = await res.json().catch(() => null);
-  if (!res.ok) throw new Error(data?.detail || `HTTP ${res.status}`);
+  if (!res.ok) {
+    checkSession(res, path);
+    throw new Error(data?.detail || `HTTP ${res.status}`);
+  }
   return data;
 }
 
@@ -44,7 +59,7 @@ export const api = {
     const res = await fetch("/api/me/export", {
       headers: { Authorization: `Bearer ${getToken()}` },
     });
-    if (!res.ok) throw new Error(`Export failed (${res.status})`);
+    if (!res.ok) { checkSession(res, "/api/me/export"); throw new Error(`Export failed (${res.status})`); }
     const blob = await res.blob();
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
