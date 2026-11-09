@@ -491,7 +491,7 @@ export default function App() {
       window.focus();
       openChannelById(evt.channel_id, chanServer.current[evt.channel_id]);
     };
-    if (localStorage.getItem("st.sound") !== "0") try {
+    try {
       playCue("receive");   // routed through the Audio settings (enable/volume/profile)
     } catch { /* audio blocked — silent is fine */ }
   }
