@@ -121,6 +121,7 @@ export function Message({ m, grouped, me, members, agents, emojis, roles, channe
         {editing ? (
           <div className="edit-row">
             <textarea autoFocus value={editDraft}
+              onFocus={(e) => { const n = e.target.value.length; e.target.setSelectionRange(n, n); }}
               onChange={(e) => setEditDraft(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); saveEdit(); }

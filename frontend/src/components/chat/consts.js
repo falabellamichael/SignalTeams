@@ -88,5 +88,8 @@ export const SLASH_COMMANDS = [
   { cmd: "flip", icon: "🪙", usage: "", desc: "flip a coin (Heads or Tails)" },
   { cmd: "spoiler", icon: "👁️", usage: "<text>", desc: "send text wrapped in ||spoiler||" },
   { cmd: "nick", icon: "✏️", usage: "<name>", desc: "change your server nickname" },
+  { cmd: "topic", icon: "📌", usage: "<text>", desc: "set the channel topic" },
   { cmd: "slowmode", icon: "🐌", usage: "<seconds>", desc: "set channel slowmode (0-21600)" },
+  { cmd: "8ball", icon: "🎱", usage: "<question>", desc: "ask the Magic 8-Ball" },
+  { cmd: "clear", icon: "🧹", usage: "", desc: "clear the composer draft" },
 ];

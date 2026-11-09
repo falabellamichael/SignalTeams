@@ -186,6 +186,16 @@ export default function App() {
         }
       } else if (e.key === "Escape") {
         setModal((m) => (m ? null : m));
+        if (e.shiftKey) {              // Shift+Esc: mark this server's channels read
+          const n = navRef.current;
+          for (const c of n.server?.channels || []) {
+            if (((n.unread[c.id] || 0) + (n.mentions[c.id] || 0)) > 0) {
+              api.markRead(c.id).catch(() => {});
+              setUnread((u) => ({ ...u, [c.id]: 0 }));
+              setMentions((m) => ({ ...m, [c.id]: 0 }));
+            }
+          }
+        }
       }
     };
     window.addEventListener("keydown", onKey);

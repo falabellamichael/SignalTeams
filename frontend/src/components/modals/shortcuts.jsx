@@ -1,31 +1,22 @@
 import React from "react";
 import Ico from "../Ico";
 import { Modal } from "./_shared.jsx";
+import { SLASH_COMMANDS } from "../chat/consts";
 
 
 const KEY_SHORTCUTS = [
   ["Ctrl + K", "Quick switcher & search everywhere"],
   ["Ctrl + /  or  ?", "Keyboard shortcuts & slash commands"],
   ["Alt + ↑ / ↓", "Cycle previous / next channel or DM"],
-  ["Alt + Shift + ↑ / ↓", "Jump to previous / next unread channel"],
+  ["Ctrl + Alt + ↑ / ↓", "Jump to previous / next unread channel"],
   ["Shift + Esc", "Mark all channels in current server as read"],
   ["↑ (empty composer)", "Edit your last sent message"],
   ["Shift + Enter", "Insert a newline in the composer"],
   ["Esc", "Close active modal, cancel reply, or clear unread"],
 ];
 
-const SLASH_CMDS = [
-  ["/poll Q | A | B", "Start a live interactive reaction poll (2–9 options)"],
-  ["/remind 10m text", "Schedule a channel timer reminder (s, m, h, d)"],
-  ["/huddle topic", "Run a 2–4 agent roundtable in an agent channel"],
-  ["/topic text", "Update the current channel's topic banner"],
-  ["/nick name", "Set or clear your nickname in the current server"],
-  ["/me action", "Send an italicized action status message"],
-  ["/roll 2d6", "Roll dice (e.g. 2d6, d20) in the channel"],
-  ["/8ball question", "Ask the Magic 8-Ball"],
-  ["/shrug · /tableflip", "Append classic ASCII emotes"],
-  ["/clear", "Clear the composer draft"],
-];
+const SLASH_CMDS = SLASH_COMMANDS.map((c) => [
+  `/${c.cmd}${c.usage ? " " + c.usage : ""}`, c.desc]);
 
 export function ShortcutsModal({ onClose }) {
   return (

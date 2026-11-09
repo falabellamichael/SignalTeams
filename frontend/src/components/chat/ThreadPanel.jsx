@@ -51,7 +51,7 @@ export function ThreadPanel({ channel, thread, me, members, agents, emojis, role
         <div ref={endRef} />
       </div>
       <div className="tp-composer">
-        <textarea rows={1} value={tdraft} placeholder="Reply in thread…"
+        <textarea autoFocus rows={1} value={tdraft} placeholder="Reply in thread…"
           onChange={(e) => setTDraft(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }

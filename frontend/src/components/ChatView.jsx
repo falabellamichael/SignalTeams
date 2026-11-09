@@ -461,6 +461,39 @@ export default function ChatView({ channel, server, onDm, members, me, emojis, r
       } catch (e) { setDraft(v); setSendErr(e.message); }
       return;
     }
+    if (v === "/clear") {
+      setDraft(""); setSendErr("");
+      return;
+    }
+    const topic = v.match(/^\/topic(?:\s+(.+))?$/i);
+    if (topic) {
+      if (channel.kind === "dm" || !channel.server_id) {
+        setSendErr("Topics can only be set on server channels"); return;
+      }
+      setDraft("");
+      try {
+        await api.editChannel(channel.id, { topic: (topic[1] || "").trim().slice(0, 200) });
+        setSendErr("");
+      } catch (e) { setDraft(v); setSendErr(e.message); }
+      return;
+    }
+    const ball = v.match(/^\/8ball(?:\s+(.+))?$/i);
+    if (ball) {
+      const answers = [
+        "It is certain", "Without a doubt", "Yes, definitely", "Most likely",
+        "Signs point to yes", "Reply hazy, try again", "Ask again later",
+        "Cannot predict now", "Don't count on it", "My reply is no",
+        "Outlook not so good", "Very doubtful"];
+      const pickA = answers[Math.floor(Math.random() * answers.length)];
+      setDraft("");
+      try {
+        const m = await api.send(channel.id,
+          `🎱 ${ball[1] ? `“${ball[1].trim()}” — ` : ""}${pickA}`, null, [], null, replyTo?.id || null);
+        setMsgs((prev) => prev.some((p) => p.id === m.id) ? prev : [...prev, m]);
+        setReplyTo(null); setSendErr("");
+      } catch (e) { setDraft(v); setSendErr(e.message); }
+      return;
+    }
     const content = slashExpand(v);
     if (!content && !atts.length) return;
     const payload = atts;
