@@ -525,12 +525,12 @@ button.add, button.ch-mute, button.ch-gear, button.srv-gear {
 .react-bar { position: absolute; top: -10px; right: 8px; display: flex; gap: 2px;
   align-items: center; background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
   padding: 2px 5px; box-shadow: 0 4px 14px var(--shadow); z-index: 4;
-  opacity: 0; visibility: hidden; transition: opacity .12s ease, visibility 0s .12s; }
+  opacity: 0; pointer-events: none; transition: opacity .12s ease; }
 .react-bar button { cursor: pointer; font-size: 14px; padding: 2px 4px; border-radius: 5px;
   display: inline-flex; align-items: center; justify-content: center;
   background: none; border: none; font: inherit; line-height: 1; }
 .react-bar button:hover { background: var(--hover); transform: scale(1.12); }
-.msg:hover .react-bar { opacity: 1; visibility: visible; transition: opacity .12s ease; }
+.msg:hover .react-bar, .msg:focus-within .react-bar { opacity: 1; pointer-events: auto; transition: opacity .12s ease; }
 .reacts { display: flex; gap: 5px; margin-top: 5px; flex-wrap: wrap; }
 .rchip { font-size: 11.5px; padding: 1px 8px; border-radius: 11px;
   border: 1px solid var(--border); background: var(--panel2); }
