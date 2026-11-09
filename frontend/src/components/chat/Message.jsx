@@ -5,7 +5,7 @@ import { Avatar, Md, msgTime, timeAgo } from "../../util";
 import { AgentShareCard, PackShareCard } from "../AgentCard";
 import { QUICK, POLL_EMOJI } from "./consts";
 
-export function Message({ m, grouped, me, members, agents, emojis, roles, channels, onAgentOpen, onPackOpen, onDelete, onReact, onPin, onImgLoad, onReply, onUserOpen, onFwdJump, onThread, onMenu, onLightbox, blocked, onWave, editTarget }) {
+export function Message({ m, grouped, me, members, agents, emojis, roles, channels, onAgentOpen, onPackOpen, onDelete, onReact, onPin, onImgLoad, onReply, onUserOpen, onFwdJump, onThread, onMenu, onLightbox, blocked, onWave, editTarget, onJump }) {
   const emap = new Map((emojis || []).map((x) => [x.name, x.file_id]));
   const mine = m.author?.id === me?.id;
   const nickOf = (u) => (members || []).find((x) => x?.id === u?.id)?.nickname || u?.display_name;
@@ -84,7 +84,9 @@ export function Message({ m, grouped, me, members, agents, emojis, roles, channe
             <Avatar user={m.author} size="sm" /></span>}
       <div className="body">
         {m.reply && (
-          <div className="reply-quote" title={m.reply.content}>
+          <div className={`reply-quote${m.reply.id ? " jumpable" : ""}`}
+            title={m.reply.id ? "Jump to the original message" : m.reply.content}
+            onClick={() => m.reply.id && onJump?.(m.reply.id)}>
             ↩ <b>{nickOf(m.reply.author) || "deleted message"}</b>
             {m.reply.content ? ` ${m.reply.content}` : ""}
           </div>

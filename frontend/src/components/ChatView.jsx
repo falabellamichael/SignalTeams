@@ -54,6 +54,7 @@ export default function ChatView({ channel, server, onDm, members, me, emojis, r
   const inputRef = useRef(null);
   const typingSent = useRef(0);
   const pendingJump = useRef(null);   // msg id to scroll+flash once rendered
+  const jumpTries = useRef(0);        // pages pulled while hunting a pendingJump target
   const justPaged = useRef(false);    // suppress bottom-scroll after prepending a page
   const newSeen = useRef(false);      // landed on the unread divider once per channel open
   const atBottom = useRef(true);      // scrolled to the live edge
@@ -160,7 +161,11 @@ export default function ChatView({ channel, server, onDm, members, me, emojis, r
   useEffect(() => {
     if (pendingJump.current) {
       const el = document.getElementById("msg-" + pendingJump.current);
-      if (!el) return;                      // older msg may not be loaded yet
+      if (!el) {
+        if (hasMore && jumpTries.current < 15) { jumpTries.current++; loadOlder(); }
+        else pendingJump.current = null;    // hit channel start — message deleted/unreachable
+        return;
+      }
       const id = pendingJump.current;
       pendingJump.current = null;
       el.scrollIntoView({ block: "center" });
@@ -183,12 +188,17 @@ export default function ChatView({ channel, server, onDm, members, me, emojis, r
 
   function jumpTo(id) {
     pendingJump.current = id;
+    jumpTries.current = 0;
     const el = document.getElementById("msg-" + id);
     if (el) {
       pendingJump.current = null;
       el.scrollIntoView({ block: "center" });
       el.classList.add("flash");
       setTimeout(() => el.classList.remove("flash"), 1800);
+    } else if (hasMore) {
+      loadOlder();                    // hunt backward — each page re-checks pendingJump
+    } else {
+      pendingJump.current = null;
     }
   }
 
@@ -789,6 +799,7 @@ export default function ChatView({ channel, server, onDm, members, me, emojis, r
                   onDelete={onDelete} onReact={onReact} onPin={onPin}
                   onImgLoad={scrollToEnd} onReply={onReply} onUserOpen={onUserOpen}
                   onFwdJump={onFwdJump} onWave={handleWave} editTarget={editTarget}
+                  onJump={jumpTo}
                   onThread={openThread} onMenu={openMenu} onLightbox={setLightbox} />
                 {channel.kind === "dm" && m.id === lastOwn?.id && (
                   <div className="seen-tag"
