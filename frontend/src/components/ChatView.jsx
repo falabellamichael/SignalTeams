@@ -633,6 +633,34 @@ export default function ChatView({ channel, server, onDm, members, me, emojis, r
 
   function key(e) {
     playCue("key", { key: e.key });
+    // Ctrl/Cmd+B/I/U, Ctrl+Shift+X, Ctrl+` — toggle markdown marks around the
+    // selection (unwrap when it's already wrapped, like Discord)
+    if ((e.ctrlKey || e.metaKey) && !e.altKey) {
+      const lk = e.key.toLowerCase();
+      const wrap = { b: "**", i: "*", u: "__" }[lk]
+        || (e.shiftKey && lk === "x" && "~~")
+        || (e.key === "`" && "`");
+      if (wrap) {
+        e.preventDefault();
+        const ta = inputRef.current;
+        const s = ta.selectionStart, en = ta.selectionEnd;
+        const before = draft.slice(0, s), sel = draft.slice(s, en), after = draft.slice(en);
+        let next, ns, ne;
+        if (before.endsWith(wrap) && after.startsWith(wrap)) {
+          next = before.slice(0, -wrap.length) + sel + after.slice(wrap.length);
+          ns = s - wrap.length; ne = en - wrap.length;
+        } else if (sel.startsWith(wrap) && sel.endsWith(wrap) && sel.length > wrap.length) {
+          next = before + sel.slice(wrap.length, -wrap.length) + after;
+          ns = s; ne = s + sel.length - wrap.length * 2;
+        } else {
+          next = before + wrap + sel + wrap + after;
+          ns = s + wrap.length; ne = en + wrap.length;
+        }
+        setDraft(next);
+        requestAnimationFrame(() => { ta.selectionStart = ns; ta.selectionEnd = ne; ta.focus(); });
+        return;
+      }
+    }
     if (e.key === "Backspace" && !draft && replyTo) { setReplyTo(null); return; }
     if (mention && matches.length) {
       if (e.key === "ArrowDown") { e.preventDefault(); setMention({ ...mention, sel: (mention.sel + 1) % matches.length }); return; }
