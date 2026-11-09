@@ -746,7 +746,7 @@ export default function App() {
       onShare={(a) => setModal({ kind: "share", agent: a })} />
   );
   else if (view === "friends") main = (
-    <Friends refreshKey={refresh} onlineIds={onlineIds} onDm={openDm} />
+    <Friends refreshKey={refresh} onlineIds={onlineIds} onDm={openDm} onUser={openUserPop} />
   );
   else if (view === "saved") main = (
     <Saved onJump={(m) => openChannelById(m.channel_id, m.server_id, m.id)} />

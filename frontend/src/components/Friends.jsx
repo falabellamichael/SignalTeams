@@ -3,7 +3,7 @@ import React, { useEffect, useState } from "react";
 import { api } from "../api";
 import { Avatar } from "../util";
 
-export default function Friends({ onDm, refreshKey, onlineIds }) {
+export default function Friends({ onDm, refreshKey, onlineIds, onUser }) {
   const [tab, setTab] = useState("all");
   const [data, setData] = useState({ accepted: [], incoming: [], outgoing: [] });
   const [blockedUsers, setBlockedUsers] = useState([]);
@@ -74,8 +74,10 @@ export default function Friends({ onDm, refreshKey, onlineIds }) {
         </div>
       ) : rows.map((f) => (
         <div className="frow" key={f.id}>
-          <Avatar user={withOnline(f)} showStatus />
-          <div className="who">
+          <span onClick={(e) => onUser?.(f, e)} style={onUser ? { cursor: "pointer" } : undefined}>
+            <Avatar user={withOnline(f)} showStatus /></span>
+          <div className="who" onClick={(e) => onUser?.(f, e)}
+            style={onUser ? { cursor: "pointer" } : undefined}>
             <div className="n">{f.display_name}</div>
             <div className="s">@{f.username}{f.bio ? ` — ${f.bio}` : ""}</div>
           </div>
@@ -91,7 +93,8 @@ export default function Friends({ onDm, refreshKey, onlineIds }) {
                 {tab !== "requests" && tab !== "pending" && (
                   <button onClick={() => onDm(f)}>Message</button>
                 )}
-                <button className="ghost danger" title="Remove"
+                <button className="ghost danger"
+                  title={tab === "pending" ? "Decline request" : tab === "requests" ? "Cancel request" : "Remove friend"}
                   onClick={() => api.removeFriend(f.friendship_id).then(load)}><Ico n="x" s={12} /></button>
               </>
             )}
