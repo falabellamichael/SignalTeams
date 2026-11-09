@@ -4,14 +4,14 @@ import KnotMark from "./components/KnotMark";
 import { api, getToken, setToken } from "./api";
 import { connectWS, disconnectWS, onWS, sendWS } from "./ws";
 import { getGuestChans, isGuestChan } from "./guestchan";
+import { playCue } from "./audioCues";
 import { onVoice, joinVoice, leaveVoice, toggleVoiceMute, toggleDeafen, toggleShare, toggleCam } from "./voice";
 import Rail from "./components/Rail";
 
-/* Discord's sidebar is ~240px — below that the me-bar (avatar + name +
-   mute/deafen/settings) starts wrapping onto two lines. Keep the drag
-   minimum there so the footer keeps its single-line shape; anything wider
-   just gives the channel list more room. */
-const SIDE_MIN_W = 240;
+/* Footer floor: Discord's is ~240px, but this me-bar with a long display
+   name ("Michael Anthony" + "@handle · online") measures 266px before it
+   wraps. The floor sits just above that; wider = more room for channels. */
+const SIDE_MIN_W = 268;
 import { UserPopout } from "./components/UserPopout";
 import { HomeSidebar, ServerSidebar, MeBar, VoiceConnectedBar } from "./components/Sidebar";
 import Bell from "./components/Bell";
@@ -492,12 +492,7 @@ export default function App() {
       openChannelById(evt.channel_id, chanServer.current[evt.channel_id]);
     };
     if (localStorage.getItem("st.sound") !== "0") try {
-      const ctx = new (window.AudioContext || window.webkitAudioContext)();
-      const o = ctx.createOscillator(), g = ctx.createGain();
-      o.frequency.value = 880; g.gain.value = 0.04;
-      o.connect(g); g.connect(ctx.destination);
-      o.start(); o.stop(ctx.currentTime + 0.12);
-      setTimeout(() => ctx.close(), 400);
+      playCue("receive");   // routed through the Audio settings (enable/volume/profile)
     } catch { /* audio blocked — silent is fine */ }
   }
 
