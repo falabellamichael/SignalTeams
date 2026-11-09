@@ -375,7 +375,7 @@ a { color: var(--accent); text-decoration: none; }
 .mm-reacts span:hover { background: var(--hover); }
 .mm-item { display: flex; align-items: center; gap: 7px; padding: 6px 9px; border-radius: 6px;
   font-size: 12.5px; cursor: pointer; }
-.mm-item:hover { background: var(--hover); }
+.mm-item:hover, .mm-item:focus-visible { background: var(--hover); outline: none; }
 .mm-item.danger { color: var(--bad); }
 .mm-sep { height: 1px; background: var(--border); margin: 4px 0; }
 .mm-subhead { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em;

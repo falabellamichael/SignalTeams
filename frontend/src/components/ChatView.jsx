@@ -163,6 +163,27 @@ export default function ChatView({ channel, server, onDm, members, me, emojis, r
     return () => window.removeEventListener("keydown", h);
   }, [lightbox]);
 
+  // right-click menu: Esc closes, arrows navigate, focus starts on first item
+  const menuRef = useRef(null);
+  useEffect(() => {
+    if (!menu) return;
+    const h = (e) => e.key === "Escape" && setMenu(null);
+    window.addEventListener("keydown", h);
+    // divs aren't focusable natively — mark them so arrows can walk the menu
+    menuRef.current?.querySelectorAll(".mm-item")
+      .forEach((el) => el.setAttribute("tabindex", "-1"));
+    menuRef.current?.querySelector(".mm-item")?.focus();
+    return () => window.removeEventListener("keydown", h);
+  }, [menu]);
+
+  function menuKeys(e) {
+    const items = [...e.currentTarget.querySelectorAll(".mm-item")];
+    const idx = items.indexOf(document.activeElement);
+    if (e.key === "ArrowDown") { e.preventDefault(); items[(idx + 1) % items.length]?.focus(); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); items[(idx - 1 + items.length) % items.length]?.focus(); }
+    else if ((e.key === "Enter" || e.key === " ") && idx >= 0) { e.preventDefault(); items[idx].click(); }
+  }
+
   useEffect(() => {
     if (pendingJump.current) {
       const el = document.getElementById("msg-" + pendingJump.current);
@@ -1154,7 +1175,8 @@ export default function ChatView({ channel, server, onDm, members, me, emojis, r
         <>
           <div className="menu-scrim" onClick={() => setMenu(null)}
             onContextMenu={(e) => { e.preventDefault(); setMenu(null); }} />
-          <div className="msg-menu" style={{ left: menu.x, top: menu.y }}>
+          <div className="msg-menu" style={{ left: menu.x, top: menu.y }}
+            ref={menuRef} onKeyDown={menuKeys}>
             <div className="mm-reacts">
               {QUICK.map((e) => (
                 <span key={e} onClick={() => { onReact(menu.m, e); setMenu(null); }}>{e}</span>
