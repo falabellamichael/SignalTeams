@@ -18,8 +18,11 @@ export function connectWS() {
   sock.onclose = () => {
     emit({ type: "ws:close" });
     if (!closed && getToken()) {
-      retries = Math.min(retries + 1, 5);
-      setTimeout(connectWS, 500 * retries);
+      retries += 1;
+      emit({ type: "ws:down", retries });
+      // fast retries first; after 5 keep trying every 15s forever —
+      // a dropped connection should heal itself, not need a reload
+      setTimeout(connectWS, retries <= 5 ? 500 * retries : 15000);
     }
   };
   sock.onerror = () => sock.close();

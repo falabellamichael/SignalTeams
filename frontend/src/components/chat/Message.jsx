@@ -5,7 +5,7 @@ import { Avatar, Md, msgTime, timeAgo } from "../../util";
 import { AgentShareCard, PackShareCard } from "../AgentCard";
 import { QUICK, POLL_EMOJI } from "./consts";
 
-export function Message({ m, grouped, me, members, agents, emojis, roles, channels, onAgentOpen, onPackOpen, onDelete, onReact, onPin, onImgLoad, onReply, onUserOpen, onFwdJump, onThread, onMenu, onLightbox, blocked, onWave }) {
+export function Message({ m, grouped, me, members, agents, emojis, roles, channels, onAgentOpen, onPackOpen, onDelete, onReact, onPin, onImgLoad, onReply, onUserOpen, onFwdJump, onThread, onMenu, onLightbox, blocked, onWave, editTarget }) {
   const emap = new Map((emojis || []).map((x) => [x.name, x.file_id]));
   const mine = m.author?.id === me?.id;
   const nickOf = (u) => (members || []).find((x) => x?.id === u?.id)?.nickname || u?.display_name;
@@ -17,6 +17,11 @@ export function Message({ m, grouped, me, members, agents, emojis, roles, channe
   const [editDraft, setEditDraft] = useState(m.content);
   const [revealed, setRevealed] = useState(false);
   const pressT = useRef(null);
+
+  // ArrowUp in the composer targets this message for editing
+  useEffect(() => {
+    if (editTarget?.id === m.id) { setEditDraft(m.content); setEditing(true); }
+  }, [editTarget]);
 
   async function saveEdit() {
     const v = editDraft.trim();

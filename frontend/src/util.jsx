@@ -125,7 +125,7 @@ export function agentSlug(name) {
 
 function inline(text, keyBase, names, slugs, me, members, agents, emap, rmap, cmap, onUser, onAgent, onChannel) {
   const out = [];
-  const re = /(`[^`\n]+`)|(\*\*[^*\n]+\*\*)|(\*[^*\n]+\*)|(~~[^~\n]+~~)|(__[^_\n]+__)|(\|\|[^|\n]+\|\|)|(https?:\/\/[^\s<]+)|(:[a-z0-9_]{2,32}:)|(#\w+)|(@\w+)/g;
+  const re = /(`[^`\n]+`)|(\*\*[^*\n]+\*\*)|(\*[^*\n]+\*)|(~~[^~\n]+~~)|(__[^_\n]+__)|(\|\|[^|\n]+\|\|)|(https?:\/\/[^\s<]+)|(:[a-z0-9_]{2,32}:)|(#[\w-]+)|(@\w+)/g;
   let last = 0, m, k = keyBase;
   while ((m = re.exec(text))) {
     if (m.index > last) out.push(text.slice(last, m.index));

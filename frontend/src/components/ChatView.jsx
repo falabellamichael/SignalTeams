@@ -58,6 +58,7 @@ export default function ChatView({ channel, server, onDm, members, me, emojis, r
   const atBottom = useRef(true);      // scrolled to the live edge
   const prevLen = useRef(0);
   const [pendingNew, setPendingNew] = useState(0);
+  const [editTarget, setEditTarget] = useState(null);  // {id, n} — ArrowUp opens that msg's editor
   const [listening, setListening] = useState(false);   // AI "speech to text" dictation
   const recRef = useRef(null);
   const dictBase = useRef("");                          // draft text before dictation began
@@ -87,7 +88,9 @@ export default function ChatView({ channel, server, onDm, members, me, emojis, r
     setKnocked(channel.knocked || false);
     askVoiceRoster(channel.id);
     if (channel.kind === "dm") api.markRead(channel.id).catch(() => {});
-    atBottom.current = true; prevLen.current = 0; setPendingNew(0);
+    atBottom.current = true; prevLen.current = 0; setPendingNew(0); setEditTarget(null);
+    // switching channels lands you in the composer, ready to type
+    setTimeout(() => inputRef.current?.focus(), 0);
     if (!channel.locked) {
       api.messages(channel.id).then((m) => { setMsgs(m); setHasMore(m.length >= 50); }).catch(() => {});
       api.saved().then((s) => setSavedIds(new Set(s.map((x) => x.id)))).catch(() => {});
@@ -291,11 +294,15 @@ export default function ChatView({ channel, server, onDm, members, me, emojis, r
     if (v[0] === "/" && /^\w*$/.test(v.slice(1, caret))) {
       setMention({ start: 0, query: v.slice(1, caret), sym: "/", sel: 0 });
     } else {
-      const at = Math.max(v.lastIndexOf("@", caret - 1), v.lastIndexOf(":", caret - 1));
+      const at = Math.max(v.lastIndexOf("@", caret - 1),
+                          v.lastIndexOf(":", caret - 1),
+                          v.lastIndexOf("#", caret - 1));
       const sym = at >= 0 ? v[at] : null;
       if (at >= 0 && (at === 0 || /\s/.test(v[at - 1]))) {
         const query = v.slice(at + 1, caret);
-        if (/^\w*$/.test(query) && (sym === "@" || query.length >= 1)) {
+        // channel names carry hyphens — the query char set follows the symbol
+        const qok = sym === "#" ? /^[\w-]*$/.test(query) : /^\w*$/.test(query);
+        if (qok && (sym === "@" || sym === "#" || query.length >= 1)) {
           setMention({ start: at, query, sym, sel: 0 });
         } else setMention(null);
       } else setMention(null);
@@ -312,7 +319,8 @@ export default function ChatView({ channel, server, onDm, members, me, emojis, r
     const v = inputRef.current.value;
     const caret = inputRef.current.selectionStart;
     const ins = mention.sym === ":" ? (o.char ? o.char : ":" + o.insert + ":")
-      : mention.sym === "/" ? "/" + o.insert : "@" + o.insert;
+      : mention.sym === "/" ? "/" + o.insert
+      : mention.sym === "#" ? "#" + o.insert : "@" + o.insert;
     const next = v.slice(0, mention.start) + ins + " " + v.slice(caret);
     setDraft(next); setMention(null);
     requestAnimationFrame(() => {
@@ -501,11 +509,25 @@ export default function ChatView({ channel, server, onDm, members, me, emojis, r
     if (e.dataTransfer?.files?.length) uploadFiles(e.dataTransfer.files);
   }
 
+  function onPaste(e) {
+    // screenshots/clipped files land as clipboard files — attach them
+    // instead of pasting nothing (text still pastes normally)
+    if (e.clipboardData?.files?.length) {
+      e.preventDefault();
+      uploadFiles(e.clipboardData.files);
+    }
+  }
+
   const matches = mention
     ? mention.sym === ":"
       ? (emojis || []).filter((e) =>
           e.name.toLowerCase().startsWith(mention.query.toLowerCase()))
           .slice(0, 6).map((e) => ({ kind: "emoji", id: "e" + e.id, insert: e.name, e }))
+    : mention.sym === "#"
+      ? (channels || []).filter((c) =>
+          c.name.toLowerCase().replace(/-/g, "").includes(
+            mention.query.toLowerCase().replace(/-/g, "")))
+          .slice(0, 6).map((c) => ({ kind: "chan", id: "ch" + c.id, insert: c.name, c }))
     : mention.sym === "/"
       ? SLASH_COMMANDS.filter((c) => c.cmd.startsWith(mention.query.toLowerCase()))
           .map((c) => ({ kind: "cmd", id: "c" + c.cmd, insert: c.cmd, c }))
@@ -548,7 +570,14 @@ export default function ChatView({ channel, server, onDm, members, me, emojis, r
       }
       if (e.key === "Escape") { setMention(null); return; }
     }
-    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); return; }
+    // Discord parity — ArrowUp in an empty composer edits your last message
+    if (e.key === "ArrowUp" && !draft) {
+      e.preventDefault();
+      const last = [...msgs].reverse()
+        .find((x) => x.author?.id === me?.id && !x.system && !x.agent);
+      if (last) setEditTarget({ id: last.id, n: Date.now() });
+    }
   }
 
   const typerList = Object.values(typers).filter(Boolean);
@@ -753,7 +782,7 @@ export default function ChatView({ channel, server, onDm, members, me, emojis, r
                   onAgentOpen={onAgentOpen} onPackOpen={onPackOpen}
                   onDelete={onDelete} onReact={onReact} onPin={onPin}
                   onImgLoad={scrollToEnd} onReply={onReply} onUserOpen={onUserOpen}
-                  onFwdJump={onFwdJump} onWave={handleWave}
+                  onFwdJump={onFwdJump} onWave={handleWave} editTarget={editTarget}
                   onThread={openThread} onMenu={openMenu} onLightbox={setLightbox} />
                 {channel.kind === "dm" && m.id === lastOwn?.id && (
                   <div className="seen-tag"
@@ -813,7 +842,10 @@ export default function ChatView({ channel, server, onDm, members, me, emojis, r
               {matches.map((o, i) => (
                 <div key={o.id} className={`mopt ${i === mention.sel ? "sel" : ""}`}
                   onMouseDown={(e) => { e.preventDefault(); pickMention(o); }}>
-                  {o.kind === "cmd" ? (
+                  {o.kind === "chan" ? (
+                    <><span className="aicon">{o.c.kind === "voice" ? "🔊" : o.c.kind === "forum" ? "📋" : "#"}</span>
+                      <b>#{o.c.name}</b><span>{o.c.topic || "channel"}</span></>
+                  ) : o.kind === "cmd" ? (
                     <><span className="aicon">{o.c.icon}</span>
                       <b>/{o.c.cmd} <i>{o.c.usage}</i></b><span>{o.c.desc}</span></>
                   ) : o.kind === "silent" ? (
@@ -878,7 +910,7 @@ export default function ChatView({ channel, server, onDm, members, me, emojis, r
           )}
           <textarea ref={inputRef} rows={1} value={draft}
             placeholder={`Message ${channel.kind === "dm" ? "@" + (channel.other?.display_name || channel.name || "") : "#" + channel.name}`}
-            onChange={onType} onKeyDown={key}
+            onChange={onType} onKeyDown={key} onPaste={onPaste}
             onInput={(e) => { e.target.style.height = "auto"; e.target.style.height = Math.min(e.target.scrollHeight, 140) + "px"; }} />
           <div className="send-row">
             {(sendErr || slowLeft > 0) && (

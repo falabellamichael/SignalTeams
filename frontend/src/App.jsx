@@ -71,10 +71,13 @@ export default function App() {
   const [friendsData, setFriendsData] = useState({ accepted: [], incoming: [] });
   const [theme, setTheme] = useState(() => localStorage.getItem("signalteams.theme") || "dark");
   const [voice, setVoice] = useState({ rosters: {} });
+  const [connDown, setConnDown] = useState(0);         // 0 = connected, n = retry attempt
+  const connDownRef = useRef(0);
   const [refresh, setRefresh] = useState(0);
   const [focusMsg, setFocusMsg] = useState(null);  // {id, ch, n} — ChatView scrolls+flashes
   const [sideOpen, setSideOpen] = useState(
     () => !window.matchMedia?.("(max-width: 760px)").matches);
+  const [memOpen, setMemOpen] = useState(false);   // mobile member-list drawer
   const [sideW, setSideW] = useState(() =>
     Math.max(SIDE_MIN_W, +(localStorage.getItem("st.sidew") || 232)));
 
@@ -310,6 +313,15 @@ export default function App() {
       if (evt.type === "ws:open") {
         // the socket connecting marks us online server-side — keep our own label in sync
         setMe((m) => (m && m.status === "offline" ? { ...m, status: "online" } : m));
+        // if we were disconnected, everything missed while down needs a re-pull
+        if (connDownRef.current > 0) {
+          connDownRef.current = 0;
+          setConnDown(0);
+          refreshLists();
+        }
+      } else if (evt.type === "ws:down") {
+        connDownRef.current = evt.retries;
+        setConnDown(evt.retries);
       } else if (evt.type === "presence") {
         setOnlineIds(evt.online);
       } else if (evt.type === "message") {
@@ -909,11 +921,20 @@ export default function App() {
             onClick={() => setModal({ kind: "inbox" })}><Ico n="tray" s={15} /></button>
           <button className="ghost" title="Shortcuts & slash commands (?)" style={{ marginRight: 4 }}
             onClick={() => setModal({ kind: "shortcuts" })}><Ico n="question" s={15} /></button>
+          {chatShown && members?.length > 0 && (
+            <button className="ghost mem-btn" title="Members" style={{ marginRight: 4 }}
+              onClick={() => setMemOpen((o) => !o)}><Ico n="users" s={15} /></button>)}
           <Bell me={me} refreshKey={refresh}
             onOpenAgent={async (id) => setModal({ kind: "agent", agent: await api.agent(id) })}
             onOpenChannel={openChannelById}
             onOpenPack={openPack} />
         </div>
+        {connDown > 0 && (
+          <div className="conn-bar">
+            <Ico n="refresh" s={11} /> Connection lost — retrying
+            {connDown > 5 ? ` every 15s` : `…`} (attempt {connDown})
+          </div>
+        )}
         {!server && !channel && welcomeOn && (() => {
           const steps = [
             [servers.length > 0, "Create or join a crew", () => setModal({ kind: "server" })],
