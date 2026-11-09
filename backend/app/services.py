@@ -747,8 +747,18 @@ async def agent_reply(cid, aid, asker_id, msg_id, depth=0, ping=True):
                 await _phase("thinking")
                 # streamed too — a long think here used to freeze on the ⚙ line
                 # and a timeout silently emptied the whole reply
-                reply, err2, stopped = await _round(
-                    history[-1]["content"] + "\n\n" + "\n\n".join(results))
+                #
+                # mirror the desk loop: the model sees its own call turn and
+                # the tool output as real transcript entries. Gluing results
+                # onto the trigger message reads as user-pasted junk and the
+                # model replies "no tool result is visible to me"
+                history.append({"role": "assistant", "content": reply})
+                history.append({"role": "user", "content":
+                    "(tool output — your calls just ran; quote these results, "
+                    "don't claim you can't see them)\n\n"
+                    + "\n\n".join(results)
+                    + "\n\nAnswer in plain text."})
+                reply, err2, stopped = await _round(history[-1]["content"])
                 if stopped:
                     break
                 if err2:
@@ -760,6 +770,26 @@ async def agent_reply(cid, aid, asker_id, msg_id, depth=0, ping=True):
                                            asker["display_name"], a["name"])
             else:
                 hit_cap = bool(tool_steps)   # loop exhausted mid-work
+            # last-resort honesty check — tools DID return data, and if the
+            # reply still denies seeing it, re-round once with the results
+            # spelled out verbatim instead of shipping the disclaimer
+            if tool_steps and reply and not stopped and re.search(
+                    r"no tool result|can(?:not|'t) see .{0,20}result|"
+                    r"don'?t have .{0,40}result|(?:not|aren'?t) visible to me|"
+                    r"no results? (?:is |are )?visible|can'?t access .{0,20}result",
+                    reply, re.I):
+                reply, err2, stopped = await _round(
+                    history[-1]["content"]
+                    + "\n\nThe tool output IS in this conversation — the "
+                      "TOOL RESULT lines below are what your calls returned. "
+                      "Read them and answer from them. Plain text, no JSON.\n\n"
+                    + "\n\n".join(
+                        f"TOOL RESULT {s['tool']}: "
+                        + json.dumps(s["result"])[:4000]
+                        for s in tool_steps))
+                if not err2 and not stopped:
+                    reply = _strip_echo_prefix(reply, asker["username"],
+                                               asker["display_name"], a["name"])
             if tool_steps and not wsx.strip_tool_calls(reply):
                 bad = any(not s["result"].get("ok") for s in tool_steps)
                 reply = ("Finished, but some steps failed — see the ⚙ lines "
@@ -781,7 +811,7 @@ async def agent_reply(cid, aid, asker_id, msg_id, depth=0, ping=True):
             text += "\n\n⏹ *(stopped)*"
         if tool_steps:
             text += "\n\n" + "\n".join(
-                f"⚙ `{s['tool']}` {s['args'].get('path') or s['args'].get('query') or s['args'].get('cmd') or ''}"
+                f"⚙ `{s['tool']}` {s['args'].get('path') or s['args'].get('query') or s['args'].get('q') or s['args'].get('url') or s['args'].get('cmd') or s['args'].get('plugin') or ''}"
                 + ("" if s["result"].get("ok") else f" — ✗ {s['result'].get('error', 'failed')}")
                 + (f" · {s['secs']}s" if s.get("secs") is not None else "")
                 for s in tool_steps)
