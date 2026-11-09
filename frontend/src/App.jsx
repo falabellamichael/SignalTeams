@@ -137,9 +137,21 @@ export default function App() {
   navRef.current = { server, channel, dms, selectChannel, openDmEntry,
                      unread, mentions, openChannelById };
 
+  // members drawer resets whenever the visible surface changes
+  useEffect(() => setMemOpen(false), [channel?.id, view, wsOpen?.id]);
+
   useEffect(() => {
-    document.documentElement.dataset.theme = theme;
+    const sys = () =>
+      window.matchMedia?.("(prefers-color-scheme: light)").matches ? "daylight" : "dark";
+    const apply = () => {
+      document.documentElement.dataset.theme = theme === "system" ? sys() : theme;
+    };
+    apply();
     localStorage.setItem("signalteams.theme", theme);
+    if (theme !== "system") return;
+    const mq = window.matchMedia("(prefers-color-scheme: light)");
+    mq.addEventListener?.("change", apply);
+    return () => mq.removeEventListener?.("change", apply);
   }, [theme]);
 
   // global keys: ⌘/Ctrl+K = search everywhere, Esc = close modal
