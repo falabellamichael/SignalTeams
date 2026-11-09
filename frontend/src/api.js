@@ -142,11 +142,25 @@ export const api = {
   remind: (channel_id, seconds, text) => req("POST", `/api/reminders`,
     { channel_id, seconds, text }),
   editMessage: (mid, content) => req("PATCH", `/api/messages/${mid}`, { content }),
-  upload: async (file) => {
+  upload: (file, onProgress) => new Promise((resolve, reject) => {
+    // XHR (not fetch) so upload progress events reach the composer chip
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", "/api/upload");
+    if (getToken()) xhr.setRequestHeader("Authorization", `Bearer ${getToken()}`);
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable && onProgress) onProgress(Math.round((e.loaded / e.total) * 100));
+    };
+    xhr.onload = () => {
+      const data = (() => { try { return JSON.parse(xhr.responseText); } catch { return null; } })();
+      if (xhr.status >= 200 && xhr.status < 300) return resolve(data);
+      checkSession({ status: xhr.status }, "/api/upload");
+      reject(new Error(data?.detail || `HTTP ${xhr.status}`));
+    };
+    xhr.onerror = () => reject(new Error("upload failed"));
     const fd = new FormData();
     fd.append("file", file);
-    return reqForm("/api/upload", fd);
-  },
+    xhr.send(fd);
+  }),
   fileUrl: (id) => `/api/files/${id}?token=${encodeURIComponent(getToken())}`,
   delMessage: (mid) => req("DELETE", `/api/messages/${mid}`),
   react: (mid, emoji) => req("POST", `/api/messages/${mid}/react`, { emoji }),

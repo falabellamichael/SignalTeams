@@ -760,6 +760,7 @@ a.de-title:hover { text-decoration: underline; }
   padding: 3px 6px 3px 10px; border: 1px solid var(--border); border-radius: 12px;
   background: var(--panel); }
 .att-chip .ghost { padding: 0 3px; font-size: 10px; }
+.att-chip.uploading { opacity: .75; }
 .att-thumb { width: 20px; height: 20px; object-fit: cover; border-radius: 4px; flex: none; }
 
 /* replies + drag-drop */

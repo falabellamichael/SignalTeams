@@ -555,7 +555,16 @@ export default function ChatView({ channel, server, onDm, members, me, emojis, r
 
   async function uploadFiles(files) {
     for (const f of files || []) {
-      try { const up = await api.upload(f); setAtts((a) => [...a, up]); } catch (ex) { alert(ex.message); }
+      const tmp = { id: `up-${Date.now()}-${Math.random()}`, name: f.name, size: f.size, uploading: true, pct: 0 };
+      setAtts((a) => [...a, tmp]);
+      try {
+        const up = await api.upload(f, (pct) =>
+          setAtts((a) => a.map((x) => x.id === tmp.id ? { ...x, pct } : x)));
+        setAtts((a) => a.map((x) => x.id === tmp.id ? up : x));
+      } catch (ex) {
+        setAtts((a) => a.filter((x) => x.id !== tmp.id));
+        alert(ex.message);
+      }
     }
   }
 
@@ -896,10 +905,13 @@ export default function ChatView({ channel, server, onDm, members, me, emojis, r
         {atts.length > 0 && (
           <div className="att-pending">
             {atts.map((a) => (
-              <span key={a.id} className="att-chip">
-                {(a.mime || "").startsWith("image/")
-                  ? <img className="att-thumb" src={api.fileUrl(a.id)} alt={a.name} />
-                  : <Ico n="clip" s={12} />} {a.name}
+              <span key={a.id} className={`att-chip ${a.uploading ? "uploading" : ""}`}>
+                {a.uploading
+                  ? <Ico n="refresh" s={12} className="spin" />
+                  : (a.mime || "").startsWith("image/")
+                    ? <img className="att-thumb" src={api.fileUrl(a.id)} alt={a.name} />
+                    : <Ico n="clip" s={12} />}
+                {" "}{a.name}{a.uploading ? ` ${a.pct}%` : ""}
                 <button className="ghost" title={`Remove ${a.name}`} aria-label={`Remove ${a.name}`}
                   onClick={() => setAtts((x) => x.filter((y) => y.id !== a.id))}><Ico n="x" s={11} /></button>
               </span>
