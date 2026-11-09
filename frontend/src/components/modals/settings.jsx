@@ -105,6 +105,7 @@ export function SettingsModal({ me, theme, onTheme, onClose, onSaved, onLogout }
           <button className={theme === "obsidian" ? "on" : ""} onClick={() => onTheme("obsidian")}><Ico n="moon" s={12} /> Obsidian</button>
           <button className={theme === "light" ? "on" : ""} onClick={() => onTheme("light")}><Ico n="sun" s={12} /> Warm Theme</button>
           <button className={theme === "daylight" ? "on" : ""} onClick={() => onTheme("daylight")}><Ico n="sun" s={12} /> Daylight</button>
+          <button className={theme === "system" ? "on" : ""} onClick={() => onTheme("system")}><Ico n="screen" s={12} /> Match OS</button>
         </div>
       </div>
       <div className="set-row">
