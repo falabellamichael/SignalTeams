@@ -1134,8 +1134,7 @@ a.de-title:hover { text-decoration: underline; }
   font-size: 9px; line-height: 1; background: var(--panel2);
   border: 1.5px solid var(--panel); }
 .buzz-body { flex: 1; min-width: 0; }
-.buzz-item .bt { font-size: 13px; line-height: 1.35; overflow: hidden; text-overflow: ellipsis;
-  white-space: nowrap; }
+.buzz-item .bt { font-size: 13px; line-height: 1.35; overflow-wrap: anywhere; }
 .buzz-item .bt b { font-weight: 600; }
 .buzz-item .bt .hl { color: var(--honey); font-weight: 600; }
 .buzz-item .when { font-size: 11px; color: var(--dim); margin-top: 1px; }
