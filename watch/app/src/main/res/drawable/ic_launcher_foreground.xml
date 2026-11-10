@@ -1,14 +1,4 @@
 <?xml version="1.0" encoding="utf-8"?>
-<vector xmlns:android="http://schemas.android.com/apk/res/android"
-    android:width="108dp"
-    android:height="108dp"
-    android:viewportWidth="108"
-    android:viewportHeight="108">
-    <!-- Gemini-style four-point sparkle -->
-    <path
-        android:fillColor="#8B7CFF"
-        android:pathData="M54,30 C56,44 60,50 74,54 C60,58 56,64 54,78 C52,64 48,58 34,54 C48,50 52,44 54,30 Z" />
-    <path
-        android:fillColor="#4FC3F7"
-        android:pathData="M54,44 C55,50 57,53 63,54 C57,55 55,58 54,64 C53,58 51,55 45,54 C51,53 53,50 54,44 Z" />
-</vector>
+<bitmap xmlns:android="http://schemas.android.com/apk/res/android"
+    android:src="@drawable/hive_mark"
+    android:gravity="center" />

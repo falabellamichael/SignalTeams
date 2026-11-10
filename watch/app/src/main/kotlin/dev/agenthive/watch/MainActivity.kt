@@ -20,6 +20,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.lifecycleScope
+import androidx.wear.ambient.AmbientLifecycleObserver
 import kotlinx.coroutines.launch
 import dev.agenthive.watch.nexus.NexusState
 import dev.agenthive.watch.ui.HiveScreen
@@ -30,6 +31,17 @@ class MainActivity : ComponentActivity() {
     private val vm: HiveViewModel by viewModels()
     private var lastAssistAt = 0L
     private var speech: SpeechRecognizer? = null
+
+    // Wear ambient (always-on display) — keeps the last reply glanceable
+    // on AOD like Gemini; the UI flips to a burn-in-safe black surface.
+    private val ambientDelegate = AmbientLifecycleObserver(this,
+        object : AmbientLifecycleObserver.AmbientLifecycleCallback {
+            override fun onEnterAmbient(
+                ambientDetails: AmbientLifecycleObserver.AmbientDetails) =
+                vm.setAmbient(true)
+            override fun onExitAmbient() = vm.setAmbient(false)
+            override fun onUpdateAmbient() {}
+        })
 
     private val micPermission = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -95,6 +107,8 @@ class MainActivity : ComponentActivity() {
                 )
             }
         }
+
+        lifecycle.addObserver(ambientDelegate)
 
         // Mesh suspend/resume rides the activity lifecycle (SDK contract).
         lifecycle.addObserver(LifecycleEventObserver { _, event ->
@@ -166,20 +180,38 @@ class MainActivity : ComponentActivity() {
             vm.send(ask)
             return
         }
-        // digital-assistant invocation (center-button long-press) — land
-        // straight on the mic, over the keyguard, like Gemini. Both the
-        // session path and the service fallback can deliver within ms of
-        // each other — collapse repeats into one mic start.
-        val isAssist = i?.action == Intent.ACTION_ASSIST
+        // digital-assistant invocation (center-button long-press, hotword,
+        // global search, voice-command intents) — land straight on the mic,
+        // over the keyguard, like Gemini. A WEB_SEARCH/GLOBAL_SEARCH intent
+        // may already carry the query — answer it without opening the mic.
+        // Both the session path and the service fallback can deliver within
+        // ms of each other — collapse repeats into one mic start.
+        val isAssist = i?.action in ASSIST_ACTIONS
         setShowWhenLocked(isAssist)
         setTurnScreenOn(isAssist)
         if (isAssist) {
+            val query = i?.getStringExtra(android.app.SearchManager.QUERY)
+                ?: i?.getStringExtra("query")
             val now = SystemClock.elapsedRealtime()
             if (now - lastAssistAt > 1500) {
                 lastAssistAt = now
-                window.decorView.post { startVoice() }
+                if (!query.isNullOrBlank()) vm.send(query)
+                else window.decorView.post { startVoice() }
             }
         }
+    }
+
+    companion object {
+        /** Every invocation action our manifest claims → the same
+         *  "open over keyguard + start listening" treatment as ASSIST. */
+        private val ASSIST_ACTIONS = setOf(
+            Intent.ACTION_ASSIST,
+            "android.intent.action.VOICE_ASSIST",
+            "android.intent.action.VOICE_COMMAND",
+            "android.speech.action.WEB_SEARCH",
+            "android.speech.action.VOICE_SEARCH_HANDS_FREE",
+            "android.search.action.GLOBAL_SEARCH",
+            "android.intent.action.START_HOTWORD_QUERY")
     }
 
     override fun onDestroy() {

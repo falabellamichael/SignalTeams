@@ -8,9 +8,19 @@
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.READ_CONTACTS" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
+    <!-- "open X on my phone" resolves launchable apps by label. -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+    </queries>
 
     <application
         android:name=".PhoneApp"
@@ -35,5 +45,73 @@
             android:name=".RealtimeService"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
+
+        <!-- owns the Nexus node + egress bridge for device uptime -->
+        <service
+            android:name=".PhoneMeshService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+
+        <receiver
+            android:name=".PhoneBootReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
+
+        <!-- Wear data-layer listener: the watch pings /hive/find/* here -->
+        <service
+            android:name=".FindPhoneService"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.google.android.gms.wearable.MESSAGE_RECEIVED" />
+                <data android:scheme="wear" android:host="*" android:pathPrefix="/hive/" />
+            </intent-filter>
+        </service>
+        <!-- Gemini Extensions surface: exposes our functions to the system
+             assistant — same shape as GSA's RobinKitAppFunctionService. -->
+        <service
+            android:name=".HiveAppFunctionService"
+            android:exported="true"
+            android:permission="android.permission.BIND_APP_FUNCTION_SERVICE">
+            <intent-filter>
+                <action android:name="android.app.appfunctions.AppFunctionService" />
+                <action android:name="android.app.appsearch.functions.AppFunctionService" />
+            </intent-filter>
+            <!-- v1 indexer path (Samsung recipe): property names the asset doc -->
+            <property
+                android:name="android.app.appfunctions"
+                android:value="appfunctions.xml" />
+            <!-- v2 execution path: androidx-generated schema doc -->
+            <meta-data
+                android:name="android.app.appfunctions.v2"
+                android:resource="@xml/appfunctions" />
+        </service>
+        <!-- notification listener: media transport + shade reads for the watch -->
+        <service
+            android:name=".PhoneNotifService"
+            android:exported="true"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
+
+        <receiver
+            android:name=".FindStopReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="dev.agenthive.phone.STOP_FIND" />
+            </intent-filter>
+        </receiver>
+        <!-- proactive phone→watch push: low-battery heads-up -->
+        <receiver
+            android:name=".PhoneBatteryReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BATTERY_LOW" />
+            </intent-filter>
+        </receiver>
     </application>
 </manifest>

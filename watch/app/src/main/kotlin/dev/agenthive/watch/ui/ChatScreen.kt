@@ -26,6 +26,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -46,8 +47,10 @@ import androidx.compose.ui.unit.sp
 import androidx.wear.compose.foundation.lazy.ScalingLazyColumn
 import androidx.wear.compose.foundation.lazy.items
 import androidx.wear.compose.foundation.lazy.rememberScalingLazyListState
+import androidx.wear.compose.foundation.rotary.RotaryScrollableDefaults
 import androidx.wear.compose.material3.CircularProgressIndicator
 import androidx.wear.compose.material3.Text
+import androidx.wear.compose.material3.TimeText
 import dev.agenthive.watch.Msg
 import dev.agenthive.watch.UiState
 
@@ -89,9 +92,13 @@ fun ChatScreen(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(
-                Brush.radialGradient(
-                    colors = listOf(HiveColors.BgGlow, HiveColors.Bg),
+            // AOD: flat black — the gradient would burn the OLED.
+            .then(
+                if (state.ambient) Modifier.background(Color.Black)
+                else Modifier.background(
+                    Brush.radialGradient(
+                        colors = listOf(HiveColors.BgGlow, HiveColors.Bg),
+                    )
                 )
             ),
     ) {
@@ -125,6 +132,10 @@ fun ChatScreen(
                     ScalingLazyColumn(
                         modifier = Modifier.fillMaxSize(),
                         state = listState,
+                        // crown/bezel scrolls the conversation (continuous
+                        // fling feel — snap is wrong for chat)
+                        rotaryScrollableBehavior =
+                            RotaryScrollableDefaults.behavior(listState),
                         reverseLayout = true,
                         contentPadding = PaddingValues(
                             horizontal = 18.dp,
@@ -155,6 +166,10 @@ fun ChatScreen(
                 },
             )
         }
+
+        // Wear convention: the clock lives at the very top arc, above the
+        // status pill — present on every Wear app incl. Gemini.
+        TimeText(modifier = Modifier.align(Alignment.TopCenter))
 
         if (showComposer) {
             PromptComposerSheet(
@@ -211,7 +226,7 @@ private fun TopArcPill(
     }
     Row(
         modifier = Modifier
-            .padding(top = 10.dp, bottom = 2.dp)
+            .padding(top = 22.dp, bottom = 2.dp)
             .clip(CircleShape)
             .background(HiveColors.Panel.copy(alpha = 0.92f))
             .border(1.dp, HiveColors.Border, CircleShape)
@@ -226,11 +241,9 @@ private fun TopArcPill(
                 .padding(horizontal = 4.dp, vertical = 1.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(
-                state.agent?.icon?.ifBlank { "✦" } ?: "✦",
-                color = HiveColors.Violet,
-                fontSize = 10.sp,
-            )
+            val icon = state.agent?.icon?.ifBlank { "✦" } ?: "✦"
+            if (icon == "✦") HiveMark(12.dp)
+            else Text(icon, color = HiveColors.Violet, fontSize = 10.sp)
             Spacer(Modifier.width(4.dp))
             Text(
                 state.agent?.name ?: "Agent",
@@ -323,7 +336,14 @@ private fun GeminiHomeStage(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
         ) {
-            for (item in QUICK_PROMPTS) {
+            // Proactive chip: when the hive reports a suggestion ("Meeting in
+            // 35m") it takes the left slot — Gemini-style contextual prompt.
+            val prompts = if (state.suggestion.isNotBlank())
+                listOf(QuickPrompt("✦", state.suggestion.take(22),
+                    "Tell me about: ${state.suggestion}")) +
+                    QUICK_PROMPTS.take(1)
+            else QUICK_PROMPTS
+            for (item in prompts) {
                 Row(
                     modifier = Modifier
                         .weight(1f)
@@ -478,9 +498,13 @@ private fun BottomArcDock(
                 CircularProgressIndicator(modifier = Modifier.size(12.dp), strokeWidth = 1.5.dp)
                 Spacer(Modifier.width(4.dp))
                 Text("Stop", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+            } else if (stoppable) {
+                Text("■ Stop",
+                    color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
             } else {
-                Text(
-                    if (stoppable) "■ Stop" else "✦ Ask",
+                HiveMark(14.dp)
+                Spacer(Modifier.width(5.dp))
+                Text("Ask",
                     color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
             }
         }

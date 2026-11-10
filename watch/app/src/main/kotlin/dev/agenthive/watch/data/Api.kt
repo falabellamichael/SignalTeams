@@ -77,12 +77,12 @@ class HiveApi {
         .readTimeout(90, TimeUnit.SECONDS)
         .build()
 
-    // Discovery probes must fail fast — a dead egress candidate shouldn't hold
-    // the link path for a full connect timeout.
+    // Discovery probes — bounded timeout (8s connect / 8s read) so cold WireGuard
+    // handshakes and LAN hole punching have time to settle without hanging indefinitely.
     private val probeClient = OkHttpClient.Builder()
-        .connectTimeout(3, TimeUnit.SECONDS)
-        .readTimeout(4, TimeUnit.SECONDS)
-        .writeTimeout(30, TimeUnit.SECONDS)
+        .connectTimeout(8, TimeUnit.SECONDS)
+        .readTimeout(8, TimeUnit.SECONDS)
+        .writeTimeout(15, TimeUnit.SECONDS)
         .build()
 
     @Volatile var baseUrl: String = ""
@@ -255,6 +255,12 @@ class HiveApi {
         ioJson("/api/memory", "POST", JSONObject().put("text", text.take(300)))
     suspend fun memoryForget(idx: Int): JSONObject =
         ioJson("/api/memory", "POST", JSONObject().put("text", "-").put("idx", idx))
+
+    /** Proactive glanceable line ("Team sync in 35m") — blank when nothing's
+     *  due soon or no calendar plugin. Tile/complication poll this. */
+    suspend fun assistantNext(): String =
+        runCatching { ioJson("/api/assistant/next").optString("label", "") }
+            .getOrDefault("")
 
     /** POST /api/llm/tts — mp3 bytes, or null when the endpoint has no TTS
      *  model (404) / synthesis fails. Callers fall back to text. */
@@ -474,13 +480,17 @@ class HiveApi {
      * backend. Used to identify the hive behind a mesh egress candidate.
      */
     suspend fun probeHive(baseOverride: String? = null): Boolean = kotlinx.coroutines.withContext(Dispatchers.IO) {
+        val base = (baseOverride ?: baseUrl).trimEnd('/')
         runCatching {
-            val base = (baseOverride ?: baseUrl).trimEnd('/')
             val req = Request.Builder().url("$base/api/auth/config").build()
             probeClient.newCall(req).execute().use { r ->
                 val body = r.body?.string() ?: ""
-                r.isSuccessful && body.contains("supabase")
+                val ok = r.isSuccessful && body.contains("supabase")
+                if (!ok) android.util.Log.d("HiveApi", "probeHive $base status=${r.code} match=${body.contains("supabase")}")
+                ok
             }
+        }.onFailure {
+            android.util.Log.d("HiveApi", "probeHive $base failed: ${it.message}")
         }.getOrDefault(false)
     }
 

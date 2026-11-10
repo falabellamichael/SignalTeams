@@ -19,8 +19,17 @@ import kotlinx.coroutines.withTimeoutOrNull
  */
 object HealthProbe {
 
-    private fun granted(ctx: Context) = ContextCompat.checkSelfPermission(
-        ctx, Manifest.permission.BODY_SENSORS) == PackageManager.PERMISSION_GRANTED
+    /** Samsung Wear gates heart_rate behind health.READ_HEART_RATE; Pixel/
+     *  stock Wear uses BODY_SENSORS. Either unlocks the sensor. */
+    /** Barometer — TYPE_PRESSURE needs no permission on Wear. hPa or null. */
+    suspend fun pressure(ctx: Context): Float? = sample(ctx, Sensor.TYPE_PRESSURE)
+
+    private fun granted(ctx: Context): Boolean {
+        fun has(p: String) = ContextCompat.checkSelfPermission(ctx, p) ==
+            PackageManager.PERMISSION_GRANTED
+        return has(Manifest.permission.BODY_SENSORS) ||
+            has("android.permission.health.READ_HEART_RATE")
+    }
 
     /** Deep-link to our own permissions page so the grant is one tap away. */
     fun grantIntent(ctx: Context) = Intent(

@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<appfunctions>
+    <version>1</version>
+    <appfunction>
+        <function_id>dev.agenthive.watch.WatchAppFunctionServiceBase#askHive</function_id>
+        <enabled_by_default>true</enabled_by_default>
+        <restrict_callers_with_execute_app_functions>false</restrict_callers_with_execute_app_functions>
+    </appfunction>
+    <appfunction>
+        <function_id>dev.agenthive.watch.WatchAppFunctionServiceBase#ringPhone</function_id>
+        <enabled_by_default>true</enabled_by_default>
+        <restrict_callers_with_execute_app_functions>false</restrict_callers_with_execute_app_functions>
+    </appfunction>
+    <appfunction>
+        <function_id>dev.agenthive.watch.WatchAppFunctionServiceBase#stopPhoneRinging</function_id>
+        <enabled_by_default>true</enabled_by_default>
+        <restrict_callers_with_execute_app_functions>false</restrict_callers_with_execute_app_functions>
+    </appfunction>
+    <appfunction>
+        <function_id>dev.agenthive.watch.WatchAppFunctionServiceBase#phoneStatus</function_id>
+        <enabled_by_default>true</enabled_by_default>
+        <restrict_callers_with_execute_app_functions>false</restrict_callers_with_execute_app_functions>
+    </appfunction>
+    <appfunction>
+        <function_id>dev.agenthive.watch.WatchAppFunctionServiceBase#nowPlayingOnPhone</function_id>
+        <enabled_by_default>true</enabled_by_default>
+        <restrict_callers_with_execute_app_functions>false</restrict_callers_with_execute_app_functions>
+    </appfunction>
+    <appfunction>
+        <function_id>dev.agenthive.watch.WatchAppFunctionServiceBase#controlPhoneMedia</function_id>
+        <enabled_by_default>true</enabled_by_default>
+        <restrict_callers_with_execute_app_functions>false</restrict_callers_with_execute_app_functions>
+    </appfunction>
+    <appfunction>
+        <function_id>dev.agenthive.watch.WatchAppFunctionServiceBase#readPhoneNotifications</function_id>
+        <enabled_by_default>true</enabled_by_default>
+        <restrict_callers_with_execute_app_functions>false</restrict_callers_with_execute_app_functions>
+    </appfunction>
+    <appfunction>
+        <function_id>dev.agenthive.watch.WatchAppFunctionServiceBase#openWatchApp</function_id>
+        <enabled_by_default>true</enabled_by_default>
+        <restrict_callers_with_execute_app_functions>false</restrict_callers_with_execute_app_functions>
+    </appfunction>
+</appfunctions>

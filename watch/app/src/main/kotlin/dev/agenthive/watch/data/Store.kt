@@ -68,6 +68,12 @@ class Store(ctx: Context) {
         get() = prefs.getString("last_reply", "") ?: ""
         set(v) = prefs.edit().putString("last_reply", v.take(200)).apply()
 
+    /** Proactive glanceable line from /api/assistant/next ("Meeting in 35m")
+     *  — refreshed by MeshService ~10min; the tile/complication show it. */
+    var suggestion: String
+        get() = prefs.getString("suggestion", "") ?: ""
+        set(v) = prefs.edit().putString("suggestion", v.take(80)).apply()
+
     /** Ensure a watch secret exists; returns it. */
     fun ensureSecret(): String {
         if (watchSecret.isBlank()) {

@@ -1,0 +1,151 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<appfunctions>
+    <appfunction>
+        <id>dev.agenthive.watch.WatchAppFunctionServiceBase#askHive</id>
+        <enabledByDefault>true</enabledByDefault>
+        <description>Asks the AgentHive assistant a question and returns the reply.
+The query travels over the Nexus mesh to the user's hive cluster,
+which answers with the configured agent and model.</description>
+        <parameters>
+            <dataTypeMetadata>
+                <id>unused</id>
+                <isNullable>false</isNullable>
+                <type>8</type>
+            </dataTypeMetadata>
+            <id>unused</id>
+            <isRequired>true</isRequired>
+            <name>query</name>
+            <description>the natural-language question or instruction</description>
+        </parameters>
+        <response>
+            <id>unused</id>
+            <valueType>
+                <id>unused</id>
+                <isNullable>false</isNullable>
+                <type>8</type>
+            </valueType>
+        </response>
+        <functionId>dev.agenthive.watch.WatchAppFunctionServiceBase#askHive</functionId>
+    </appfunction>
+    <appfunction>
+        <id>dev.agenthive.watch.WatchAppFunctionServiceBase#ringPhone</id>
+        <enabledByDefault>true</enabledByDefault>
+        <description>Rings the paired phone at maximum volume so the owner can find it.</description>
+        <response>
+            <id>unused</id>
+            <valueType>
+                <id>unused</id>
+                <isNullable>false</isNullable>
+                <type>8</type>
+            </valueType>
+        </response>
+        <functionId>dev.agenthive.watch.WatchAppFunctionServiceBase#ringPhone</functionId>
+    </appfunction>
+    <appfunction>
+        <id>dev.agenthive.watch.WatchAppFunctionServiceBase#stopPhoneRinging</id>
+        <enabledByDefault>true</enabledByDefault>
+        <description>Stops the phone's find-me ringtone if it is playing.</description>
+        <response>
+            <id>unused</id>
+            <valueType>
+                <id>unused</id>
+                <isNullable>false</isNullable>
+                <type>8</type>
+            </valueType>
+        </response>
+        <functionId>dev.agenthive.watch.WatchAppFunctionServiceBase#stopPhoneRinging</functionId>
+    </appfunction>
+    <appfunction>
+        <id>dev.agenthive.watch.WatchAppFunctionServiceBase#phoneStatus</id>
+        <enabledByDefault>true</enabledByDefault>
+        <description>Reads the paired phone's status — battery, charging, network,
+do-not-disturb.</description>
+        <response>
+            <id>unused</id>
+            <valueType>
+                <id>unused</id>
+                <isNullable>false</isNullable>
+                <type>8</type>
+            </valueType>
+        </response>
+        <functionId>dev.agenthive.watch.WatchAppFunctionServiceBase#phoneStatus</functionId>
+    </appfunction>
+    <appfunction>
+        <id>dev.agenthive.watch.WatchAppFunctionServiceBase#nowPlayingOnPhone</id>
+        <enabledByDefault>true</enabledByDefault>
+        <description>Says which song or media is playing on the paired phone.</description>
+        <response>
+            <id>unused</id>
+            <valueType>
+                <id>unused</id>
+                <isNullable>false</isNullable>
+                <type>8</type>
+            </valueType>
+        </response>
+        <functionId>dev.agenthive.watch.WatchAppFunctionServiceBase#nowPlayingOnPhone</functionId>
+    </appfunction>
+    <appfunction>
+        <id>dev.agenthive.watch.WatchAppFunctionServiceBase#controlPhoneMedia</id>
+        <enabledByDefault>true</enabledByDefault>
+        <description>Controls media playing on the paired phone.</description>
+        <parameters>
+            <dataTypeMetadata>
+                <id>unused</id>
+                <isNullable>false</isNullable>
+                <type>8</type>
+            </dataTypeMetadata>
+            <id>unused</id>
+            <isRequired>true</isRequired>
+            <name>verb</name>
+            <description>one of: play, pause, next, previous</description>
+        </parameters>
+        <response>
+            <id>unused</id>
+            <valueType>
+                <id>unused</id>
+                <isNullable>false</isNullable>
+                <type>8</type>
+            </valueType>
+        </response>
+        <functionId>dev.agenthive.watch.WatchAppFunctionServiceBase#controlPhoneMedia</functionId>
+    </appfunction>
+    <appfunction>
+        <id>dev.agenthive.watch.WatchAppFunctionServiceBase#readPhoneNotifications</id>
+        <enabledByDefault>true</enabledByDefault>
+        <description>Reads the paired phone's most recent notifications.</description>
+        <response>
+            <id>unused</id>
+            <valueType>
+                <id>unused</id>
+                <isNullable>false</isNullable>
+                <type>8</type>
+            </valueType>
+        </response>
+        <functionId>dev.agenthive.watch.WatchAppFunctionServiceBase#readPhoneNotifications</functionId>
+    </appfunction>
+    <appfunction>
+        <id>dev.agenthive.watch.WatchAppFunctionServiceBase#openWatchApp</id>
+        <enabledByDefault>true</enabledByDefault>
+        <description>Opens an installed app on this watch by name.</description>
+        <parameters>
+            <dataTypeMetadata>
+                <id>unused</id>
+                <isNullable>false</isNullable>
+                <type>8</type>
+            </dataTypeMetadata>
+            <id>unused</id>
+            <isRequired>true</isRequired>
+            <name>name</name>
+            <description>the app's display name</description>
+        </parameters>
+        <response>
+            <id>unused</id>
+            <valueType>
+                <id>unused</id>
+                <isNullable>false</isNullable>
+                <type>8</type>
+            </valueType>
+        </response>
+        <functionId>dev.agenthive.watch.WatchAppFunctionServiceBase#openWatchApp</functionId>
+    </appfunction>
+</appfunctions>

@@ -1,6 +1,7 @@
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose.compiler)
+    alias(libs.plugins.ksp)
 }
 
 android {
@@ -29,7 +30,9 @@ android {
         jniLibs.srcDir("../app/src/main/jniLibs")
         assets.srcDir("../app/src/main/assets")
         // phone's own sources/resources (src/main/kotlin + src/main/res are
-        // already conventional defaults for the android sourceSet)
+        // already conventional defaults for the android sourceSet). The
+        // AppFunctions metadata doc is checked into assets/appfunctions.xml —
+        // KSP emits it under build/, which AGP refuses as an assets srcDir.
     }
 
     buildFeatures {
@@ -64,4 +67,7 @@ dependencies {
     implementation(libs.okhttp)
     implementation("net.java.dev.jna:jna:5.17.0@aar")
     implementation(libs.kotlinx.coroutines.android)
+    implementation(libs.play.services.wearable)
+    implementation(libs.appfunctions)
+    ksp(libs.appfunctions.compiler)
 }

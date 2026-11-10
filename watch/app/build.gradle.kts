@@ -1,6 +1,7 @@
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose.compiler)
+    alias(libs.plugins.ksp)
 }
 
 android {
@@ -10,7 +11,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "dev.agenthive.watch"
+        applicationId = "dev.agenthive.phone"
         minSdk = 30
         targetSdk = 36
         versionCode = 1
@@ -56,4 +57,9 @@ dependencies {
     implementation(libs.protolayout.material)
     implementation(libs.concurrent.futures)
     implementation(libs.health.services)
+    implementation(libs.watchface.complications.datasource)
+    implementation("com.google.android.gms:play-services-location:21.3.0")
+    implementation(libs.play.services.wearable)
+    implementation(libs.appfunctions)
+    ksp(libs.appfunctions.compiler)
 }

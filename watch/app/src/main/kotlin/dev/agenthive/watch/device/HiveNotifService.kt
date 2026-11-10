@@ -106,6 +106,14 @@ class HiveNotifService : NotificationListenerService() {
         }
 
         /** Live notification titles for "read my notifications" — app: title. */
+        /** Dismiss everything currently posted — "clear my notifications". */
+        fun clearAll(): Int {
+            val svc = instance ?: return -1
+            val n = runCatching { svc.activeNotifications.size }.getOrDefault(0)
+            runCatching { svc.cancelAllNotifications() }
+            return n
+        }
+
         fun latest(ctx: Context): List<String> {
             val svc = instance ?: return emptyList()
             return runCatching {

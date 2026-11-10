@@ -43,13 +43,14 @@ object MeshLinker {
             // already-bridged? probe the live listener first — keepalive cycles
             // must not swap a healthy bridge for a fresh port every pass, that
             // races and kills in-flight requests.
-            val cur = api.baseUrl
+            val cur = api.baseUrl.ifBlank { store.meshUrl }
             if (cur.startsWith("http://127.0.0.1:") && api.probeHive(cur)) {
-                onHive(knownIp, store.meshTargetPort,
-                    cur.substringAfterLast(':').toIntOrNull() ?: 0,
-                    store.hiveNodeId)
-                return Triple(store.hiveNodeId.ifBlank { knownIp }, knownIp,
-                    cur.substringAfterLast(':').toIntOrNull() ?: 0)
+                api.baseUrl = cur
+                store.meshUrl = cur
+                val lp = cur.substringAfterLast(':').toIntOrNull() ?: 0
+                if (lp > 0) store.egressPort = lp
+                onHive(knownIp, store.meshTargetPort, lp, store.hiveNodeId)
+                return Triple(store.hiveNodeId.ifBlank { knownIp }, knownIp, lp)
             }
             log("re-bridging $knownIp…")
             val port = store.meshTargetPort.takeIf { it > 0 } ?: HIVE_VPORT
@@ -59,14 +60,24 @@ object MeshLinker {
                 if (lp != null) return@repeat
                 delay(400)
             }
-            if (lp != null && api.probeHive("http://127.0.0.1:$lp")) {
-                api.baseUrl = "http://127.0.0.1:$lp"
-                store.meshUrl = api.baseUrl
-                store.egressPort = lp!!
-                onHive(knownIp, port, lp!!, store.hiveNodeId)
-                return Triple(store.hiveNodeId.ifBlank { knownIp }, knownIp, lp!!)
+            if (lp != null) {
+                var ok = false
+                repeat(2) {
+                    if (api.probeHive("http://127.0.0.1:$lp")) {
+                        ok = true
+                        return@repeat
+                    }
+                    delay(800)
+                }
+                if (ok) {
+                    api.baseUrl = "http://127.0.0.1:$lp"
+                    store.meshUrl = api.baseUrl
+                    store.egressPort = lp!!
+                    onHive(knownIp, port, lp!!, store.hiveNodeId)
+                    return Triple(store.hiveNodeId.ifBlank { knownIp }, knownIp, lp!!)
+                }
+                nexus.closeEgress(knownIp, port)
             }
-            if (lp != null) nexus.closeEgress(knownIp, port)
         }
 
         for (round in 1..6) {

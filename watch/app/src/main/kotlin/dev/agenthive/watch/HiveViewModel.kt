@@ -66,6 +66,11 @@ data class UiState(
     val meshSnap: MeshSnapshot = MeshSnapshot(),
     val error: String = "",
     val caps: HiveApi.Caps = HiveApi.Caps(),
+    /** Proactive glanceable line from /api/assistant/next — becomes a
+     *  prompt chip when non-blank ("Meeting in 35m" → tap asks about it). */
+    val suggestion: String = "",
+    /** Always-on-display mode — the chat dims to a burn-in-safe surface. */
+    val ambient: Boolean = false,
 )
 
 class HiveViewModel(app: Application) : AndroidViewModel(app) {
@@ -219,18 +224,10 @@ class HiveViewModel(app: Application) : AndroidViewModel(app) {
                 } catch (e: Exception) {
                     lastErr = e
                     if (attempt == 1) {
-                        logLine("retrying — ${e.message?.take(28) ?: "mesh not ready"}")
-                        // ln_mesh_status.tunnel_up can lag a dead roam by a
-                        // couple of minutes — if a "healthy" RUNNING still
-                        // produced nothing, force the next pass to really
-                        // rejoin instead of trusting the cached state. reset()
-                        // keeps the radio demand armed across the gap — but
-                        // never teardown an in-flight join (the service may
-                        // legitimately hold CONNECTING right now).
-                        if (e.message?.contains("already joining") != true) {
-                            runCatching { nexus.reset() }
-                        }
-                        delay(8000)
+                        logLine("retrying — ${e.message?.take(28) ?: "mesh settling…"}")
+                        // Dataplane hole punching over UDP may still be negotiating peer endpoints.
+                        // Give it a few seconds to settle before retrying discovery without tearing down the node.
+                        delay(6000)
                     }
                 }
             }
@@ -874,6 +871,7 @@ class HiveViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun setListening(v: Boolean) { _ui.update { it.copy(listening = v) } }
+    fun setAmbient(v: Boolean) { _ui.update { it.copy(ambient = v) } }
 
     fun voiceResult(text: String) {
         _ui.update { it.copy(listening = false) }
@@ -907,6 +905,7 @@ class HiveViewModel(app: Application) : AndroidViewModel(app) {
                     it.copy(
                         mesh = if (up) "mesh" else "connecting",
                         meshInfo = "mesh · $cleanIp · $oc/$pc peers",
+                        suggestion = store.suggestion,
                         meshSnap = it.meshSnap.copy(
                             watchTunnelIp = cleanIp,
                             peerCount = pc,

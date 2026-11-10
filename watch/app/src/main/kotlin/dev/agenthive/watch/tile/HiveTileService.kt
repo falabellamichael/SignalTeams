@@ -47,7 +47,9 @@ class HiveTileService : TileService() {
                 store.displayName.takeIf { it.isNotBlank() }
                     ?.let { " as $it" }.orEmpty()
         }
-        val last = store.lastReply.take(90)
+        // Proactive line ("Meeting in 35m") wins over lastReply when present
+        val glance = store.suggestion.takeIf { it.isNotBlank() }
+            ?.let { "✦ $it" } ?: store.lastReply.take(90)
         val ask = ModifiersBuilders.Clickable.Builder()
             .setId("ask")
             .setOnClick(ActionBuilders.LaunchAction.Builder()
@@ -63,8 +65,8 @@ class HiveTileService : TileService() {
             .setWidth(DimensionBuilders.expand())
             .addContent(Text.Builder(ctx, status).build())
             .apply {
-                if (last.isNotBlank())
-                    addContent(Text.Builder(ctx, last)
+                if (glance.isNotBlank())
+                    addContent(Text.Builder(ctx, glance)
                         .setMaxLines(2).build())
             }
             .build()

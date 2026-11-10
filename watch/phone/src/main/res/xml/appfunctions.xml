@@ -1,0 +1,664 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<appfunctions>
+    <appfunction>
+        <id>dev.agenthive.phone.HiveAppFunctionServiceBase#findPhone</id>
+        <enabledByDefault>true</enabledByDefault>
+        <description>Rings this phone at maximum volume for up to 45 seconds so the
+owner can locate it, then restores the previous volume.</description>
+        <response>
+            <id>unused</id>
+            <valueType>
+                <id>unused</id>
+                <isNullable>false</isNullable>
+                <type>8</type>
+            </valueType>
+        </response>
+        <functionId>dev.agenthive.phone.HiveAppFunctionServiceBase#findPhone</functionId>
+    </appfunction>
+    <appfunction>
+        <id>dev.agenthive.phone.HiveAppFunctionServiceBase#stopRinging</id>
+        <enabledByDefault>true</enabledByDefault>
+        <description>Stops the find-my-phone ringtone if it is currently playing.</description>
+        <response>
+            <id>unused</id>
+            <valueType>
+                <id>unused</id>
+                <isNullable>false</isNullable>
+                <type>8</type>
+            </valueType>
+        </response>
+        <functionId>dev.agenthive.phone.HiveAppFunctionServiceBase#stopRinging</functionId>
+    </appfunction>
+    <appfunction>
+        <id>dev.agenthive.phone.HiveAppFunctionServiceBase#openApp</id>
+        <enabledByDefault>true</enabledByDefault>
+        <description>Opens an installed app on this phone by its display name, for
+example "Spotify" or "Camera".</description>
+        <parameters>
+            <dataTypeMetadata>
+                <id>unused</id>
+                <isNullable>false</isNullable>
+                <type>8</type>
+            </dataTypeMetadata>
+            <id>unused</id>
+            <isRequired>true</isRequired>
+            <name>name</name>
+            <description>the app's display name as shown on the launcher</description>
+        </parameters>
+        <response>
+            <id>unused</id>
+            <valueType>
+                <id>unused</id>
+                <isNullable>false</isNullable>
+                <type>8</type>
+            </valueType>
+        </response>
+        <functionId>dev.agenthive.phone.HiveAppFunctionServiceBase#openApp</functionId>
+    </appfunction>
+    <appfunction>
+        <id>dev.agenthive.phone.HiveAppFunctionServiceBase#ringWatch</id>
+        <enabledByDefault>true</enabledByDefault>
+        <description>Rings the paired Wear OS watch at maximum volume so the owner can
+find it, vibrating and showing a heads-up alert.</description>
+        <response>
+            <id>unused</id>
+            <valueType>
+                <id>unused</id>
+                <isNullable>false</isNullable>
+                <type>8</type>
+            </valueType>
+        </response>
+        <functionId>dev.agenthive.phone.HiveAppFunctionServiceBase#ringWatch</functionId>
+    </appfunction>
+    <appfunction>
+        <id>dev.agenthive.phone.HiveAppFunctionServiceBase#watchStatus</id>
+        <enabledByDefault>true</enabledByDefault>
+        <description>Reads the paired watch's status — battery level and whether it is
+charging — over the Wear data layer.</description>
+        <response>
+            <id>unused</id>
+            <valueType>
+                <id>unused</id>
+                <isNullable>false</isNullable>
+                <type>8</type>
+            </valueType>
+        </response>
+        <functionId>dev.agenthive.phone.HiveAppFunctionServiceBase#watchStatus</functionId>
+    </appfunction>
+    <appfunction>
+        <id>dev.agenthive.phone.HiveAppFunctionServiceBase#notifyWatch</id>
+        <enabledByDefault>true</enabledByDefault>
+        <description>Sends a heads-up notification to the paired Wear OS watch.</description>
+        <parameters>
+            <dataTypeMetadata>
+                <id>unused</id>
+                <isNullable>false</isNullable>
+                <type>8</type>
+            </dataTypeMetadata>
+            <id>unused</id>
+            <isRequired>true</isRequired>
+            <name>text</name>
+            <description>the message to show on the watch</description>
+        </parameters>
+        <response>
+            <id>unused</id>
+            <valueType>
+                <id>unused</id>
+                <isNullable>false</isNullable>
+                <type>8</type>
+            </valueType>
+        </response>
+        <functionId>dev.agenthive.phone.HiveAppFunctionServiceBase#notifyWatch</functionId>
+    </appfunction>
+    <appfunction>
+        <id>dev.agenthive.phone.HiveAppFunctionServiceBase#readNotifications</id>
+        <enabledByDefault>true</enabledByDefault>
+        <description>Reads the phone's most recent notifications aloud as a list —
+app name and text for each.</description>
+        <response>
+            <id>unused</id>
+            <valueType>
+                <id>unused</id>
+                <isNullable>false</isNullable>
+                <type>8</type>
+            </valueType>
+        </response>
+        <functionId>dev.agenthive.phone.HiveAppFunctionServiceBase#readNotifications</functionId>
+    </appfunction>
+    <appfunction>
+        <id>dev.agenthive.phone.HiveAppFunctionServiceBase#actOnNotification</id>
+        <enabledByDefault>true</enabledByDefault>
+        <description>Acts on a notification shown by readNotifications — "open" fires
+its tap intent, "dismiss" clears it from the shade, "reply"
+answers it inline (set text).</description>
+        <parameters>
+            <dataTypeMetadata>
+                <id>unused</id>
+                <isNullable>false</isNullable>
+                <type>8</type>
+            </dataTypeMetadata>
+            <id>unused</id>
+            <isRequired>true</isRequired>
+            <name>key</name>
+            <description>the "#N" index from readNotifications</description>
+        </parameters>
+        <parameters>
+            <dataTypeMetadata>
+                <id>unused</id>
+                <isNullable>false</isNullable>
+                <type>8</type>
+            </dataTypeMetadata>
+            <id>unused</id>
+            <isRequired>true</isRequired>
+            <name>verb</name>
+            <description>open, dismiss, or reply</description>
+        </parameters>
+        <parameters>
+            <dataTypeMetadata>
+                <id>unused</id>
+                <isNullable>true</isNullable>
+                <type>8</type>
+            </dataTypeMetadata>
+            <id>unused</id>
+            <isRequired>true</isRequired>
+            <name>text</name>
+            <description>the reply body (reply verb only)</description>
+        </parameters>
+        <response>
+            <id>unused</id>
+            <valueType>
+                <id>unused</id>
+                <isNullable>false</isNullable>
+                <type>8</type>
+            </valueType>
+        </response>
+        <functionId>dev.agenthive.phone.HiveAppFunctionServiceBase#actOnNotification</functionId>
+    </appfunction>
+    <appfunction>
+        <id>dev.agenthive.phone.HiveAppFunctionServiceBase#nowPlaying</id>
+        <enabledByDefault>true</enabledByDefault>
+        <description>Says which song or media is currently playing on this phone,
+if anything is.</description>
+        <response>
+            <id>unused</id>
+            <valueType>
+                <id>unused</id>
+                <isNullable>false</isNullable>
+                <type>8</type>
+            </valueType>
+        </response>
+        <functionId>dev.agenthive.phone.HiveAppFunctionServiceBase#nowPlaying</functionId>
+    </appfunction>
+    <appfunction>
+        <id>dev.agenthive.phone.HiveAppFunctionServiceBase#controlMedia</id>
+        <enabledByDefault>true</enabledByDefault>
+        <description>Controls media playing on this phone.</description>
+        <parameters>
+            <dataTypeMetadata>
+                <id>unused</id>
+                <isNullable>false</isNullable>
+                <type>8</type>
+            </dataTypeMetadata>
+            <id>unused</id>
+            <isRequired>true</isRequired>
+            <name>verb</name>
+            <description>one of: play, pause, next, previous</description>
+        </parameters>
+        <response>
+            <id>unused</id>
+            <valueType>
+                <id>unused</id>
+                <isNullable>false</isNullable>
+                <type>8</type>
+            </valueType>
+        </response>
+        <functionId>dev.agenthive.phone.HiveAppFunctionServiceBase#controlMedia</functionId>
+    </appfunction>
+    <appfunction>
+        <id>dev.agenthive.phone.HiveAppFunctionServiceBase#callContact</id>
+        <enabledByDefault>true</enabledByDefault>
+        <description>Calls a contact by name — resolves the number from this phone's
+contacts and opens the dialer ready to call.</description>
+        <parameters>
+            <dataTypeMetadata>
+                <id>unused</id>
+                <isNullable>false</isNullable>
+                <type>8</type>
+            </dataTypeMetadata>
+            <id>unused</id>
+            <isRequired>true</isRequired>
+            <name>name</name>
+            <description>the contact's name, e.g. "Mom"</description>
+        </parameters>
+        <response>
+            <id>unused</id>
+            <valueType>
+                <id>unused</id>
+                <isNullable>false</isNullable>
+                <type>8</type>
+            </valueType>
+        </response>
+        <functionId>dev.agenthive.phone.HiveAppFunctionServiceBase#callContact</functionId>
+    </appfunction>
+    <appfunction>
+        <id>dev.agenthive.phone.HiveAppFunctionServiceBase#messageContact</id>
+        <enabledByDefault>true</enabledByDefault>
+        <description>Opens the messages composer ready to text a contact by name.</description>
+        <parameters>
+            <dataTypeMetadata>
+                <id>unused</id>
+                <isNullable>false</isNullable>
+                <type>8</type>
+            </dataTypeMetadata>
+            <id>unused</id>
+            <isRequired>true</isRequired>
+            <name>name</name>
+            <description>the contact's name, e.g. "Mom"</description>
+        </parameters>
+        <response>
+            <id>unused</id>
+            <valueType>
+                <id>unused</id>
+                <isNullable>false</isNullable>
+                <type>8</type>
+            </valueType>
+        </response>
+        <functionId>dev.agenthive.phone.HiveAppFunctionServiceBase#messageContact</functionId>
+    </appfunction>
+    <appfunction>
+        <id>dev.agenthive.phone.HiveAppFunctionServiceBase#whatsappContact</id>
+        <enabledByDefault>true</enabledByDefault>
+        <description>Opens a WhatsApp chat with a contact by name.</description>
+        <parameters>
+            <dataTypeMetadata>
+                <id>unused</id>
+                <isNullable>false</isNullable>
+                <type>8</type>
+            </dataTypeMetadata>
+            <id>unused</id>
+            <isRequired>true</isRequired>
+            <name>name</name>
+            <description>the contact's name, e.g. "Mom"</description>
+        </parameters>
+        <response>
+            <id>unused</id>
+            <valueType>
+                <id>unused</id>
+                <isNullable>false</isNullable>
+                <type>8</type>
+            </valueType>
+        </response>
+        <functionId>dev.agenthive.phone.HiveAppFunctionServiceBase#whatsappContact</functionId>
+    </appfunction>
+    <appfunction>
+        <id>dev.agenthive.phone.HiveAppFunctionServiceBase#takePhoto</id>
+        <enabledByDefault>true</enabledByDefault>
+        <description>Opens the camera ready to take a photo.</description>
+        <response>
+            <id>unused</id>
+            <valueType>
+                <id>unused</id>
+                <isNullable>false</isNullable>
+                <type>8</type>
+            </valueType>
+        </response>
+        <functionId>dev.agenthive.phone.HiveAppFunctionServiceBase#takePhoto</functionId>
+    </appfunction>
+    <appfunction>
+        <id>dev.agenthive.phone.HiveAppFunctionServiceBase#setFlashlight</id>
+        <enabledByDefault>true</enabledByDefault>
+        <description>Turns this phone's flashlight on or off.</description>
+        <parameters>
+            <dataTypeMetadata>
+                <id>unused</id>
+                <isNullable>false</isNullable>
+                <type>1</type>
+            </dataTypeMetadata>
+            <id>unused</id>
+            <isRequired>true</isRequired>
+            <name>on</name>
+            <description>true to turn the flashlight on, false to turn it off</description>
+        </parameters>
+        <response>
+            <id>unused</id>
+            <valueType>
+                <id>unused</id>
+                <isNullable>false</isNullable>
+                <type>8</type>
+            </valueType>
+        </response>
+        <functionId>dev.agenthive.phone.HiveAppFunctionServiceBase#setFlashlight</functionId>
+    </appfunction>
+    <appfunction>
+        <id>dev.agenthive.phone.HiveAppFunctionServiceBase#setRingerMode</id>
+        <enabledByDefault>true</enabledByDefault>
+        <description>Changes this phone's ringer mode.</description>
+        <parameters>
+            <dataTypeMetadata>
+                <id>unused</id>
+                <isNullable>false</isNullable>
+                <type>8</type>
+            </dataTypeMetadata>
+            <id>unused</id>
+            <isRequired>true</isRequired>
+            <name>mode</name>
+            <description>one of: silent, vibrate, normal</description>
+        </parameters>
+        <response>
+            <id>unused</id>
+            <valueType>
+                <id>unused</id>
+                <isNullable>false</isNullable>
+                <type>8</type>
+            </valueType>
+        </response>
+        <functionId>dev.agenthive.phone.HiveAppFunctionServiceBase#setRingerMode</functionId>
+    </appfunction>
+    <appfunction>
+        <id>dev.agenthive.phone.HiveAppFunctionServiceBase#identifySong</id>
+        <enabledByDefault>true</enabledByDefault>
+        <description>Listens to the environment and identifies the song that is
+playing, like Shazam.</description>
+        <response>
+            <id>unused</id>
+            <valueType>
+                <id>unused</id>
+                <isNullable>false</isNullable>
+                <type>8</type>
+            </valueType>
+        </response>
+        <functionId>dev.agenthive.phone.HiveAppFunctionServiceBase#identifySong</functionId>
+    </appfunction>
+    <appfunction>
+        <id>dev.agenthive.phone.HiveAppFunctionServiceBase#setTimer</id>
+        <enabledByDefault>true</enabledByDefault>
+        <description>Starts a countdown timer on the phone's clock app.</description>
+        <parameters>
+            <dataTypeMetadata>
+                <id>unused</id>
+                <isNullable>false</isNullable>
+                <type>7</type>
+            </dataTypeMetadata>
+            <id>unused</id>
+            <isRequired>true</isRequired>
+            <name>seconds</name>
+            <description>how long the timer runs, in seconds</description>
+        </parameters>
+        <parameters>
+            <dataTypeMetadata>
+                <id>unused</id>
+                <isNullable>true</isNullable>
+                <type>8</type>
+            </dataTypeMetadata>
+            <id>unused</id>
+            <isRequired>true</isRequired>
+            <name>label</name>
+            <description>optional name for the timer, e.g. "pasta"</description>
+        </parameters>
+        <response>
+            <id>unused</id>
+            <valueType>
+                <id>unused</id>
+                <isNullable>false</isNullable>
+                <type>8</type>
+            </valueType>
+        </response>
+        <functionId>dev.agenthive.phone.HiveAppFunctionServiceBase#setTimer</functionId>
+    </appfunction>
+    <appfunction>
+        <id>dev.agenthive.phone.HiveAppFunctionServiceBase#setAlarm</id>
+        <enabledByDefault>true</enabledByDefault>
+        <description>Creates an alarm on the phone's clock app.</description>
+        <parameters>
+            <dataTypeMetadata>
+                <id>unused</id>
+                <isNullable>false</isNullable>
+                <type>7</type>
+            </dataTypeMetadata>
+            <id>unused</id>
+            <isRequired>true</isRequired>
+            <name>hour</name>
+            <description>hour of day, 0-23</description>
+        </parameters>
+        <parameters>
+            <dataTypeMetadata>
+                <id>unused</id>
+                <isNullable>false</isNullable>
+                <type>7</type>
+            </dataTypeMetadata>
+            <id>unused</id>
+            <isRequired>true</isRequired>
+            <name>minutes</name>
+            <description>minute of hour, 0-59</description>
+        </parameters>
+        <parameters>
+            <dataTypeMetadata>
+                <id>unused</id>
+                <isNullable>true</isNullable>
+                <type>8</type>
+            </dataTypeMetadata>
+            <id>unused</id>
+            <isRequired>true</isRequired>
+            <name>label</name>
+            <description>optional name for the alarm</description>
+        </parameters>
+        <response>
+            <id>unused</id>
+            <valueType>
+                <id>unused</id>
+                <isNullable>false</isNullable>
+                <type>8</type>
+            </valueType>
+        </response>
+        <functionId>dev.agenthive.phone.HiveAppFunctionServiceBase#setAlarm</functionId>
+    </appfunction>
+    <appfunction>
+        <id>dev.agenthive.phone.HiveAppFunctionServiceBase#navigateTo</id>
+        <enabledByDefault>true</enabledByDefault>
+        <description>Starts turn-by-turn navigation to a destination.</description>
+        <parameters>
+            <dataTypeMetadata>
+                <id>unused</id>
+                <isNullable>false</isNullable>
+                <type>8</type>
+            </dataTypeMetadata>
+            <id>unused</id>
+            <isRequired>true</isRequired>
+            <name>destination</name>
+            <description>address or place name, e.g. "home" or "YYZ"</description>
+        </parameters>
+        <response>
+            <id>unused</id>
+            <valueType>
+                <id>unused</id>
+                <isNullable>false</isNullable>
+                <type>8</type>
+            </valueType>
+        </response>
+        <functionId>dev.agenthive.phone.HiveAppFunctionServiceBase#navigateTo</functionId>
+    </appfunction>
+    <appfunction>
+        <id>dev.agenthive.phone.HiveAppFunctionServiceBase#openUrl</id>
+        <enabledByDefault>true</enabledByDefault>
+        <description>Opens a web page or deep link on this phone.</description>
+        <parameters>
+            <dataTypeMetadata>
+                <id>unused</id>
+                <isNullable>false</isNullable>
+                <type>8</type>
+            </dataTypeMetadata>
+            <id>unused</id>
+            <isRequired>true</isRequired>
+            <name>url</name>
+            <description>the URL to open</description>
+        </parameters>
+        <response>
+            <id>unused</id>
+            <valueType>
+                <id>unused</id>
+                <isNullable>false</isNullable>
+                <type>8</type>
+            </valueType>
+        </response>
+        <functionId>dev.agenthive.phone.HiveAppFunctionServiceBase#openUrl</functionId>
+    </appfunction>
+    <appfunction>
+        <id>dev.agenthive.phone.HiveAppFunctionServiceBase#remember</id>
+        <enabledByDefault>true</enabledByDefault>
+        <description>Saves a note to the user's AgentHive memory — "remember that the
+wifi password is X".</description>
+        <parameters>
+            <dataTypeMetadata>
+                <id>unused</id>
+                <isNullable>false</isNullable>
+                <type>8</type>
+            </dataTypeMetadata>
+            <id>unused</id>
+            <isRequired>true</isRequired>
+            <name>text</name>
+            <description>the fact or note to remember</description>
+        </parameters>
+        <response>
+            <id>unused</id>
+            <valueType>
+                <id>unused</id>
+                <isNullable>false</isNullable>
+                <type>8</type>
+            </valueType>
+        </response>
+        <functionId>dev.agenthive.phone.HiveAppFunctionServiceBase#remember</functionId>
+    </appfunction>
+    <appfunction>
+        <id>dev.agenthive.phone.HiveAppFunctionServiceBase#askHive</id>
+        <enabledByDefault>true</enabledByDefault>
+        <description>Asks the AgentHive assistant a question and returns the reply,
+routed through the user's hive cluster.</description>
+        <parameters>
+            <dataTypeMetadata>
+                <id>unused</id>
+                <isNullable>false</isNullable>
+                <type>8</type>
+            </dataTypeMetadata>
+            <id>unused</id>
+            <isRequired>true</isRequired>
+            <name>query</name>
+            <description>the natural-language question or instruction</description>
+        </parameters>
+        <response>
+            <id>unused</id>
+            <valueType>
+                <id>unused</id>
+                <isNullable>false</isNullable>
+                <type>8</type>
+            </valueType>
+        </response>
+        <functionId>dev.agenthive.phone.HiveAppFunctionServiceBase#askHive</functionId>
+    </appfunction>
+    <appfunction>
+        <id>dev.agenthive.phone.HiveAppFunctionServiceBase#setDeviceStateItem</id>
+        <enabledByDefault>true</enabledByDefault>
+        <description>Sets a device state item on this phone. Supported keys:
+"agenthive.flashlight" (true/false), "agenthive.ringer_mode"
+(silent/vibrate/normal), "agenthive.find_phone" (true starts the
+locator ring, false stops it).</description>
+        <parameters>
+            <dataTypeMetadata>
+                <id>unused</id>
+                <isNullable>false</isNullable>
+                <type>8</type>
+            </dataTypeMetadata>
+            <id>unused</id>
+            <isRequired>true</isRequired>
+            <name>key</name>
+        </parameters>
+        <parameters>
+            <dataTypeMetadata>
+                <id>unused</id>
+                <isNullable>false</isNullable>
+                <type>8</type>
+            </dataTypeMetadata>
+            <id>unused</id>
+            <isRequired>true</isRequired>
+            <name>value</name>
+        </parameters>
+        <response>
+            <id>unused</id>
+            <valueType>
+                <id>unused</id>
+                <isNullable>false</isNullable>
+                <type>8</type>
+            </valueType>
+        </response>
+        <functionId>dev.agenthive.phone.HiveAppFunctionServiceBase#setDeviceStateItem</functionId>
+    </appfunction>
+    <appfunction>
+        <id>dev.agenthive.phone.HiveAppFunctionServiceBase#getDeviceStateItem</id>
+        <enabledByDefault>true</enabledByDefault>
+        <description>Reads a device state item from this phone. Supported keys:
+"agenthive.battery", "agenthive.battery_charging",
+"agenthive.ringer_mode", "agenthive.now_playing".</description>
+        <parameters>
+            <dataTypeMetadata>
+                <id>unused</id>
+                <isNullable>false</isNullable>
+                <type>8</type>
+            </dataTypeMetadata>
+            <id>unused</id>
+            <isRequired>true</isRequired>
+            <name>key</name>
+            <description>the state item to read</description>
+        </parameters>
+        <response>
+            <id>unused</id>
+            <valueType>
+                <id>unused</id>
+                <isNullable>false</isNullable>
+                <type>8</type>
+            </valueType>
+        </response>
+        <functionId>dev.agenthive.phone.HiveAppFunctionServiceBase#getDeviceStateItem</functionId>
+    </appfunction>
+    <appfunction>
+        <id>dev.agenthive.phone.HiveAppFunctionServiceBase#getDeviceStateMetadata</id>
+        <enabledByDefault>true</enabledByDefault>
+        <description>Lists the device state items this phone exposes —
+"agenthive.flashlight", "agenthive.ringer_mode",
+"agenthive.find_phone", "agenthive.battery",
+"agenthive.battery_charging", "agenthive.now_playing".</description>
+        <response>
+            <id>unused</id>
+            <valueType>
+                <id>unused</id>
+                <isNullable>false</isNullable>
+                <type>8</type>
+            </valueType>
+        </response>
+        <functionId>dev.agenthive.phone.HiveAppFunctionServiceBase#getDeviceStateMetadata</functionId>
+    </appfunction>
+    <appfunction>
+        <id>dev.agenthive.phone.HiveAppFunctionServiceBase#toggleDeviceStateItem</id>
+        <enabledByDefault>true</enabledByDefault>
+        <description>Flips a boolean device state item. Supported key:
+"agenthive.flashlight" (toggles the torch), "agenthive.find_phone"
+(toggles the locator ring).</description>
+        <parameters>
+            <dataTypeMetadata>
+                <id>unused</id>
+                <isNullable>false</isNullable>
+                <type>8</type>
+            </dataTypeMetadata>
+            <id>unused</id>
+            <isRequired>true</isRequired>
+            <name>key</name>
+        </parameters>
+        <response>
+            <id>unused</id>
+            <valueType>
+                <id>unused</id>
+                <isNullable>false</isNullable>
+                <type>8</type>
+            </valueType>
+        </response>
+        <functionId>dev.agenthive.phone.HiveAppFunctionServiceBase#toggleDeviceStateItem</functionId>
+    </appfunction>
+</appfunctions>

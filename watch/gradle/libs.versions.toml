@@ -31,7 +31,12 @@ wear-tiles-material = { group = "androidx.wear.tiles", name = "tiles-material", 
 protolayout-material = { group = "androidx.wear.protolayout", name = "protolayout-material", version.ref = "protolayout" }
 concurrent-futures = { group = "androidx.concurrent", name = "concurrent-futures", version.ref = "concurrentFutures" }
 health-services = { group = "androidx.health", name = "health-services-client", version.ref = "healthServices" }
+watchface-complications-datasource = { group = "androidx.wear.watchface", name = "watchface-complications-data-source", version = "1.2.1" }
+play-services-wearable = { group = "com.google.android.gms", name = "play-services-wearable", version = "19.0.0" }
+appfunctions = { group = "androidx.appfunctions", name = "appfunctions", version = "1.0.0-rc01" }
+appfunctions-compiler = { group = "androidx.appfunctions", name = "appfunctions-compiler", version = "1.0.0-rc01" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
 kotlin-compose-compiler = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
+ksp = { id = "com.google.devtools.ksp", version = "2.2.10-2.0.2" }

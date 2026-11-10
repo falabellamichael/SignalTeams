@@ -24,6 +24,6 @@ class HiveApp : Application() {
         store = Store(this)
         api = HiveApi()
         nexus = NexusNode(this)
-        speaker = Speaker(api)
+        speaker = Speaker(api, this)
     }
 }

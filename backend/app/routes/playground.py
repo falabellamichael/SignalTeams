@@ -426,6 +426,44 @@ def memory_add(body: MemIn, user=Depends(current_user)):
     return {"ok": True, "items": items}
 
 
+@router.get("/api/assistant/next")
+def assistant_next(user=Depends(current_user)):
+    """Proactive glanceable — the next real thing on the user's calendar.
+    Mirrors Google's ProactiveComplicationService: a watch-face/Tile line like
+    "Team sync in 35m". Empty label when nothing is due within 6h, the
+    calendar plugin isn't connected, or its grant lapsed — the caller just
+    shows the default face."""
+    try:
+        with db() as conn:
+            r = cx.plugin_tool(conn, user["id"], "gcal",
+                               {"action": "events", "days": 1})
+    except Exception:
+        r = {"ok": False}
+    if not r.get("ok") or not isinstance(r.get("result"), list):
+        return {"label": "", "kind": ""}
+    import datetime as _dt
+    now_dt = _dt.datetime.now(_dt.timezone.utc)
+    horizon = now_dt + _dt.timedelta(hours=6)
+    best = None
+    summary = ""
+    for e in r["result"]:
+        st = e.get("start") or ""
+        try:
+            dt = _dt.datetime.fromisoformat(st.replace("Z", "+00:00"))
+        except Exception:
+            continue                     # all-day events carry date only
+        if now_dt <= dt <= horizon and (best is None or dt < best):
+            best = dt
+            summary = (e.get("summary") or "").strip()
+    if best is None or not summary:
+        return {"label": "", "kind": ""}
+    mins = int((best - now_dt).total_seconds() // 60)
+    when = (f"in {mins}m" if mins < 60 else
+            "at " + best.astimezone().strftime("%I:%M %p").lstrip("0"))
+    return {"label": f"{summary[:28]} {when}", "kind": "calendar",
+            "at": best.isoformat()}
+
+
 @router.put("/api/agents/{aid}/connect")
 def put_agent_connect(aid: int, body: AgentConnectIn, user=Depends(current_user)):
     """Configure an individual agent's API / LLM / Webhook / Grounding connection."""

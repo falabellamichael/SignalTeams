@@ -44,6 +44,17 @@ class MeshService : Service() {
             NotificationChannel(CHANNEL, "Mesh link", NotificationManager.IMPORTANCE_LOW)
         )
         notify("Encrypted link to your hive is starting…")
+        // Wear OS refuses manifest MESSAGE_RECEIVED delivery to sideloaded
+        // apps — a runtime listener rides a live binder and works.
+        com.google.android.gms.wearable.Wearable.getMessageClient(this)
+            .addListener { ev ->
+                if (ev.path.startsWith("/hive/"))
+                    dev.agenthive.watch.device.WatchWearService.handleMessage(this, ev)
+            }.addOnCompleteListener { t ->
+                android.util.Log.i("MeshService",
+                    "wear listener registered: ${t.isSuccessful}" +
+                    (t.exception?.let { " (${it.message})" } ?: ""))
+            }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -92,12 +103,15 @@ class MeshService : Service() {
                             Log.i("MeshService", m) }) != null) {
                         app.store.meshEnabled = true
                         notify("Encrypted link to your hive is up")
+                        refreshSuggestion(app)
                         return
                     }
-                    // tunnel reported up but nothing answers — status can lag
-                    // a dead roam; force a real rejoin on the next pass while
-                    // keeping the radio demand armed.
-                    runCatching { app.nexus.reset() }
+                    // Hole-punching over UDP and peer handshake can take several seconds.
+                    // Do NOT reset the active dataplane on earlier passes; only force a full
+                    // rejoin on the final attempt if everything has timed out.
+                    if (attempt == 3) {
+                        runCatching { app.nexus.reset() }
+                    }
                 } catch (e: Exception) {
                     Log.w("MeshService", "pass $attempt: ${e.message}")
                 }
@@ -105,6 +119,32 @@ class MeshService : Service() {
             }
             notify("Mesh offline — retrying…")
         } finally { linking = false }
+    }
+
+    /** Proactive glanceable — pull /api/assistant/next ~every 10min so the
+     *  tile + watch-face complication can show "Meeting in 35m" unprompted.
+     *  Errors leave the old line in place. */
+    private suspend fun refreshSuggestion(app: HiveApp) {
+        val now = System.currentTimeMillis()
+        if (now - lastSuggest < 600_000) return
+        lastSuggest = now
+        val label = app.api.assistantNext()
+        if (app.store.suggestion != label) {
+            app.store.suggestion = label
+            runCatching {
+                androidx.wear.watchface.complications.datasource
+                    .ComplicationDataSourceUpdateRequester
+                    .create(this, android.content.ComponentName(
+                        this, dev.agenthive.watch.complication
+                            .HiveComplicationService::class.java))
+                    .requestUpdateAll()
+            }
+            runCatching {
+                androidx.wear.tiles.TileService.getUpdater(this)
+                    .requestUpdate(dev.agenthive.watch.tile
+                        .HiveTileService::class.java)
+            }
+        }
     }
 
     private fun notify(text: String) {
@@ -138,5 +178,8 @@ class MeshService : Service() {
         /** Set while the service owns the link — MainActivity consults this
          *  before suspending the dataplane on ON_STOP. */
         @Volatile var running = false; private set
+
+        /** Last proactive-suggestion refresh — ~10min cadence. */
+        @Volatile private var lastSuggest = 0L
     }
 }

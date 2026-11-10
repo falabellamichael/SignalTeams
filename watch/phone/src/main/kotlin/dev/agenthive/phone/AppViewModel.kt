@@ -389,6 +389,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     /** Egress landed — the loopback IS the server. Stored login resumes if valid. */
     private suspend fun onMeshUp(meshUrl: String, silent: Boolean) {
         store.serverUrl = meshUrl
+        runCatching { PhoneMeshService.start(getApplication()) }
         _ui.update { it.copy(serverUrl = meshUrl, meshUp = true) }
         if (store.token.isNotBlank()) {
             api.baseUrl = meshUrl; api.token = store.token

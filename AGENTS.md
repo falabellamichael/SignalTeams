@@ -94,7 +94,11 @@
   declare `android.permission.BIND_VOICE_INTERACTION` (the privileged string,
   NOT the public `_SERVICE` variant — aapt accepts either, Wear validates the
   former) and `supportsLaunchVoiceAssistFromKeyguard="true"` in
-  `res/xml/voice_interaction_service.xml` or keyguard blocks it with "Unlock
+  Every assistant-invocation action (ASSIST, VOICE_ASSIST, VOICE_COMMAND,
+  WEB_SEARCH, VOICE_SEARCH_HANDS_FREE, GLOBAL_SEARCH, START_HOTWORD_QUERY)
+  gets the same treatment in MainActivity.handleIntent: setShowWhenLocked +
+  setTurnScreenOn + straight to the mic; a carried `query` extra answers
+  directly without opening the mic. `res/xml/voice_interaction_service.xml` or keyguard blocks it with "Unlock
   the watch to use Hive". Samsung's WearAssistManager never surfaces the
   session window, so `onPrepareToShowSession`/`onLaunchVoiceAssistFromKeyguard`/
   `onShowSessionFailed` ALL launch `MainActivity` with `ACTION_ASSIST` directly
@@ -109,7 +113,16 @@
   `POST /api/llm/tts` {text,voice?} proxies `/audio/speech` (kokoro → mp3,
   keys stay server-side; 404 = no model → client falls back to text);
   `POST /api/llm/embed` proxies `/embeddings` (Qwen3-Embedding, 1024-dim).
-  Watch: `Speaker` plays replies after stream done (markdown stripped, 800ch);
+  Watch: `Speaker(api, ctx)` plays replies after stream done (markdown
+  stripped, 800ch) — hive kokoro first, then the on-device TextToSpeech
+  engine (com.google.android.tts ships on every Wear watch) so replies
+  still speak when mesh/backend TTS is unreachable — same offline-voice
+  path the built-in assistant takes; `ContextReceiver` writes ambient
+  triggers into `store.suggestion` — HEADSET_PLUG/A2DP-connected →
+  "Resume my music" chip, TIME_SET/TIMEZONE/LOCALE → complication
+  re-render (freshest context wins; mesh refresh restores calendar
+  suggestions within ~10min); `device/GpsProbe` adds altitude, speed,
+  and reverse-geocoded "where am I" via nominatim;
   `device/DeviceCommands` is a local NLU dispatcher inside `send()` — open
   apps (PackageManager launch intents + manifest `<queries>` MAIN/LAUNCHER),
   Settings deep-links, volume (AudioManager), media transport
@@ -142,7 +155,19 @@
   → `openUri` (the picked option's label is injected into step history so the
   model knows which page it's on), `search` → `spotify:search:` URI, `ask` →
   parks for a spoken pick; `matchOption` maps "2"/"the second one"/partial
-  names to the stored URI with no extra model call. Actions include `typekeys`
+  names to the stored URI with no extra model call. Watch hardware: Galaxy
+  Watch8 Classic (product `pa3q`, serial suffix B7MA, 438×438, Wear OS 5);
+  the paired phone is an SM-S938W (S25 Ultra) running `dev.agenthive.phone`.
+  **Hardware adb-testing traps (Galaxy Watch):** the watch PIN-locks the moment it leaves the wrist
+  (`dumpsys trust` → `deviceLocked=1`) — a keyguard overlay then eats EVERY
+  tap while uiautomator dumps still show the app's windows, so input looks
+  like a flaky IME (fragments like 'yj', taps landing on apps underneath).
+  Check `dumpsys trust | grep deviceLocked` before any input-driven test and
+  keep it on-wrist or enter the PIN first. `KEYCODE_VOICE_ASSIST` is eaten
+  by Bixby (`OnboardingActivity`) regardless of the assistant role — our
+  VIVS registers fine (`dumpsys voiceinteraction` shows it + session
+  service) but Samsung's keycode path never reaches it; invoke assist via
+  in-app mic or the tile's Ask chip. Actions include `typekeys`
   (`HiveA11y.typeKeys` taps on-screen keyboard letters — Wear Spotify's search
   IGNORES ACTION_SET_TEXT for its query state: the box fills visually but
   enter submits "" — typekeys is real key input) and `clickText` prefers
@@ -162,14 +187,67 @@
   scroll reveals Search+Library tiles. Wear Spotify DOES have search (tap 🔍 on home) but
   Wear apps are minimal — the model is told to ask with names it actually
   saw rather than cycle launch/back.
+  **Reverse-engineered assistant surface** (live `dumpsys package` of
+  `com.google.android.wearable.assistant` + `com.samsung.android.bixby.agent`
+  on the Galaxy Watch): Google's Wear assistant = `EdorasVoiceInteractionService`
+  VIVS + `AssistantTileProviderService` + a second Glance-bound
+  `AssistantWidgetService` + TWO complications (`AssistantComplicationService`
+  + `.proactive.ProactiveComplicationService`, both legacy
+  `android.support.wearable.complications` API under
+  BIND_COMPLICATION_PROVIDER) + `ProactiveWearableListenerService` (phone→watch
+  data layer) + `ContextTriggerBroadcastReceiver` (BOOT/LOCALE/GEOFENCE/
+  AWARENESS/HEADPHONE/MEDIA/NETWORK triggers) + `CalendarUpdatedAppSearch`-
+  BroadcastReceiver (calendar indexed via appsearch) + `FcmService` +
+  `RttNudgeActivity`/`SettingsActivity`/`JokerActivity`. MainActivity filters:
+  ASSIST/VOICE_ASSIST/START_HOTWORD_QUERY/GLOBAL_SEARCH (+DEFAULT). Bixby adds
+  VOICE_COMMAND/SVOICE/WEB_SEARCH/VOICE_SEARCH_HANDS_FREE. Its requested
+  permissions reveal vendor controls: `com.samsung.android.watch.timer.
+  permission.{READ,EDIT}_TIMER` + `alarm.permission.EDIT_ALARM`, Google
+  deskclock `{READ_PERMISSION,MUTATE_TIMER,REMOVE_ALARM}`,
+  `com.google.wear.permission.{READ,WRITE}_{FOCUS_MODES,TOUCH_LOCK,
+  BATTERY_SAVER}`, `com.google.android.wearable.{READ,WRITE}_SETTINGS`,
+  `EXECUTE_APP_FUNCTIONS` (AppFunctions), `CAPTURE_AUDIO_HOTWORD` (sig-only —
+  hotword is why third-party can't do wake word). **Samsung's timer app
+  (`com.samsung.android.watch.timer`) exports `TimerAssistantHandleActivity`
+  — built FOR assistants — honoring `com.samsung.android.watch.timer.action.
+  {PAUSE,RESUME,RESET,MUTATE}_TIMER` intents + `TimerCTSHandleActivity` for
+  `android.intent.action.DISMISS_TIMER`; `DISMISS_ALARM`/`SNOOZE_ALARM` are
+  stock intents.** Samsung gates TYPE_HEART_RATE behind
+  `android.permission.health.READ_HEART_RATE` (stock Wear uses BODY_SENSORS);
+  barometer TYPE_PRESSURE is permission-free; skin-temp needs sig-level
+  `com.samsung.permission.SSENSOR`.
+  **Gemini architecture (aapt-dumped from the phone's googlequicksearchbox
+  261MB base.apk — bard/`com.google.android.apps.bard` is only a 5MB shell
+  delegating to GSA + searchlite):** the watch is a thin client, the phone
+  GSA is the brain — same split as our watch↔hive. Their watch↔phone
+  channel: `WdlTriggerListener` handles `REQUEST_RECEIVED` on
+  `wear://*/gemini/wearservice` (GMS request/response API — richer than
+  MESSAGE_RECEIVED; we use message+reply-path which is equivalent but
+  hand-rolled). `wear-trusted-peer-packages` meta-data cert-pins
+  `com.google.android.wearable.assistant` — third parties can't call their
+  endpoint. `WearAssistantEndpointService` exposes gRPC
+  `WearAssistantInitService` over the Wearable channel.
+  `MANAGE_WEARABLE_SENSING_SERVICE` + `WearableSensingService` is how
+  Gemini gets ambient context (raise-to-talk etc.) — sig-gated, dead end
+  for us. `RobinKitAppFunctionService` declares
+  `android.app.appfunctions.v2` + `android.app.appfunctions.schema`
+  meta-data — **AppFunctions is the Gemini Extensions mechanism**
+  (androidx.appfunctions:appfunctions:1.0.0-rc01 exists on maven; a
+  provider service could expose our functions to the system assistant —
+  worth adding to the PHONE module if an Android-16 host ever needs it;
+  dead weight on this Wear OS). `robin_android.location`/`.audio`
+  uses-feature tags gate surface availability. `AssistantWearableListenerService`
+  handles NODE_MIGRATED for watch-switching.
   **Gemini-parity surface**: `CmdReply.deferred` (`suspend () -> String?`)
   runs async follow-ups after the ack line — sensor reads and hive calls
   get a second assistant message + TTS. DeviceCommands covers timers/alarms
   (`android.intent.action.SET_TIMER/SET_ALARM/SHOW_*`, SET_ALARM perm is
   auto-granted), `google.navigation:`/`geo:` deep-links, `tel:`/`smsto:`,
   heart rate + step counter (`device/HealthProbe` — one-shot SensorManager
-  reads, needs BODY_SENSORS, replies deep-link to our app-info page when
-  ungranted), notification reads (`HiveNotifService.latest()` — bound
+  reads; Samsung Wear gates `TYPE_HEART_RATE` behind
+  `android.permission.health.READ_HEART_RATE`, Pixel/stock behind
+  BODY_SENSORS — HealthProbe accepts either; replies deep-link to our
+  app-info page when ungranted), notification reads (`HiveNotifService.latest()` — bound
   instance → `activeNotifications` title+text), screen reads
   (`HiveA11y.visibleText`), battery (`BatteryManager`), time/date,
   "what's playing" (`HiveNotifService.nowPlaying` — MediaController
@@ -183,7 +261,289 @@
   start/pause/resume/end/status; `ExerciseInfo.exerciseTrackedStatus` is
   an int enum — `OWNED_EXERCISE_IN_PROGRESS` etc., duration/state live in
   `ExerciseUpdate` via callback only; `ELLIPTICAL` not `_MACHINE`; 15
-  spoken aliases in `typeFor`; needs ACTIVITY_RECOGNITION granted).
+  spoken aliases in `typeFor`; needs ACTIVITY_RECOGNITION granted), weather
+  (`device/WeatherProbe` — open-meteo unauthed + last-known location, WMO
+  decode), calendar reads (`device/CalendarProbe` — `CalendarContract.
+  Instances` today/tomorrow, needs READ_CALENDAR), contact dialing/texting
+  (`device/ContactsProbe` — name→number via `ContactsContract.Phone`, needs
+  READ_CONTACTS; "call mike" / "text mike saying on my way"), barometer
+  (`HealthProbe.pressure`, no perm), real timer control (Samsung
+  PAUSE/RESUME/RESET_TIMER + DISMISS_TIMER intents), alarm dismiss/snooze
+  (stock DISMISS_ALARM/SNOOZE_ALARM intents), coin/dice/random picks,
+  "time in <city>" (~50-city IANA map in `cityZone`), stopwatch/world-clock
+  deep-links (`com.samsung.android.watch.{timer,worldclock}` launcher
+  intents), voice-memo (`com.samsung.android.wear.voicerecorder`), storage
+  (StatFs), device model/IP, settings toggles (DND/airplane/wifi/bt/
+  brightness/battery-saver deep-links), per-stream volumes (alarm/ringer),
+  timer-remaining view (`SHOW_REMAINING_TIME`), vibration test, and
+  geofence reminders (`device/GeoReminder` — "remind me to X when I get to
+  Y": OSM nominatim geocoding (custom UA required) → GeofencingClient
+  enter-fence 200m/24h → `GeoReceiver` posts a heads-up notification;
+  home/work/office/etc resolve through memory lines like "my home address
+  is …"; needs ACCESS_BACKGROUND_LOCATION for the trip to fire unattended).
+  **Wear data-layer bridge (watch↔phone, mesh-independent)** —
+  `device/PhoneBridge` + `device/WatchWearService` on the watch,
+  `phone/FindPhone.kt` (`FindPhoneService`/`FindStopReceiver`/`PhoneRinger`)
+  on the phone; both modules dep `play-services-wearable:19.0.0`, services
+  declare `com.google.android.gms.wearable.MESSAGE_RECEIVED` filters on
+  `wear://*/hive/*` paths. Paths: `/hive/find/start|stop` → phone blasts
+  the alarm ringtone at max STREAM_ALARM (saved+restored, 45s auto-stop,
+  heads-up notif with Stop action); `/hive/status` → phone answers
+  `/hive/status/reply` with `{batt,charging,net,dnd}` JSON (watch `WatchWearService`
+  completes the pending deferred → real "phone battery" answer, notif-mining
+  fallback); `/hive/volume` up|down → phone `adjustStreamVolume(STREAM_MUSIC)`.
+  Commands: "find/ring/locate/ping my phone", "stop my phone (alarm|ringing)|found it",
+  "phone volume up|down". `/hive/intent` specs: `app:<label>` → phone launches
+  by launcher label; `uri:<uri>` → ACTION_VIEW ("navigate to X on my phone");
+  `call:|sms:<who>` → phone resolves its own contacts → tel:/smsto:;
+  `cap:camera` → IMAGE_CAPTURE; `torch:on|off` → phone CameraManager LED;
+  `ringer:silent|vibrate|normal` → ringerMode, falling back to the DND policy
+  settings page when the grant is missing; `music:` →
+  `com.google.android.googlequicksearchbox.MUSIC_SEARCH` (exported
+  `MusicSearchGatewayInternal` alias — verified live on the S25 Ultra:
+  fires Sound Search which heard ambient audio and identified "HUTA MEDIA
+  CALMING…" through the phone mic — real song-ID, not media metadata).
+  Watch phrasings: "open X on my
+  phone", "call/text X on my phone", "phone torch on|off", "put my phone on
+  silent|vibrate|normal", "what song is playing on my phone". Phone-side
+  notification listener `phone/PhoneNotifService` (declared
+  BIND_NOTIFICATION_LISTENER_SERVICE — grant via
+  `adb shell cmd notification allow_listener dev.agenthive.phone/dev.agenthive.phone.PhoneNotifService`,
+  NOT `pm grant` and NOT raw `settings put` — allow_listener updates the
+  parsed managed-services set and binds it; verified live bound) powers
+  `/hive/media` (play|pause|stop|next|prev verbs → MediaSessionManager
+  transport), `/hive/playing` → `/hive/playing/reply` `{now}` now-playing
+  metadata, `/hive/notif` → `/hive/notif/reply` JSONArray of latest shade
+  entries. Watch commands: "pause/next/resume on my phone", "what's
+  playing on my phone" (session metadata — distinct from song-ID which
+  needs an ID-verb), "read my phone's notifications". Reverse direction:
+  watch `WatchWearService` accepts `/hive/ask` (launches MainActivity
+  with the ask extra → auto-fires the query) and `/hive/launch`
+  (DeviceCommands "open X") — nothing phone-side sends these yet but the
+  surface exists for phone-UI/Tasker automation. Pair verified live: Galaxy Watch8 Classic (B7MA)
+  bonded with com.google.android.gms on its ACL link — bridge routes
+  whenever the watch is awake. Second tile provider `.tile.HiveControlsTileService`
+  (MultiButtonLayout: ✦Ask →MainActivity, 🔦Torch→TorchActivity,
+  📱Find phone+Buzz→`device.QuickActionActivity` trampoline — tile chips
+  can only launch activities; extras ride `addKeyToExtraMapping` with
+  `AndroidStringExtra`; both trampoline + TorchActivity are exported=true
+  so the tile host can launch them).
+  Proactive suggestions (parity with Google's ProactiveComplicationService):
+  `GET /api/assistant/next` reads the bound user's gcal plugin for the
+  next event ≤6h → `{label:"Team sync in 35m"}` (graceful "" on expired
+  grants); MeshService.refreshSuggestion pulls ~10min after each link pass
+  into `store.suggestion` + `ComplicationDataSourceUpdateRequester` nudge;
+  complication LONG_TEXT shows it under "✦ Next", the tile shows it over
+  lastReply, and ChatScreen turns it into a prompt chip.
+  **GSA dex protocol map** (strings-mined from the pulled base.apk —
+  `qa/` dex dumps): the Gemini watch↔phone RPC prefix is
+  `wear://*/gemini/weargeminiservice` with sub-paths
+  `/settingssync` (pref sync), `/whatsappcall` + `/whatsappmessage`
+  (WhatsApp bridge — we mirror with `wa:<who>` →
+  `api.whatsapp.com/send?phone=` after phone-side contact resolution;
+  watch phrasings "whatsapp mom"/"whatsapp call mom"),
+  `/media` (cross-device media — our `/hive/media`),
+  `/gethostdeviceid` (watch fetches a stable phone id), plus
+  `/gemini/wearservice` (WdlTriggerListener) and
+  `/assistant/wearables/setup`. Hotword: they run a real
+  DSP/always-on pipeline (`AlwaysOnHotwordDetectorManager`,
+  `HDM_TRUSTED_DSP_HOTWORD_DETECTED`, `SodaHotwordDetectionController`)
+  — needs `CAPTURE_AUDIO_HOTWORD` (signature|privileged) + SoundTrigger
+  HAL; a third-party VIVS can't reproduce it — dead end, documented.
+  Reverse-direction bridge completed: watch `WatchWearService` now also
+  answers `/hive/find/start|stop` (find-my-watch → `device/WatchRinger`:
+  alarm tone + 500/300ms vibration loop + heads-up notif with
+  `WatchStopReceiver` Stop action, 30s auto-stop) and `/hive/notify`
+  (payload text → heads-up). Phone `phone/WatchBridge` sends
+  (`Tasks.await` on IO — the phone module lacks
+  kotlinx-coroutines-play-services); `PhoneBatteryReceiver`
+  (ACTION_BATTERY_LOW, manifest-registered) pushes "Phone battery low"
+  to the watch — the proactive phone→watch nudge Google's ambient layer
+  does internally. Command-regex order checker: `qa/rxcheck.py`
+  extracts every `Regex("...").find(t)` from DeviceCommands and reports
+  first-match order for canonical phrases — run it after touching the
+  chain (fixed two real shadowing bugs with it: local "what's playing"
+  ate the phone variant; "what song is playing on my phone" matched
+  nothing and fell to the LLM).
+  **AppFunctions implemented** (`phone/HiveAppFunctionService.kt`,
+  androidx.appfunctions 1.0.0-rc01 + KSP `appfunctions-compiler`):
+  the real Gemini Extensions mechanism, verified on-device. Shape the
+  KSP compiler demands (each error taught one constraint): annotated
+  class must be ABSTRACT (compiler generates the concrete
+  `HiveAppFunctionService` named by `serviceName` — simple class name,
+  no package/`/`/`.` allowed); it must not implement `onExecuteFunction`
+  (generated dispatcher does); functions are METHODS on the base —
+  `@AppFunctionDeclaration(isDescribedByKDoc=true)` targets FUNCTION,
+  functionId = `BaseClass#method`, schema from params/return type, KDoc
+  = description. `findPhone`/`stopRinging` ship (ring PhoneRinger). KSP
+  needs `android.disallowKotlinSourceSets=false` (gradle.properties) —
+  KSP registers generated dirs via the old kotlin.sourceSets DSL AGP's
+  built-in Kotlin forbids. Generated `appfunctions.xml` can't be wired
+  from `build/` (AGP rejects build-dir assets srcDirs) — checked into
+  `phone/src/main/res/xml/` and pointed at by service meta-data
+  `android.app.appfunctions.v2` `android:resource` (the framework calls
+  `loadXmlMetaData`). Manifest: action
+  `android.app.appfunctions.AppFunctionService` + legacy
+  `android.app.appsearch.functions.AppFunctionService` (Samsung's
+  indexed services carry both), perm `BIND_APP_FUNCTION_SERVICE`;
+  uses-library `com.android.extensions.appfunctions` auto-merged.
+  **INDEXING SOLVED — functions live in the system index and EXECUTE.**
+  The indexer does NOT read the androidx meta-data — it reads
+  `assets/app_function.xml` (v1 snake_case doc: `<version>`,
+  `<function_id>`, `enabled_by_default`,
+  `restrict_callers_with_execute_app_functions`,
+  `display_name_string_res` — no params/response) located via
+  `<property android:name="android.app.appfunctions"
+  android:value="app_function.xml"/>` INSIDE the service element.
+  That recipe was reverse-engineered from Samsung Clock's APK
+  (`com.sec.android.app.clockpackage` — its service declares Google's
+  `com.google.android.appfunctions.service.MainAppFunctionService`
+  proxy class resolved via uses-library
+  `com.android.extensions.appfunctions`; we keep our own service and
+  just mirror the property). Sideloaded apps DO index —
+  `mobileApplicationQualifiedId` auto-populates without a Play join.
+  Schema fields (`schema_category/name/version`) are optional for
+  indexing; all 216 indexed entries carry them only because their
+  publishers chose to (schema-tagging matters only for
+  schema-filtered consumers like Samsung Routine).
+  **The property can point at the v2 doc too** — `android:value=
+  "appfunctions.xml"` naming the KSP-generated asset indexes WITH
+  parameters/description/response types (GSA's entries are rich
+  because its property names a v2-format asset, e.g.
+  `assets/robinkit_app_function_service.xml`). We ship the generated
+  doc as `src/main/assets/appfunctions.xml` — regenerate by copying
+  `build/generated/ksp/debug/resources/assets/appfunctions.xml` after
+  changing annotated functions. `res/xml/appfunctions.xml` stays for
+  the `android.app.appfunctions.v2` meta-data path.
+  Verified end-to-end on the S25U: **16 functions indexed and
+  executable** — `findPhone`/`stopRinging` (real ringer),
+  `openApp(name)` (launched Settings), `ringWatch`/`watchStatus`/
+  `notifyWatch(text)` (cross-device Wear sends + suspend support),
+  `readNotifications`/`nowPlaying`/`controlMedia(verb)` (live
+  notification-shade reads + transport via PhoneNotifService),
+  `callContact`/`messageContact`/`whatsappContact(name)` (contact
+  resolve → dialer/composer/WhatsApp), `takePhoto`,
+  `setFlashlight(on)` (real LED toggled), `setRingerMode(mode)`,
+  `identifySong` (Sound Search). `is-enabled`=true;
+  `cmd app_function execute-app-function` ran them live incl. String/
+  Boolean params. Shared spec logic lives in `PhoneActions`
+  (FindPhone.kt) so /hive/intent and AppFunctions drive one codebase.
+  The WATCH module ships the same surface
+  (`WatchAppFunctionService` — KSP+appfunctions added to :app):
+  `askHive(query)` streams the mesh LLM (Store creds +
+  `api.tryStream`, 25s bound) — "watch uses AI through the mesh" as
+  a system-callable function — plus `ringPhone`/`stopPhoneRinging`/
+  `phoneStatus`/`nowPlayingOnPhone`/`controlPhoneMedia(verb)`/
+  `readPhoneNotifications`/`openWatchApp(name)`.
+  Phone module function list now also: `setTimer`/`setAlarm`
+  (AlarmClock intents — verified live in dumpsys alarm),
+  `navigateTo`, `openUrl`, `remember(text)` (POST /api/memory through
+  the mesh), `askHive(query)` (try_stream). **PhoneMeshService +
+  PhoneBootReceiver keep the phone's Nexus node + egress warm**
+  (30s cycle → idempotent `Linker.relink`, started at boot when
+  paired + after every link) — the gap that made headless calls fail:
+  `server_url`/`mesh_url` are loopback ports that die with the app.
+  Verified end-to-end: `remember` hit a dead port → the function's
+  failure path calls `PhoneMeshService.start` (internal FGS start IS
+  allowed from an AppFunctions-bound context) → node rejoined +
+  egress re-opened → a retry 60s later returned "Remembered." — a
+  system-assistant call reaching the hive over the encrypted mesh
+  with no UI involved. `askHive` verified too: after the
+  `api.agents()` fallback (agent_id pref is unset on the phone —
+  it uses servers, not the picker) it streamed a real LLM reply
+  over the mesh. Params may NOT have Kotlin defaults
+  (`Type cannot be optional`) — use `String?` for optional params.
+  **`device_state` key namespace** — `setDeviceStateItem(key,value)`/
+  `getDeviceStateItem(key)`/`getDeviceStateMetadata()`/
+  `toggleDeviceStateItem(key)` expose `agenthive.*` keys
+  (flashlight, ringer_mode, find_phone, battery, battery_charging,
+  now_playing) — verified live (LED toggled, battery read 89%).
+  Learned limits: `@AppFunctionSerializable` OBJECT params are
+  silently DROPPED from the generated inventory/doc in rc01 —
+  schema-exact params like `{setDeviceStateItemParams:{key,value}}`
+  need `@AppFunctionSchemaDefinition`-annotated INTERFACES (targets
+  classes — schema-library authors, not app devs) whose concrete
+  types Google keeps internal (`com.android.appfunctions.schema.
+  devicestate.v1.*` — GMS's impl; not in any public artifact).
+  Serializable types must also be TOP-LEVEL (nested are skipped).
+  Our flat key/value signature is the rc01-compatible approximation.
+  **Notification mirroring** — `PhoneNotifService.onNotificationPosted`
+  pushes `app: title — text` over `/hive/notify` (watch-side
+  `PhoneBridge` already routed it to `WatchRinger.notify` heads-up).
+  Filters: own pkg, ongoing, GROUP_SUMMARY, SERVICE/PROGRESS/
+  TRANSPORT/NAV categories; 60s dedupe on `sbn.key`; logs
+  `PhoneNotifService: mirror → watch` (sent = queued on the Wear
+  channel, not acked). Verified: `cmd notification post` triggered a
+  live send. **Action bridge** — payload is `sbnKeyline` (sbn
+  keys contain `|` so the delimiter is ); watch posts each
+  mirrored notif under `NOTIF_ID+1+(key.hash&0xff)` with an
+  "Open on phone" action → `WatchNotifReceiver` (goAsync +
+  GlobalScope) → `PhoneBridge.phoneAction` → new `/hive/notifact`
+  path → `PhoneNotifService.act` fires the original `contentIntent`
+  ("open") or `cancelNotification` ("dismiss"), result on
+  `/hive/notifact/reply`. **Inline reply** — the mirrored notif
+  also carries a Wear RemoteInput action (FLAG_MUTABLE PI —
+  required for RemoteInput delivery): voice/canned text →
+  `WatchNotifReceiver` (ACTION_REPLY) → `replykeytext`
+  → phone `replyTo` finds the original notification's action with
+  `remoteInputs`, `RemoteInput.addResultsToIntent` +
+  `actionIntent.send` — identical to replying in the shade.
+  Gemini's reply-from-wrist. Spec split is `limit=3` (text may
+  itself contain -free content; key never does).
+  `act` also accepts "#N" keys → Nth-newest active notification,
+  which powers `actOnNotification(key,verb,text?)` + the numbered
+  `readNotifications` output — verified live: `dismiss #3`
+  cleared a real notification from the shade via a system
+  AppFunctions call. **Wear OS hard gates (verified on the
+  Watch5)**: (1) the Wear data layer is PACKAGE-SCOPED — messages
+  deliver only to the same applicationId on the peer; the watch
+  app now ships `applicationId=dev.agenthive.phone` (Kotlin
+  namespace stays dev.agenthive.watch — manifest component names
+  must then be ABSOLUTE since `.x` resolves to applicationId).
+  Every phone→watch send was silently dropped before this; after
+  the rename /hive/find/start, /hive/notify and mirrored notifs
+  deliver instantly. (2) The Wear app_function indexer accepts
+  ONLY the v1 doc (`<version>1</version>` + `<function_id>`
+  snake_case — the KSP v2 doc throws "Missing functionId" in
+  AppFunctionDocumentParserImpl); indexed entries show
+  `packageName` under dumpsys app_function — no `cmd
+  app_function` shell exists on Wear (dumpsys-only introspection).
+  (3) Manifest MESSAGE_RECEIVED delivery can still lag for
+  sideloaded apps — MeshService registers a runtime
+  `MessageClient.addListener` fallback into the same
+  `WatchWearService.handleMessage` dispatch.
+  Swipe-away on the watch also dismisses
+  the phone shade (setDeleteIntent → ACTION_DISMISS_PHONE →
+  `dismisskey`) — full bidirectional clear.
+  Phone's shared `assets.srcDir("../app/src/main/assets")` means
+  same-named watch assets collide — watch's doc is
+  `watch_appfunctions.xml`.
+  Prior note (kept for the search trail): the index shows 216 docs
+  (~108 unique functions × static+runtime) — GSA
+  (`intelligent_assist/invokeTextQueryIntelligentAssist`), GMS
+  (`device_state/setDeviceStateItem` etc. via its own v2
+  `GmsAppFunctionService`), Samsung calendar/clock/notes/tasks/photos
+  via `MainAppFunctionService`; Samsung Routine is a consumer
+  (`AppFunctionsMetadataCollector`).
+  Wear UX parity: `MainActivity` registers a public-API
+  `AmbientLifecycleObserver` (wear 1.4 — the Impl class is internal,
+  use the top-level factory) → `UiState.ambient` → ChatScreen swaps its
+  radial gradient for flat black (OLED burn-in) so the last reply stays
+  glanceable on AOD like Gemini. `ScalingLazyColumn` in
+  wear-compose-foundation 1.7 takes `rotaryScrollableBehavior` directly —
+  `RotaryScrollableDefaults.behavior(state)` gives continuous fling
+  (snap behavior is wrong for chat); no manual focusRequester needed.
+  `TimeText` (material3) sits at the top arc above the status pill —
+  canonical Wear placement.
+  **Workout-verb fix**: "start a run"
+  used to die in openApp — the open/launch regex now yields to the workout
+  matcher when the verb is start|begin|track|log|record AND the noun resolves
+  via `HealthWorkout.typeFor`. Watch-face complication:
+  `complication/HiveComplicationService` (androidx.wear.watchface
+  complications-data-source 1.2.1 — SHORT_TEXT "✦ Ask" + monochromatic icon,
+  LONG_TEXT title + `store.lastReply`, RANGED_VALUE live battery; tap →
+  MainActivity VOICE_ASSIST; meta-data SUPPORTED_TYPES + UPDATE_PERIOD 600s;
+  same legacy action Google's assistant uses).
   Memory:
   `GET|POST /api/memory` (kv `mem:{uid}`, 50 cap, idx is 1-based — `idx`
   present means delete even when falsy/0-invalid → text never appends on a

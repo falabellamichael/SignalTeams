@@ -41,6 +41,7 @@ import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.PersonRemove
 import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.SmartToy
+import androidx.compose.material.icons.filled.Watch
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
@@ -51,6 +52,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -67,8 +69,14 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.google.android.gms.tasks.Tasks
+import com.google.android.gms.wearable.Wearable
 import dev.agenthive.phone.AppViewModel
 import dev.agenthive.phone.UiState
+import dev.agenthive.phone.WatchBridge
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -123,6 +131,7 @@ fun SettingsScreen(state: UiState, vm: AppViewModel) {
                     onPick = { connSel = it })
                 "perms" -> PermsPage(state, vm) { page = "menu" }
                 "mesh" -> MeshPage(state, vm) { page = "menu" }
+                "watch" -> WatchPage(state, vm) { page = "menu" }
                 "account" -> AccountPage(state, vm) { page = "menu" }
             }
         }
@@ -210,6 +219,10 @@ private fun SettingsMenu(state: UiState, vm: AppViewModel,
                 "NETWORK" to listOf(
                     SetRow(Icons.Filled.Hub, "Nexus Mesh",
                         "P2P mesh — status, peers, invites", "mesh"),
+                ),
+                "DEVICES" to listOf(
+                    SetRow(Icons.Filled.Watch, "Connected Watch",
+                        "Find, ping and test the wearable bridge", "watch"),
                 ),
                 "ACCOUNT" to listOf(
                     SetRow(Icons.Filled.Key, "Password & Sessions",
@@ -1069,6 +1082,87 @@ private fun AccountPage(state: UiState, vm: AppViewModel,
             PrimaryBtn("Log out of this device", danger = true) {
                 vm.signOut() }
             MsgLine(state.settingsMsg)
+        }
+    }
+}
+
+/* ============================= watch ==================================== */
+
+@Composable
+private fun WatchPage(state: UiState, vm: AppViewModel, onBack: () -> Unit) {
+    val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var nodeName by remember { mutableStateOf<String?>(null) }
+    var msg by remember { mutableStateOf("") }
+
+    // Live node-graph check — the bridge rides the OS Wear channel, so a
+    // connected node here means every action below will route.
+    LaunchedEffect(Unit) {
+        nodeName = withContext(Dispatchers.IO) {
+            runCatching {
+                Tasks.await(Wearable.getNodeClient(ctx).connectedNodes)
+                    .firstOrNull()?.displayName
+            }.getOrNull()
+        }
+    }
+
+    fun send(label: String, block: suspend () -> Boolean) {
+        msg = "…"
+        scope.launch {
+            val ok = runCatching { block() }.getOrDefault(false)
+            msg = if (ok) "✓ $label" else "✗ no watch reachable"
+        }
+    }
+
+    SubPage("Connected Watch", onBack) {
+        item {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Filled.Watch, contentDescription = null,
+                     tint = if (nodeName != null) DcGreen else DcMuted,
+                     modifier = Modifier.size(22.dp))
+                Spacer(Modifier.width(10.dp))
+                Column {
+                    Text(nodeName ?: "no watch on the Wear node graph",
+                         color = DcText, fontSize = 15.sp,
+                         fontWeight = FontWeight.SemiBold)
+                    Text(
+                        if (nodeName != null) "paired via Wear data layer"
+                        else "bridge commands need the watch paired + awake",
+                        color = DcSub, fontSize = 12.sp)
+                }
+            }
+            FieldLabel("Find")
+            PrimaryBtn("Ring my watch") {
+                send("watch is ringing") { WatchBridge.ringWatch(ctx) }
+            }
+            PrimaryBtn("Stop ringing") {
+                send("ring stopped") { WatchBridge.stopWatch(ctx) }
+            }
+            FieldLabel("Status")
+            PrimaryBtn("Watch battery") {
+                msg = "…"
+                scope.launch {
+                    val raw = WatchBridge.watchStatus(ctx)
+                    val j = runCatching { JSONObject(raw) }.getOrNull()
+                    msg = if (j == null) "✗ the watch didn't answer"
+                    else {
+                        val b = j.optInt("batt", -1)
+                        "✓ watch is at ${b}%${if (j.optBoolean("charging")) ", charging" else ""}"
+                    }
+                }
+            }
+            FieldLabel("Alerts")
+            PrimaryBtn("Send test alert") {
+                send("alert delivered") {
+                    WatchBridge.notifyWatch(ctx, "Test alert from AgentHive")
+                }
+            }
+            Text(
+                "The watch surfaces these as heads-up notifications — the same " +
+                "channel the low-battery nudge uses.",
+                color = DcSub, fontSize = 12.sp,
+                modifier = Modifier.padding(top = 12.dp))
+            MsgLine(msg)
         }
     }
 }

@@ -7,14 +7,15 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
@@ -59,7 +60,9 @@ fun HiveTheme(content: @Composable () -> Unit) {
 }
 
 /**
- * Animated Gemini-style luminous four-point star inside an iridescent aura ring.
+ * Animated luminous trefoil mark inside an iridescent aura ring — the AgentHive
+ * take on Gemini's orb. Ring spins on an infinite transition; the trefoil itself
+ * is a [HiveMark], which never stops animating.
  */
 @Composable
 fun GeminiOrb(
@@ -87,7 +90,8 @@ fun GeminiOrb(
         label = "pulse",
     )
 
-    Canvas(modifier = modifier.size(size)) {
+    Box(modifier = modifier.size(size), contentAlignment = Alignment.Center) {
+    Canvas(modifier = Modifier.matchParentSize()) {
         val cx = this.size.width / 2f
         val cy = this.size.height / 2f
         val r = (this.size.minDimension / 2f) * pulse
@@ -126,24 +130,7 @@ fun GeminiOrb(
             )
         }
 
-        // Four-point curved Gemini star
-        val s = r * 0.46f
-        val k = s * 0.24f
-        val star = Path().apply {
-            moveTo(cx, cy - s)
-            quadraticTo(cx + k, cy - k, cx + s, cy)
-            quadraticTo(cx + k, cy + k, cx, cy + s)
-            quadraticTo(cx - k, cy + k, cx - s, cy)
-            quadraticTo(cx - k, cy - k, cx, cy - s)
-            close()
-        }
-        drawPath(
-            path = star,
-            brush = Brush.linearGradient(
-                colors = listOf(Color.White, HiveColors.Cyan, HiveColors.Violet),
-                start = Offset(cx - s, cy - s),
-                end = Offset(cx + s, cy + s),
-            ),
-        )
+    }
+    HiveMark(size = size * 0.52f)
     }
 }
