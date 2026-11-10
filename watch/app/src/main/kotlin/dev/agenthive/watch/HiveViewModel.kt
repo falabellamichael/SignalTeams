@@ -798,16 +798,27 @@ class HiveViewModel(app: Application) : AndroidViewModel(app) {
      */
     private suspend fun ensureMeshEgress(): Boolean {
         val ip = store.meshTargetIp
-        if (ip.isBlank()) return false
         if (api.probeHive()) return true
-        val port = store.meshTargetPort.takeIf { it > 0 } ?: HIVE_VPORT
-        val lp = nexus.openEgress(ip, port) ?: return false
-        api.baseUrl = "http://127.0.0.1:$lp"
-        store.meshUrl = api.baseUrl
-        store.egressPort = lp
-        Log.i("HiveVM", "egress re-opened ${ip}:$port -> lp=$lp")
-        _ui.update { it.copy(meshSnap = it.meshSnap.copy(egressPort = lp)) }
-        return api.probeHive()
+        if (ip.isNotBlank()) {
+            val port = store.meshTargetPort.takeIf { it > 0 } ?: HIVE_VPORT
+            nexus.openEgress(ip, port)?.let { lp ->
+                api.baseUrl = "http://127.0.0.1:$lp"
+                store.meshUrl = api.baseUrl
+                store.egressPort = lp
+                Log.i("HiveVM", "egress re-opened ${ip}:$port -> lp=$lp")
+                _ui.update { it.copy(meshSnap = it.meshSnap.copy(egressPort = lp)) }
+                if (api.probeHive()) return true
+            }
+        }
+        // own tunnel is dead — ride the phone's mesh over the Wear channel.
+        // MeshService restores direct on a later pass once our tunnel heals.
+        if (dev.agenthive.watch.device.PhoneBridge.probePhoneMesh(getApplication())) {
+            api.baseUrl = "phone://proxy"
+            store.meshUrl = "phone://proxy"
+            Log.i("HiveVM", "egress dead — falling back to phone proxy")
+            return true
+        }
+        return false
     }
 
     private suspend fun streamOnce(
@@ -816,12 +827,14 @@ class HiveViewModel(app: Application) : AndroidViewModel(app) {
         prior: List<Pair<String, String>>,
     ): Triple<String, String, String?> {
         val viaMesh = api.baseUrl.startsWith("http://127.0.0.1:")
-        if (viaMesh && !ensureMeshEgress())
+        val viaProxy = api.baseUrl.startsWith("phone://")
+        if ((viaMesh || viaProxy) && !ensureMeshEgress())
             return Triple("", "", "hive unreachable over mesh")
         var res = collectStream(agentId, msg, prior)
-        // A dead bridge surfaces as a connect error — reopen once and retry.
+        // A dead bridge surfaces as a connect/stream error — reopen once and retry.
         val connectErr = res.third?.contains("onnect", ignoreCase = true) == true
-        if (viaMesh && connectErr && ensureMeshEgress()) {
+        val streamErr = res.third != null
+        if ((viaMesh && connectErr || viaProxy && streamErr) && ensureMeshEgress()) {
             res = collectStream(agentId, msg, prior)
         }
         return res
