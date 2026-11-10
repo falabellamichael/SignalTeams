@@ -98,6 +98,17 @@ class MeshService : Service() {
      * The first LTE join races the radio waking, so failures get a couple of
      * spaced retries while the demand keeps the modem up.
      */
+    /** The Wear channel answers at its own pace — a single probe can miss a
+     *  perfectly live phone. Three tries, ~6s total. */
+    private suspend fun phoneMeshUp(): Boolean {
+        repeat(3) {
+            if (dev.agenthive.watch.device.PhoneBridge.probePhoneMesh(this)) return true
+            Log.i("MeshService", "phone mesh probe miss — retrying")
+            delay(2_000)
+        }
+        return false
+    }
+
     private suspend fun linkOnce(app: HiveApp) {
         if (linking) return
         linking = true
@@ -106,7 +117,10 @@ class MeshService : Service() {
             val hasPhone = dev.agenthive.watch.device.PhoneBridge.hasNearbyPhone(this)
             val direct = app.nexus.directNetworkUp()
             if (!direct && hasPhone) {
-                if (dev.agenthive.watch.device.PhoneBridge.probePhoneMesh(this)) {
+                // No IP path of our own — the phone proxy is the only route.
+                // The Wear channel can take a second to answer; probe a few
+                // times before burning minutes on joins that can't work anyway.
+                if (phoneMeshUp()) {
                     app.store.meshEnabled = true
                     app.api.baseUrl = "phone://proxy"
                     app.store.meshUrl = "phone://proxy"
@@ -114,6 +128,7 @@ class MeshService : Service() {
                     refreshSuggestion(app)
                     return
                 }
+                Log.i("MeshService", "no direct + phone probe dead — joins will retry anyway")
             }
 
             for (attempt in 1..3) {
@@ -142,7 +157,7 @@ class MeshService : Service() {
                 } catch (e: Exception) {
                     Log.w("MeshService", "pass $attempt: ${e.message}")
                     if (attempt == 3 && hasPhone) {
-                        if (dev.agenthive.watch.device.PhoneBridge.probePhoneMesh(this)) {
+                        if (phoneMeshUp()) {
                             app.store.meshEnabled = true
                             app.api.baseUrl = "phone://proxy"
                             app.store.meshUrl = "phone://proxy"
