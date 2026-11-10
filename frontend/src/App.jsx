@@ -892,9 +892,20 @@ export default function App() {
     : channel ? `${channel.kind === "agents" ? "✦" : channel.kind === "voice" ? "🔊" : channel.kind === "forum" ? "📋" : "#"} ${channel.name}`
     : { buzz: "🐝 The Buzz", library: "🧰 Agent Library", bench: "⭐ My Bench", friends: "👥 Friends", saved: "🔖 Saved" }[view] || "SignalTeams";
 
+  // Rendered twice: inside the sidebar on desktop, and as a fixed
+  // full-width bottom bar on mobile (CSS picks one per breakpoint).
+  const meBar = (
+    <MeBar
+      me={{ ...me, online: true }}
+      voice={voice}
+      onSettings={() => setModal({ kind: "settings" })}
+      onToggleMute={toggleVoiceMute}
+      onToggleDeafen={toggleDeafen}
+    />
+  );
+
   return (
     <div className="app">
-      <div className="app-body">
       <Rail servers={servers} active={server ? server.id : "home"}
         onHome={goHome} onServer={pickServer}
         onNewServer={() => setModal({ kind: "server" })}
@@ -968,6 +979,7 @@ export default function App() {
             }}
           />
         )}
+        {meBar}
       </div>
       {sideOpen && <div className="side-scrim" onClick={() => setSideOpen(false)} />}
       <div className="main">
@@ -1026,15 +1038,8 @@ export default function App() {
         })()}
         {main}
       </div>
-      </div>
 
-      <MeBar
-        me={{ ...me, online: true }}
-        voice={voice}
-        onSettings={() => setModal({ kind: "settings" })}
-        onToggleMute={toggleVoiceMute}
-        onToggleDeafen={toggleDeafen}
-      />
+      <div className="me-bar-mobile">{meBar}</div>
 
       <Suspense fallback={null}>
       {modal?.kind === "agent" && (
