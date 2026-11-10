@@ -42,6 +42,13 @@ async def _start_reminder_loop():
 _dist = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "..", "frontend", "dist"))
 if os.path.isdir(_dist):
     from fastapi.staticfiles import StaticFiles
+    from fastapi.responses import FileResponse
+
+    @app.get("/invite/{code}", include_in_schema=False)
+    async def _invite_page(code: str):
+        """Shareable invite URL — hands the SPA the join code."""
+        return FileResponse(os.path.join(_dist, "index.html"))
+
 
     class _DistFiles(StaticFiles):
         """index.html must revalidate (a stale copy 404s hashed chunks after a

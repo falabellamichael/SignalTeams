@@ -122,7 +122,7 @@ export function ServerSidebar({ server, channel, me, voice, onJoinVoice, onChann
     const n = new Set(s); n.has(name) ? n.delete(name) : n.add(name); return n; });
   const owner = me?.id === server.owner_id;
   function copyInvite() {
-    navigator.clipboard?.writeText(`${location.origin}/#join/${server.invite_code}`);
+    navigator.clipboard?.writeText(`${location.origin}/invite/${server.invite_code}`);
     setCopied(true);
     setTimeout(() => setCopied(false), 1200);
   }

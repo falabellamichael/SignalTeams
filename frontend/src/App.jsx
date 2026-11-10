@@ -108,7 +108,8 @@ export default function App() {
   const [welcomeOn, setWelcomeOn] = useState(() =>
     localStorage.getItem("st.welcome") !== "0");
   const [pendingJoin, setPendingJoin] = useState(() => {
-    const m = location.hash.match(/^#join\/(.+)/);
+    const m = location.hash.match(/^#join\/(.+)/) ||
+              location.pathname.match(/^\/invite\/([^/]+)/);
     return m ? m[1] : null;
   });
   // links opened while the app is already running still capture the code
@@ -321,7 +322,7 @@ export default function App() {
   useEffect(() => {
     if (!me || !pendingJoin) return;
     setPendingJoin(null);
-    history.replaceState(null, "", location.pathname);
+    history.replaceState(null, "", "/");
     api.joinServer(pendingJoin)
       .then(async (s) => { await refreshLists(); pickServer(s.id); })
       .catch((e) => alert(e.message));

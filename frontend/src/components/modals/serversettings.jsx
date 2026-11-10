@@ -185,11 +185,11 @@ export function ServerSettingsModal({ server, me, onClose, onSaved, onDeleted, o
                 </div>
                 <label>Invite link</label>
                 <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                  <code className="invite-link">{location.origin}/#join/{code}</code>
+                  <code className="invite-link">{location.origin}/invite/{code}</code>
                   <button onClick={() => {
-                    navigator.clipboard?.writeText(`${location.origin}/#join/${code}`)
+                    navigator.clipboard?.writeText(`${location.origin}/invite/${code}`)
                       .then(() => setMsg("Link copied — send it to a friend."))
-                      .catch(() => setMsg(`${location.origin}/#join/${code}`));
+                      .catch(() => setMsg(`${location.origin}/invite/${code}`));
                   }}><Ico n="copy" s={13} /> copy</button>
                 </div>
                 {owner && (
