@@ -90,19 +90,21 @@ fun HomeScreen(state: UiState, vm: AppViewModel) {
             notifPerm.launch(Manifest.permission.POST_NOTIFICATIONS)
     }
     Box(Modifier.fillMaxSize().background(DcRail)) {
-        Row(Modifier.fillMaxSize()) {
-            ServerRail(state, vm)
-            VerticalDivider(color = DcBorder, thickness = 1.dp)
-            Column(
-                Modifier.weight(1f).fillMaxHeight().background(DcSidebar),
-            ) {
-                Box(Modifier.weight(1f)) {
-                    if (state.railSel == 0) DmPanel(state, vm)
-                    else ServerPanel(state, vm)
+        Column(Modifier.fillMaxSize()) {
+            Row(Modifier.weight(1f).fillMaxWidth()) {
+                ServerRail(state, vm)
+                VerticalDivider(color = DcBorder, thickness = 1.dp)
+                Column(
+                    Modifier.weight(1f).fillMaxHeight().background(DcSidebar),
+                ) {
+                    Box(Modifier.weight(1f)) {
+                        if (state.railSel == 0) DmPanel(state, vm)
+                        else ServerPanel(state, vm)
+                    }
+                    VoiceMiniBar(state, vm)
                 }
-                VoiceMiniBar(state, vm)
-                UserBar(state, vm)
             }
+            UserBar(state, vm)
         }
         if (state.savedMsgs != null) SavedPanel(state, vm)
         if (state.friendsJson != null) FriendsPanel(state, vm)
