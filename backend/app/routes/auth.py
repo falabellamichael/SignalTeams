@@ -22,7 +22,8 @@ router = APIRouter()
 @router.post("/api/register")
 def register(body: RegisterIn):
     with db() as conn:
-        if conn.execute("SELECT 1 FROM users WHERE username=?", (body.username,)).fetchone():
+        if conn.execute("SELECT 1 FROM users WHERE username=? COLLATE NOCASE",
+                        (body.username,)).fetchone():
             raise HTTPException(409, "Username taken")
         i = secrets.randbelow(len(AVATAR_COLORS))
         cur = conn.execute(
@@ -40,7 +41,8 @@ def register(body: RegisterIn):
 @router.post("/api/login")
 def login(body: LoginIn):
     with db() as conn:
-        u = conn.execute("SELECT * FROM users WHERE username=?", (body.username,)).fetchone()
+        u = conn.execute("SELECT * FROM users WHERE username=? COLLATE NOCASE",
+                         (body.username,)).fetchone()
         if not u or not verify_password(body.password, u["password_hash"]):
             raise HTTPException(401, "Bad username or password")
         token = create_session(conn, u["id"])
@@ -114,7 +116,7 @@ def supabase_login(body: SupabaseIn):
                 meta.get("username") or meta.get("preferred_username")
                 or (email or "crew").split("@")[0],
                 lambda c: conn.execute(
-                    "SELECT 1 FROM users WHERE username=?", (c,)).fetchone())
+                    "SELECT 1 FROM users WHERE username=? COLLATE NOCASE", (c,)).fetchone())
             i = secrets.randbelow(len(AVATAR_COLORS))
             cur = conn.execute(
                 "INSERT INTO users(username, display_name, avatar_color, avatar_emoji, "

@@ -477,7 +477,7 @@ def _parse_search(q: str, user):
                 clauses.append("m.author_id=?"); params.append(user["id"])
             else:
                 clauses.append(
-                    "m.author_id IN (SELECT id FROM users WHERE username=? "
+                    "m.author_id IN (SELECT id FROM users WHERE username=? COLLATE NOCASE "
                     "OR display_name=? COLLATE NOCASE)")
                 params += [v.lstrip("@"), v.lstrip("@")]
         elif key == "in":

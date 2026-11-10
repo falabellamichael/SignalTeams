@@ -33,9 +33,13 @@ def friends(user=Depends(current_user)):
 @router.post("/api/friends")
 async def add_friend(body: FriendIn, user=Depends(current_user)):
     with db() as conn:
-        target = conn.execute("SELECT * FROM users WHERE username=?", (body.username,)).fetchone()
+        target = conn.execute(
+            "SELECT * FROM users WHERE username=? COLLATE NOCASE",
+            (body.username.strip(),)).fetchone()
         if not target:
-            raise HTTPException(404, "No such user")
+            raise HTTPException(404,
+                f"\"{body.username.strip()}\" isn't on this hive — they need to "
+                "sign in here once (Supabase signups land on first login)")
         if target["id"] == user["id"]:
             raise HTTPException(400, "That's you")
         if is_blocked(conn, user["id"], target["id"]):
