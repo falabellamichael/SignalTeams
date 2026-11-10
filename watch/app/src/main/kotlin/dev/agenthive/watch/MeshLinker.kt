@@ -44,7 +44,11 @@ object MeshLinker {
             // must not swap a healthy bridge for a fresh port every pass, that
             // races and kills in-flight requests.
             val cur = api.baseUrl.ifBlank { store.meshUrl }
-            if (cur.startsWith("phone://") && dev.agenthive.watch.device.PhoneBridge.probePhoneMesh(app)) {
+            // Proxy is a fallback, not a preference: only keep it while there is
+            // no direct path — once WiFi/LTE is back, our own tunnel is strictly
+            // better than routing the hive through the phone over Bluetooth.
+            if (cur.startsWith("phone://") && !nexus.directNetworkUp()
+                && dev.agenthive.watch.device.PhoneBridge.probePhoneMesh(app)) {
                 api.baseUrl = "phone://proxy"
                 store.meshUrl = "phone://proxy"
                 onHive(knownIp, store.meshTargetPort, 0, store.hiveNodeId)
