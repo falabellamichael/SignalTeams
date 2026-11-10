@@ -232,6 +232,9 @@ class NexusNode(private val ctx: Context) {
     private var ident: Pointer? = null
     @Volatile private var connectStart = 0L
     @Volatile private var joinFails = 0
+    /** Set by the keep-alive after probing: false means the companion proxy is
+     *  dead too, so a nearby phone must NOT shorten the LTE wake window. */
+    @Volatile var companionProxyViable = true
     private var wifiDemand: ConnectivityManager.NetworkCallback? = null
     private var cellDemand: ConnectivityManager.NetworkCallback? = null
 
@@ -359,7 +362,8 @@ class NexusNode(private val ctx: Context) {
         // BUT only on the first join attempts — once a join has failed, the proxy is
         // presumed dead too, and a cold modem needs its full 20-40s power-up window.
         val hasPhone = hasCompanionCheck?.invoke() ?: false
-        val effectiveWait = if (hasPhone && joinFails < 2) 3_000L else waitMs
+        val effectiveWait =
+            if (hasPhone && companionProxyViable && joinFails < 2) 3_000L else waitMs
 
         if (net == null && effectiveWait > 0) {
             onStatus?.invoke("waking LTE radio…")

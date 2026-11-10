@@ -120,7 +120,9 @@ class MeshService : Service() {
                 // No IP path of our own — the phone proxy is the only route.
                 // The Wear channel can take a second to answer; probe a few
                 // times before burning minutes on joins that can't work anyway.
-                if (phoneMeshUp()) {
+                val phoneUp = phoneMeshUp()
+                app.nexus.companionProxyViable = phoneUp
+                if (phoneUp) {
                     app.store.meshEnabled = true
                     app.api.baseUrl = "phone://proxy"
                     app.store.meshUrl = "phone://proxy"
@@ -129,6 +131,30 @@ class MeshService : Service() {
                     return
                 }
                 Log.i("MeshService", "no direct + phone probe dead — joins will retry anyway")
+            }
+
+            // No IP interface = no tunnel, period: UDP hole-punching can't ride
+            // the BT companion relay (TCP-only). One connect() is still worth it —
+            // its bindDirectNetwork wait IS the LTE-modem wake window — but
+            // burning three full passes on a guaranteed fail just drains battery.
+            if (!direct) {
+                try {
+                    app.nexus.connect(
+                        deviceName = "${app.store.username.ifBlank { "hive" }}-watch",
+                        linkToken = "", genesisPubkey = "",
+                    )
+                    if (MeshLinker.discover(app, log = { m ->
+                            Log.i("MeshService", m) }) != null) {
+                        app.store.meshEnabled = true
+                        notify("Encrypted link to your hive is up")
+                        refreshSuggestion(app)
+                        return
+                    }
+                } catch (e: Exception) {
+                    Log.w("MeshService", "join while offline: ${e.message}")
+                }
+                notify("Waiting for network…")
+                return
             }
 
             for (attempt in 1..3) {
