@@ -190,18 +190,29 @@ async def leave_server(sid: int, user=Depends(current_user)):
     return {"ok": True}
 
 
+def _can_moderate(s, user) -> bool:
+    """Member moderation: server owner, site admin, or site mod."""
+    return bool(s) and (
+        s["owner_id"] == user["id"]
+        or user.get("is_admin")
+        or user.get("role") == "mod")
+
+
 @router.delete("/api/servers/{sid}/members/{uid}")
 async def kick_member(sid: int, uid: int, user=Depends(current_user)):
     with db() as conn:
         s = conn.execute("SELECT * FROM servers WHERE id=?", (sid,)).fetchone()
-        if not s or s["owner_id"] != user["id"]:
-            raise HTTPException(403, "Only the owner can kick")
+        if not _can_moderate(s, user):
+            raise HTTPException(403, "Only the owner or a site mod can kick")
         if uid == s["owner_id"]:
             raise HTTPException(400, "Can't kick the owner")
         if not conn.execute("SELECT 1 FROM server_members WHERE server_id=? AND user_id=?",
                             (sid, uid)).fetchone():
             raise HTTPException(404, "Not a member")
-        tgt = conn.execute("SELECT username FROM users WHERE id=?", (uid,)).fetchone()
+        tgt = conn.execute("SELECT username, is_admin, role FROM users WHERE id=?",
+                           (uid,)).fetchone()
+        if tgt and (tgt["is_admin"] or tgt["role"] == "mod") and not user.get("is_admin"):
+            raise HTTPException(403, "Mods can't kick staff")
         conn.execute("DELETE FROM server_members WHERE server_id=? AND user_id=?",
                      (sid, uid))
         audit(conn, sid, user["id"], "member.kick",
@@ -217,16 +228,19 @@ async def ban_member(sid: int, uid: int, body: BanIn, user=Depends(current_user)
     """Ban = remove + block rejoin. Owner only."""
     with db() as conn:
         s = conn.execute("SELECT * FROM servers WHERE id=?", (sid,)).fetchone()
-        if not s or s["owner_id"] != user["id"]:
-            raise HTTPException(403, "Only the owner can ban")
+        if not _can_moderate(s, user):
+            raise HTTPException(403, "Only the owner or a site mod can ban")
         if uid == s["owner_id"]:
             raise HTTPException(400, "Can't ban the owner")
         if conn.execute("SELECT 1 FROM server_bans WHERE server_id=? AND user_id=?",
                         (sid, uid)).fetchone():
             raise HTTPException(400, "Already banned")
-        tgt = conn.execute("SELECT username FROM users WHERE id=?", (uid,)).fetchone()
+        tgt = conn.execute("SELECT username, is_admin, role FROM users WHERE id=?",
+                           (uid,)).fetchone()
         if not tgt:
             raise HTTPException(404, "No such user")
+        if (tgt["is_admin"] or tgt["role"] == "mod") and not user.get("is_admin"):
+            raise HTTPException(403, "Mods can't ban staff")
         was_member = conn.execute(
             "DELETE FROM server_members WHERE server_id=? AND user_id=?",
             (sid, uid)).rowcount
@@ -247,8 +261,8 @@ async def ban_member(sid: int, uid: int, body: BanIn, user=Depends(current_user)
 def list_bans(sid: int, user=Depends(current_user)):
     with db() as conn:
         s = conn.execute("SELECT * FROM servers WHERE id=?", (sid,)).fetchone()
-        if not s or s["owner_id"] != user["id"]:
-            raise HTTPException(403, "Only the owner can see bans")
+        if not _can_moderate(s, user):
+            raise HTTPException(403, "Only the owner or a site mod can see bans")
         return [
             {**public_user(r), "reason": r["reason"], "banned_at": r["created_at"]}
             for r in conn.execute(
@@ -261,8 +275,8 @@ def list_bans(sid: int, user=Depends(current_user)):
 async def unban_member(sid: int, uid: int, user=Depends(current_user)):
     with db() as conn:
         s = conn.execute("SELECT * FROM servers WHERE id=?", (sid,)).fetchone()
-        if not s or s["owner_id"] != user["id"]:
-            raise HTTPException(403, "Only the owner can unban")
+        if not _can_moderate(s, user):
+            raise HTTPException(403, "Only the owner or a site mod can unban")
         tgt = conn.execute("SELECT username FROM users WHERE id=?", (uid,)).fetchone()
         if not conn.execute("DELETE FROM server_bans WHERE server_id=? AND user_id=?",
                             (sid, uid)).rowcount:
@@ -277,8 +291,8 @@ async def timeout_member(sid: int, uid: int, body: TimeoutIn, user=Depends(curre
     """Temporarily block a member's posts. minutes=0 clears."""
     with db() as conn:
         s = conn.execute("SELECT * FROM servers WHERE id=?", (sid,)).fetchone()
-        if not s or s["owner_id"] != user["id"]:
-            raise HTTPException(403, "Only the owner can time out")
+        if not _can_moderate(s, user):
+            raise HTTPException(403, "Only the owner or a site mod can time out")
         if uid == s["owner_id"]:
             raise HTTPException(400, "Can't time out the owner")
         if not conn.execute("SELECT 1 FROM server_members WHERE server_id=? AND user_id=?",

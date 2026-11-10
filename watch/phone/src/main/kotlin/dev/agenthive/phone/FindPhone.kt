@@ -16,6 +16,16 @@ import androidx.core.app.NotificationCompat
 import com.google.android.gms.wearable.MessageEvent
 import com.google.android.gms.wearable.Wearable
 import com.google.android.gms.wearable.WearableListenerService
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
+import org.json.JSONArray
+import org.json.JSONObject
+import java.util.concurrent.TimeUnit
 
 /**
  * "Find my phone" — the watch sends /hive/find/start over the Wear data
@@ -30,6 +40,23 @@ class FindPhoneService : WearableListenerService() {
         val path = ev.path
         val data = ev.data
         val src = ev.sourceNodeId
+
+        // Network proxy routes run in IO coroutines (not UI thread)
+        when (path) {
+            PATH_PROBE -> {
+                handleProxyProbe(src)
+                return
+            }
+            PATH_PROXY_REQ -> {
+                handleProxyReq(src, data)
+                return
+            }
+            PATH_STREAM_START -> {
+                handleProxyStream(src, data)
+                return
+            }
+        }
+
         // binder thread → everything below touches UI/audio/volume APIs
         main.post {
             when (path) {
@@ -116,6 +143,136 @@ class FindPhoneService : WearableListenerService() {
             .sendMessage(nodeId, "$PATH_STATUS/reply", payload)
     }
 
+    private fun handleProxyProbe(nodeId: String) {
+        val app = application as PhoneApp
+        val base = app.store.meshUrl.ifBlank { app.api.baseUrl }
+        CoroutineScope(Dispatchers.IO).launch {
+            // ok only when the bridge actually answers — a stored URL with a
+            // wedged tunnel is how the watch gets told "linked" to nothing.
+            var ok = app.nexus.state == dev.agenthive.watch.nexus.NexusState.RUNNING &&
+                base.isNotBlank()
+            if (ok) {
+                ok = runCatching {
+                    val client = OkHttpClient.Builder()
+                        .connectTimeout(3, TimeUnit.SECONDS)
+                        .readTimeout(3, TimeUnit.SECONDS)
+                        .build()
+                    val req = Request.Builder()
+                        .url(base.trimEnd('/') + "/api/auth/config").build()
+                    client.newCall(req).execute().use { it.isSuccessful }
+                }.getOrDefault(false)
+            }
+            if (!ok) PhoneMeshService.start(this@FindPhoneService)   // kick the keep-alive
+            val rep = JSONObject().apply {
+                put("ok", ok)
+                put("baseUrl", base)
+                put("user", app.store.username)
+                put("hiveIp", app.store.meshTargetIp)
+            }
+            Wearable.getMessageClient(this@FindPhoneService).sendMessage(
+                nodeId, PATH_PROBE_REPLY, rep.toString().toByteArray()
+            )
+        }
+    }
+
+    private fun handleProxyReq(nodeId: String, data: ByteArray) {
+        val app = application as PhoneApp
+        val raw = String(data)
+        val j = runCatching { JSONObject(raw) }.getOrNull() ?: return
+        val id = j.optString("id")
+        val method = j.optString("method", "GET").uppercase()
+        val reqPath = j.optString("path", "")
+        val reqBody = j.optString("body", "")
+        val reqToken = j.optString("token", "").ifBlank { app.store.token }
+        val base = app.store.meshUrl.ifBlank { app.api.baseUrl }
+
+        CoroutineScope(Dispatchers.IO).launch {
+            if (base.isBlank()) {
+                val err = JSONObject().put("id", id).put("code", 503).put("body", "Phone mesh not connected")
+                Wearable.getMessageClient(this@FindPhoneService).sendMessage(
+                    nodeId, PATH_PROXY_REPLY, err.toString().toByteArray()
+                )
+                return@launch
+            }
+            runCatching {
+                val url = base.trimEnd('/') + reqPath
+                val rb = Request.Builder().url(url)
+                if (reqToken.isNotBlank()) rb.header("Authorization", "Bearer $reqToken")
+                val jsonType = "application/json; charset=utf-8".toMediaType()
+                when (method) {
+                    "POST" -> rb.post(reqBody.toRequestBody(jsonType))
+                    "PATCH" -> rb.patch(reqBody.toRequestBody(jsonType))
+                    "PUT" -> rb.put(reqBody.toRequestBody(jsonType))
+                    "DELETE" -> if (reqBody.isNotBlank()) rb.delete(reqBody.toRequestBody(jsonType)) else rb.delete()
+                    else -> rb.get()
+                }
+                val client = OkHttpClient.Builder()
+                    .connectTimeout(8, TimeUnit.SECONDS)
+                    .readTimeout(20, TimeUnit.SECONDS)
+                    .build()
+                client.newCall(rb.build()).execute().use { resp ->
+                    val code = resp.code
+                    val text = resp.body?.string() ?: ""
+                    val out = JSONObject().put("id", id).put("code", code).put("body", text)
+                    Wearable.getMessageClient(this@FindPhoneService).sendMessage(
+                        nodeId, PATH_PROXY_REPLY, out.toString().toByteArray()
+                    )
+                }
+            }.onFailure { e ->
+                val err = JSONObject().put("id", id).put("code", 502).put("body", e.message ?: "proxy error")
+                Wearable.getMessageClient(this@FindPhoneService).sendMessage(
+                    nodeId, PATH_PROXY_REPLY, err.toString().toByteArray()
+                )
+            }
+        }
+    }
+
+    private fun handleProxyStream(nodeId: String, data: ByteArray) {
+        val app = application as PhoneApp
+        val raw = String(data)
+        val j = runCatching { JSONObject(raw) }.getOrNull() ?: return
+        val id = j.optString("id")
+        val aid = j.optInt("agentId")
+        val msg = j.optString("message")
+        val model = j.optString("model").takeIf { it.isNotBlank() }
+        val histArr = j.optJSONArray("history") ?: JSONArray()
+        val hist = (0 until histArr.length()).map { i ->
+            val o = histArr.getJSONObject(i)
+            o.optString("role") to o.optString("content")
+        }
+        CoroutineScope(Dispatchers.IO).launch {
+            runCatching {
+                app.api.tryStream(aid, msg, hist, model).collect { ev ->
+                    val evJson = JSONObject().put("id", id)
+                    when (ev) {
+                        is dev.agenthive.watch.data.HiveApi.StreamEvent.Meta ->
+                            evJson.put("t", "meta").put("provider", ev.provider).put("model", ev.model)
+                        is dev.agenthive.watch.data.HiveApi.StreamEvent.Token ->
+                            evJson.put("t", "token").put("c", ev.text)
+                        is dev.agenthive.watch.data.HiveApi.StreamEvent.Thinking ->
+                            evJson.put("t", "thinking").put("n", ev.n)
+                        is dev.agenthive.watch.data.HiveApi.StreamEvent.Tool ->
+                            evJson.put("t", "tool").put("name", ev.name).put("ok", ev.ok)
+                        is dev.agenthive.watch.data.HiveApi.StreamEvent.Replace ->
+                            evJson.put("t", "replace").put("c", ev.text)
+                        is dev.agenthive.watch.data.HiveApi.StreamEvent.Error ->
+                            evJson.put("t", "error").put("message", ev.message)
+                        is dev.agenthive.watch.data.HiveApi.StreamEvent.Done ->
+                            evJson.put("t", "done")
+                    }
+                    Wearable.getMessageClient(this@FindPhoneService).sendMessage(
+                        nodeId, PATH_STREAM_EVENT, evJson.toString().toByteArray()
+                    )
+                }
+            }.onFailure { e ->
+                val err = JSONObject().put("id", id).put("t", "error").put("message", e.message ?: "stream error")
+                Wearable.getMessageClient(this@FindPhoneService).sendMessage(
+                    nodeId, PATH_STREAM_EVENT, err.toString().toByteArray()
+                )
+            }
+        }
+    }
+
     companion object {
         const val PATH_START = "/hive/find/start"
         const val PATH_STOP = "/hive/find/stop"
@@ -126,6 +283,12 @@ class FindPhoneService : WearableListenerService() {
         const val PATH_PLAYING = "/hive/playing"
         const val PATH_NOTIF = "/hive/notif"
         const val PATH_NOTIFACT = "/hive/notifact"
+        const val PATH_PROBE = "/hive/proxy/probe"
+        const val PATH_PROBE_REPLY = "/hive/proxy/probe/reply"
+        const val PATH_PROXY_REQ = "/hive/proxy/req"
+        const val PATH_PROXY_REPLY = "/hive/proxy/reply"
+        const val PATH_STREAM_START = "/hive/proxy/stream/start"
+        const val PATH_STREAM_EVENT = "/hive/proxy/stream/event"
     }
 }
 

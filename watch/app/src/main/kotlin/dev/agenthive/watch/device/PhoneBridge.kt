@@ -38,6 +38,12 @@ class WatchWearService : WearableListenerService() {
                 PhoneBridge.onReply(PhoneBridge.PATH_PLAYING_REPLY, ev.data)
             ev.path == PhoneBridge.PATH_NOTIF_REPLY ->
                 PhoneBridge.onReply(PhoneBridge.PATH_NOTIF_REPLY, ev.data)
+            ev.path == PhoneBridge.PATH_PROBE_REPLY ->
+                PhoneBridge.onReply(PhoneBridge.PATH_PROBE_REPLY, ev.data)
+            ev.path == PhoneBridge.PATH_PROXY_REPLY ->
+                PhoneBridge.onProxyReply(ev.data)
+            ev.path == PhoneBridge.PATH_STREAM_EVENT ->
+                PhoneBridge.onStreamEvent(ev.data)
             // the phone asking OUR status — symmetric with what it answers
             ev.path == "/hive/status" -> {
                 val bm = getSystemService(android.os.BatteryManager::class.java)
@@ -88,9 +94,50 @@ object PhoneBridge {
     const val PATH_STATUS_REPLY = "/hive/status/reply"
     const val PATH_PLAYING_REPLY = "/hive/playing/reply"
     const val PATH_NOTIF_REPLY = "/hive/notif/reply"
+    const val PATH_PROBE = "/hive/proxy/probe"
+    const val PATH_PROBE_REPLY = "/hive/proxy/probe/reply"
+    const val PATH_PROXY_REQ = "/hive/proxy/req"
+    const val PATH_PROXY_REPLY = "/hive/proxy/reply"
+    const val PATH_STREAM_START = "/hive/proxy/stream/start"
+    const val PATH_STREAM_EVENT = "/hive/proxy/stream/event"
 
     /** One in-flight request per reply path. */
     private val pending = mutableMapOf<String, CompletableDeferred<String>>()
+    private val proxyPending = java.util.concurrent.ConcurrentHashMap<String, CompletableDeferred<JSONObject>>()
+    private val streamChannels = java.util.concurrent.ConcurrentHashMap<String, kotlinx.coroutines.channels.Channel<dev.agenthive.watch.data.HiveApi.StreamEvent>>()
+
+    fun onProxyReply(data: ByteArray) {
+        runCatching {
+            val j = JSONObject(String(data))
+            val id = j.optString("id")
+            proxyPending[id]?.complete(j)
+        }
+    }
+
+    fun onStreamEvent(data: ByteArray) {
+        runCatching {
+            val j = JSONObject(String(data))
+            val id = j.optString("id")
+            val ch = streamChannels[id] ?: return@runCatching
+            val t = j.optString("t")
+            val ev = when (t) {
+                "meta" -> dev.agenthive.watch.data.HiveApi.StreamEvent.Meta(j.optString("provider"), j.optString("model"))
+                "token" -> dev.agenthive.watch.data.HiveApi.StreamEvent.Token(j.optString("c"))
+                "thinking" -> dev.agenthive.watch.data.HiveApi.StreamEvent.Thinking(j.optInt("n"))
+                "tool" -> dev.agenthive.watch.data.HiveApi.StreamEvent.Tool(j.optString("name"), j.optBoolean("ok"))
+                "replace" -> dev.agenthive.watch.data.HiveApi.StreamEvent.Replace(j.optString("c"))
+                "error" -> dev.agenthive.watch.data.HiveApi.StreamEvent.Error(j.optString("message", "stream error"))
+                "done" -> dev.agenthive.watch.data.HiveApi.StreamEvent.Done
+                else -> null
+            }
+            if (ev != null) {
+                ch.trySend(ev)
+                if (ev is dev.agenthive.watch.data.HiveApi.StreamEvent.Done || ev is dev.agenthive.watch.data.HiveApi.StreamEvent.Error) {
+                    ch.close()
+                }
+            }
+        }
+    }
 
     fun onReply(path: String, data: ByteArray) {
         pending[path]?.complete(String(data))
@@ -220,5 +267,84 @@ object PhoneBridge {
             return "No notifications on the phone — or it needs notification access."
         val lines = (0 until arr.length()).map { arr.optString(it) }
         return "Your phone's latest: " + lines.joinToString(". ") + "."
+    }
+
+    suspend fun hasNearbyPhone(ctx: Context): Boolean =
+        connectedNodes(ctx).any { it.isNearby }
+
+    /** Probe if the phone's Hive background service is alive and mesh-linked. */
+    suspend fun probePhoneMesh(ctx: Context): Boolean {
+        val (raw, err) = request(ctx, PATH_PROBE, PATH_PROBE_REPLY)
+        if (raw.isBlank() || err.isNotBlank()) return false
+        val j = runCatching { JSONObject(raw) }.getOrNull() ?: return false
+        return j.optBoolean("ok", false)
+    }
+
+    /** Proxy an HTTP request through the phone's mesh link. */
+    suspend fun proxyRequest(
+        ctx: Context,
+        method: String,
+        path: String,
+        bodyString: String = "",
+        token: String = "",
+        timeoutMs: Long = 15_000,
+    ): Pair<Int, String> {
+        val id = java.util.UUID.randomUUID().toString()
+        val d = CompletableDeferred<JSONObject>()
+        proxyPending[id] = d
+        try {
+            val req = JSONObject().apply {
+                put("id", id)
+                put("method", method)
+                put("path", path)
+                if (bodyString.isNotBlank()) put("body", bodyString)
+                if (token.isNotBlank()) put("token", token)
+            }
+            val err = send(ctx, PATH_PROXY_REQ, req.toString().toByteArray())
+            if (err.isNotEmpty()) return 503 to "Phone bridge send failed: $err"
+            val resp = withTimeoutOrNull(timeoutMs) { d.await() }
+                ?: return 504 to "Phone bridge timeout waiting for $path"
+            val code = resp.optInt("code", 500)
+            val text = resp.optString("body", "")
+            return code to text
+        } finally {
+            proxyPending.remove(id)
+        }
+    }
+
+    fun proxyStream(
+        ctx: Context,
+        agentId: Int,
+        message: String,
+        history: List<Pair<String, String>>,
+        model: String? = null,
+    ): kotlinx.coroutines.flow.Flow<dev.agenthive.watch.data.HiveApi.StreamEvent> = kotlinx.coroutines.flow.flow {
+        val id = java.util.UUID.randomUUID().toString()
+        val ch = kotlinx.coroutines.channels.Channel<dev.agenthive.watch.data.HiveApi.StreamEvent>(kotlinx.coroutines.channels.Channel.UNLIMITED)
+        streamChannels[id] = ch
+        try {
+            val histArr = org.json.JSONArray()
+            history.takeLast(20).forEach { (r, c) ->
+                histArr.put(JSONObject().put("role", r).put("content", c))
+            }
+            val req = JSONObject().apply {
+                put("id", id)
+                put("agentId", agentId)
+                put("message", message)
+                put("history", histArr)
+                if (!model.isNullOrBlank()) put("model", model)
+            }
+            val err = send(ctx, PATH_STREAM_START, req.toString().toByteArray())
+            if (err.isNotEmpty()) {
+                emit(dev.agenthive.watch.data.HiveApi.StreamEvent.Error("Phone bridge stream failed: $err"))
+                return@flow
+            }
+            for (ev in ch) {
+                emit(ev)
+            }
+        } finally {
+            streamChannels.remove(id)
+            ch.close()
+        }
     }
 }

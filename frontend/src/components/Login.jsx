@@ -22,6 +22,8 @@ export default function Login({ onAuth, joinCode }) {
   const [busy, setBusy] = useState(false);
   const [stats, setStats] = useState(null);
   const [invite, setInvite] = useState(null);
+  const [meshCode, setMeshCode] = useState("");
+  const [meshRole, setMeshRole] = useState(null);   // {role} | {bad} | null
   const supaRef = useRef(null);
 
   useEffect(() => {
@@ -69,7 +71,7 @@ export default function Login({ onAuth, joinCode }) {
       } else {
         const res = mode === "login"
           ? await api.login(username.trim(), password)
-          : await api.register(username.trim(), password, display.trim());
+          : await api.register(username.trim(), password, display.trim(), meshCode.trim());
         setToken(res.token);
         onAuth(res.user);
       }
@@ -157,6 +159,17 @@ export default function Login({ onAuth, joinCode }) {
               <label>Password</label>
               <input type="password" value={password} onChange={(e) => setPassword(e.target.value)}
                 autoComplete={mode === "register" ? "new-password" : "current-password"} />
+              {mode === "register" && <>
+                <label>Mesh invite code <span style={{ color: "var(--dim)", fontWeight: 400 }}>— optional, grants a role</span></label>
+                <input value={meshCode} placeholder="8-digit code from your inviter"
+                  onChange={(e) => {
+                    const v = e.target.value; setMeshCode(v); setMeshRole(null);
+                    if (v.trim().length >= 6)
+                      api.inviteRole(v.trim()).then(setMeshRole).catch(() => setMeshRole({ bad: true }));
+                  }} />
+                {meshRole?.role && <div className="join-banner" style={{ margin: "6px 0 0" }}>✓ grants <b>{meshRole.role}</b> on this hive</div>}
+                {meshRole?.bad && <div className="err">that code is expired or already used</div>}
+              </>}
               <button className="primary" disabled={busy || !username.trim() || !password}>
                 {busy ? "…" : mode === "login" ? "Sign in" : "Create account"}
               </button>

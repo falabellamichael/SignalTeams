@@ -11,6 +11,7 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
+import android.os.SystemClock
 import android.util.Log
 import dev.agenthive.watch.nexus.NexusState
 import kotlinx.coroutines.CoroutineScope
@@ -49,6 +50,19 @@ class PhoneMeshService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) { stopSelf(); return START_NOT_STICKY }
         if (loopJob?.isActive == true) return START_STICKY
+        // watchdog: a hung ln_* call holds linking=true forever and also
+        // blocks reset() (same mutex) — the only escape is a fresh process.
+        // START_STICKY restarts the service into a clean node.
+        scope.launch {
+            while (isActive) {
+                delay(60_000)
+                if (linking && linkStart > 0 &&
+                    SystemClock.elapsedRealtime() - linkStart > 360_000) {
+                    Log.e("PhoneMesh", "link hung >6min — killing process for a clean rejoin")
+                    android.os.Process.killProcess(android.os.Process.myPid())
+                }
+            }
+        }
         loopJob = scope.launch {
             val app = application as PhoneApp
             while (isActive) {
@@ -63,21 +77,36 @@ class PhoneMeshService : Service() {
         return START_STICKY
     }
 
+    @Volatile private var fails = 0
+    @Volatile private var linkStart = 0L
+
     /** relink() is idempotent: RUNNING verifies tunnel_up, a dead dataplane
      *  tears down and rejoins; discover's fast path re-opens the stored
-     *  hive's egress before any group scan. */
+     *  hive's egress before any group scan. Consecutive failures force a
+     *  full reset() — tunnel_up can report stale-true while the control
+     *  plane (heartbeats) is wedged, and nothing else heals that. */
     private suspend fun linkOnce(app: PhoneApp) {
         if (linking) return
         linking = true
+        linkStart = SystemClock.elapsedRealtime()
         try {
             if (app.nexus.state != NexusState.RUNNING)
                 notify("Connecting to mesh…")
             Linker.relink(app.store, app.api, app.nexus) { m ->
                 Log.i("PhoneMesh", m)
             }
+            fails = 0
             notify("Encrypted link to your hive is up")
         } catch (e: Exception) {
-            notify("Mesh offline — retrying…")
+            fails++
+            Log.w("PhoneMesh", "cycle fail #$fails: ${e.message}")
+            if (fails >= 3) {
+                notify("Rejoining mesh…")
+                runCatching { app.nexus.reset() }
+                fails = 0
+            } else {
+                notify("Mesh offline — retrying…")
+            }
         } finally { linking = false }
     }
 

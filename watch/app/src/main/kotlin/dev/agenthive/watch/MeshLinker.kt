@@ -44,6 +44,12 @@ object MeshLinker {
             // must not swap a healthy bridge for a fresh port every pass, that
             // races and kills in-flight requests.
             val cur = api.baseUrl.ifBlank { store.meshUrl }
+            if (cur.startsWith("phone://") && dev.agenthive.watch.device.PhoneBridge.probePhoneMesh(app)) {
+                api.baseUrl = "phone://proxy"
+                store.meshUrl = "phone://proxy"
+                onHive(knownIp, store.meshTargetPort, 0, store.hiveNodeId)
+                return Triple(store.hiveNodeId.ifBlank { "phone-proxy" }, knownIp, 0)
+            }
             if (cur.startsWith("http://127.0.0.1:") && api.probeHive(cur)) {
                 api.baseUrl = cur
                 store.meshUrl = cur

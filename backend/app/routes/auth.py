@@ -19,6 +19,29 @@ from ..schemas import LoginIn, PasswordIn, ProfileIn, RegisterIn, SupabaseIn
 router = APIRouter()
 
 
+def _invite_grant(code: str):
+    """One-shot role grant minted by /api/nexus/invite. Returns the grant
+    record or None (missing/expired/used) — and consumes it on success."""
+    from .. import nexus as _nx
+    import time as _t
+    rec = _nx._kv_get(f"invite_role:{code}")
+    if not rec or rec.get("used") or rec.get("exp", 0) < _t.time():
+        return None
+    _nx._kv_set(f"invite_role:{code}", {**rec, "used": True})
+    return rec
+
+
+@router.get("/api/invite-role/{code}")
+def invite_role_info(code: str):
+    """Public preview for the register page — what role will this invite grant?"""
+    from .. import nexus as _nx
+    import time as _t
+    rec = _nx._kv_get(f"invite_role:{code}")
+    if not rec or rec.get("used") or rec.get("exp", 0) < _t.time():
+        raise HTTPException(404, "Invite code is expired or already used")
+    return {"role": rec["role"], "by": rec.get("by_name", "")}
+
+
 @router.post("/api/register")
 def register(body: RegisterIn):
     with db() as conn:
@@ -26,11 +49,21 @@ def register(body: RegisterIn):
                         (body.username,)).fetchone():
             raise HTTPException(409, "Username taken")
         i = secrets.randbelow(len(AVATAR_COLORS))
+        # a live mesh invite code grants the role its admin chose at mint
+        role, is_admin = "user", 0
+        invite_code = body.invite.strip()
+        if invite_code:
+            grant = _invite_grant(invite_code)
+            if grant is None:
+                raise HTTPException(403, "That invite code is expired or already used")
+            role = grant["role"]
+            is_admin = 1 if role == "admin" else 0
         cur = conn.execute(
-            "INSERT INTO users(username, display_name, avatar_color, avatar_emoji, password_hash, created_at) "
-            "VALUES (?,?,?,?,?,?)",
+            "INSERT INTO users(username, display_name, avatar_color, avatar_emoji, password_hash, role, is_admin, created_at) "
+            "VALUES (?,?,?,?,?,?,?,?)",
             (body.username, body.display_name or body.username,
-             AVATAR_COLORS[i], AVATAR_EMOJIS[i], hash_password(body.password), now()),
+             AVATAR_COLORS[i], AVATAR_EMOJIS[i], hash_password(body.password),
+             role, is_admin, now()),
         )
         uid = cur.lastrowid
         token = create_session(conn, uid)

@@ -2,6 +2,7 @@ package dev.agenthive.phone.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -23,6 +24,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -74,11 +76,39 @@ private fun Field(
 }
 
 @Composable
+private fun Tab(text: String, on: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    Box(
+        modifier.clip(RoundedCornerShape(6.dp))
+            .background(if (on) DcAccent else Color.Transparent)
+            .border(1.dp, if (on) DcAccent else DcBorder, RoundedCornerShape(6.dp))
+            .padding(vertical = 8.dp)
+            .clickable { onClick() },
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(text, color = if (on) Color.White else DcSub,
+             fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+    }
+}
+
+@Composable
 fun LoginScreen(state: UiState, vm: AppViewModel) {
-    var server by remember(state.serverUrl) { mutableStateOf(state.serverUrl) }
+    var mode by remember { mutableStateOf("login") }        // login | register
+    var prov by remember { mutableStateOf("supabase") }     // supabase | crew
+    var email by remember { mutableStateOf("") }
     var user by remember { mutableStateOf("") }
+    var display by remember { mutableStateOf("") }
     var pass by remember { mutableStateOf("") }
     var code by remember { mutableStateOf("") }
+    var invCode by remember { mutableStateOf("") }
+    var invRole by remember { mutableStateOf<String?>(null) }
+    var invBad by remember { mutableStateOf(false) }
+
+    val connected = state.serverUrl.isNotBlank()
+    val supaOn = state.authCfg?.optBoolean("supabase") == true
+
+    // pull the hive's auth providers once we're connected
+    LaunchedEffect(connected) { if (connected) vm.fetchAuthConfig() }
+    LaunchedEffect(supaOn) { if (!supaOn) prov = "crew" }
 
     Column(
         Modifier.fillMaxSize().background(DcRail)
@@ -88,7 +118,6 @@ fun LoginScreen(state: UiState, vm: AppViewModel) {
     ) {
         Spacer(Modifier.height(44.dp))
 
-        // SignalTeams Brand Header
         Box(
             Modifier.size(54.dp).clip(CircleShape).background(Color(0xFF262015))
                 .border(1.5.dp, DcHoney.copy(alpha = 0.5f), CircleShape),
@@ -98,57 +127,161 @@ fun LoginScreen(state: UiState, vm: AppViewModel) {
         }
         Spacer(Modifier.height(10.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                "Signal",
-                color = DcText,
-                fontSize = 26.sp,
-                fontWeight = FontWeight.Bold,
-            )
+            Text("Signal", color = DcText, fontSize = 26.sp, fontWeight = FontWeight.Bold)
             Spacer(Modifier.width(2.dp))
-            Text(
-                "Teams",
-                color = DcHoney,
-                fontSize = 26.sp,
-                fontWeight = FontWeight.Bold,
-                fontStyle = FontStyle.Italic,
-            )
+            Text("Teams", color = DcHoney, fontSize = 26.sp,
+                 fontWeight = FontWeight.Bold, fontStyle = FontStyle.Italic)
         }
         Text(
             "where your crew's agents live.",
-            color = DcSub,
-            fontSize = 13.sp,
-            fontStyle = FontStyle.Italic,
+            color = DcSub, fontSize = 13.sp, fontStyle = FontStyle.Italic,
             modifier = Modifier.padding(top = 4.dp, bottom = 22.dp),
         )
 
-        // Card Container
         Column(
-            Modifier
-                .fillMaxWidth()
+            Modifier.fillMaxWidth()
                 .clip(RoundedCornerShape(12.dp))
                 .background(DcSidebar)
                 .border(1.dp, DcBorder, RoundedCornerShape(12.dp))
                 .padding(18.dp),
         ) {
-            Field("HIVE URL", server, { server = it })
-            Spacer(Modifier.height(14.dp))
-            Field("USERNAME", user, { user = it })
-            Spacer(Modifier.height(14.dp))
-            Field("PASSWORD", pass, { pass = it }, password = true)
-            Spacer(Modifier.height(18.dp))
-
-            Button(
-                onClick = { vm.signIn(server, user, pass) }, enabled = !state.busy,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = DcAccent, contentColor = Color.White),
-                shape = RoundedCornerShape(6.dp),
-                modifier = Modifier.fillMaxWidth().height(44.dp),
-            ) {
+            if (!connected) {
+                // ---- step one: reach your hive. Pairing hands us the address.
                 Text(
-                    if (state.busy) "Signing in…" else "Sign In",
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.SemiBold,
+                    "Connect to your hive",
+                    color = DcText, fontSize = 16.sp, fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.padding(bottom = 12.dp),
                 )
+                Field("8-DIGIT PAIR CODE", code, { code = it }, numPad = true)
+                Spacer(Modifier.height(12.dp))
+                Button(
+                    onClick = { vm.linkMesh(code) }, enabled = !state.busy,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = DcAccent, contentColor = Color.White),
+                    shape = RoundedCornerShape(6.dp),
+                    modifier = Modifier.fillMaxWidth().height(44.dp),
+                ) {
+                    Text(if (state.busy) "Joining mesh…" else "Pair to Mesh",
+                         fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                }
+                Text(
+                    "mint a code on the hive: Settings → Nexus Mesh → pair a device",
+                    color = DcMuted, fontSize = 11.sp,
+                    modifier = Modifier.padding(top = 10.dp),
+                )
+            } else {
+                // ---- connected: Supabase or crew account, no URLs.
+                Text(
+                    if (mode == "login") "Welcome back" else "Join your team",
+                    color = DcText, fontSize = 16.sp, fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.padding(bottom = 12.dp),
+                )
+
+                if (supaOn) {
+                    Row(Modifier.fillMaxWidth()) {
+                        Tab("Supabase", prov == "supabase", { prov = "supabase" },
+                            Modifier.weight(1f))
+                        Spacer(Modifier.width(8.dp))
+                        Tab("Crew account", prov == "crew", { prov = "crew" },
+                            Modifier.weight(1f))
+                    }
+                    Spacer(Modifier.height(14.dp))
+                }
+
+                if (prov == "supabase" && supaOn) {
+                    Field("EMAIL", email, { email = it })
+                    if (mode == "register") {
+                        Spacer(Modifier.height(14.dp))
+                        Field("DISPLAY NAME", display, { display = it })
+                    }
+                } else {
+                    Field("USERNAME", user, { user = it })
+                    if (mode == "register") {
+                        Spacer(Modifier.height(14.dp))
+                        Field("DISPLAY NAME", display, { display = it })
+                    }
+                }
+                Spacer(Modifier.height(14.dp))
+                Field("PASSWORD", pass, { pass = it }, password = true)
+
+                if (mode == "register") {
+                    Spacer(Modifier.height(14.dp))
+                    Field("MESH INVITE CODE — OPTIONAL", invCode, { v ->
+                        invCode = v; invRole = null; invBad = false
+                        if (v.trim().length >= 6) {
+                            // preview the grant this code carries
+                            vm.previewInviteRole(v.trim()) { role, bad ->
+                                invRole = role; invBad = bad
+                            }
+                        }
+                    }, numPad = true)
+                    invRole?.let {
+                        Text("✓ grants $it on this hive", color = DcGreen,
+                             fontSize = 12.sp, modifier = Modifier.padding(top = 6.dp))
+                    }
+                    if (invBad) Text("that code is expired or already used",
+                                     color = DcRed, fontSize = 12.sp,
+                                     modifier = Modifier.padding(top = 6.dp))
+                }
+                Spacer(Modifier.height(18.dp))
+
+                Button(
+                    onClick = {
+                        if (prov == "supabase" && supaOn) {
+                            if (mode == "login") vm.signInSupa(email, pass)
+                            else vm.signUpSupa(email, pass, display)
+                        } else {
+                            if (mode == "login") vm.signIn(user, pass)
+                            else vm.signUp(user, pass, display, invCode)
+                        }
+                    },
+                    enabled = !state.busy,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = DcAccent, contentColor = Color.White),
+                    shape = RoundedCornerShape(6.dp),
+                    modifier = Modifier.fillMaxWidth().height(44.dp),
+                ) {
+                    Text(
+                        when {
+                            state.busy -> "…"
+                            mode == "login" -> "Sign in"
+                            else -> "Create account"
+                        },
+                        fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
+                    )
+                }
+
+                Row(
+                    Modifier.fillMaxWidth().padding(top = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        if (mode == "login") "New here? " else "Already on the team? ",
+                        color = DcSub, fontSize = 12.sp,
+                    )
+                    Text(
+                        if (mode == "login") "Create an account" else "Sign in",
+                        color = DcAccent, fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.clickable {
+                            mode = if (mode == "login") "register" else "login"
+                        },
+                    )
+                }
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(vertical = 18.dp),
+                ) {
+                    HorizontalDivider(color = DcBorder, modifier = Modifier.weight(1f))
+                    Text("  connected to your hive  ", color = DcMuted, fontSize = 11.sp)
+                    HorizontalDivider(color = DcBorder, modifier = Modifier.weight(1f))
+                }
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text("mesh link up", color = DcGreen, fontSize = 12.sp,
+                         modifier = Modifier.weight(1f))
+                    Text("switch hive", color = DcSub, fontSize = 12.sp,
+                         modifier = Modifier.clickable { vm.forgetHive() })
+                }
             }
 
             if (state.status.isNotBlank())
@@ -157,36 +290,8 @@ fun LoginScreen(state: UiState, vm: AppViewModel) {
             if (state.error.isNotBlank())
                 Text(state.error, color = DcRed, fontSize = 12.sp,
                      modifier = Modifier.padding(top = 8.dp))
-
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.padding(vertical = 18.dp),
-            ) {
-                HorizontalDivider(color = DcBorder, modifier = Modifier.weight(1f))
-                Text("  or connect via mesh  ", color = DcMuted, fontSize = 11.sp)
-                HorizontalDivider(color = DcBorder, modifier = Modifier.weight(1f))
-            }
-
-            Field("8-DIGIT PAIR CODE", code, { code = it }, numPad = true)
-            Spacer(Modifier.height(12.dp))
-            Button(
-                onClick = { vm.linkMesh(code) }, enabled = !state.busy,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = DcRail, contentColor = DcText),
-                shape = RoundedCornerShape(6.dp),
-                modifier = Modifier.fillMaxWidth().height(42.dp)
-                    .border(1.dp, DcBorder, RoundedCornerShape(6.dp)),
-            ) {
-                Text("Pair to Mesh", fontSize = 14.sp, fontWeight = FontWeight.Medium)
-            }
-            Text(
-                "mint a code on the hive: Settings → Nexus Mesh → pair a device",
-                color = DcMuted, fontSize = 11.sp,
-                modifier = Modifier.padding(top = 10.dp),
-            )
         }
 
         Spacer(Modifier.height(30.dp))
     }
 }
-

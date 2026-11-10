@@ -4,6 +4,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.emitAll
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -13,7 +14,15 @@ import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
 /** Minimal AgentHive REST client — bearer auth, NDJSON streaming. */
-class HiveApi {
+/** Optional proxy handler for when direct network is unavailable (e.g. watch on BT). */
+interface ApiProxyHandler {
+    suspend fun proxyRequest(method: String, path: String, bodyString: String, token: String): Pair<Int, String>
+    fun proxyStream(agentId: Int, message: String, history: List<Pair<String, String>>, model: String?): Flow<HiveApi.StreamEvent>
+    suspend fun probeMesh(): Boolean
+    suspend fun hasCompanion(): Boolean
+}
+
+class HiveApi(var ctx: android.content.Context? = null) {
 
     data class Agent(
         val id: Int,
@@ -87,8 +96,9 @@ class HiveApi {
 
     @Volatile var baseUrl: String = ""
     @Volatile var token: String = ""
+    @Volatile var proxyHandler: ApiProxyHandler? = null
 
-    private fun url(path: String) = baseUrl.trimEnd('/') + path
+    private fun url(path: String) = if (baseUrl.startsWith("phone://")) "http://127.0.0.1$path" else baseUrl.trimEnd('/') + path
 
     private fun request(path: String, method: String = "GET", body: JSONObject? = null): Request {
         val b = Request.Builder().url(url(path))
@@ -105,14 +115,53 @@ class HiveApi {
     }
 
     private fun execute(req: Request): Pair<Int, String> {
-        reqClient.newCall(req).execute().use { r ->
-            val text = r.body?.string() ?: ""
-            if (!r.isSuccessful) {
-                val msg = runCatching { JSONObject(text).optString("detail", text) }
-                    .getOrDefault(text.ifBlank { "HTTP ${r.code}" })
-                throw ApiException(msg, r.code)
+        val isProxy = baseUrl.startsWith("phone://") || baseUrl.isBlank()
+        val proxy = proxyHandler
+        if (isProxy && proxy != null) {
+            val path = req.url.encodedPath + (req.url.encodedQuery?.let { "?$it" } ?: "")
+            val bodyStr = req.body?.let { b ->
+                val buf = okio.Buffer()
+                b.writeTo(buf)
+                buf.readUtf8()
+            }.orEmpty()
+            val res: Pair<Int, String> = kotlinx.coroutines.runBlocking(Dispatchers.IO) {
+                proxy.proxyRequest(req.method, path, bodyStr, token)
             }
-            return r.code to text
+            val code = res.first
+            val body = res.second
+            if (code !in 200..299) {
+                val msg = runCatching { JSONObject(body).optString("detail", body) }
+                    .getOrDefault(body.ifBlank { "HTTP $code" })
+                throw ApiException(msg, code)
+            }
+            return Pair(code, body)
+        }
+        return try {
+            reqClient.newCall(req).execute().use { r ->
+                val text = r.body?.string() ?: ""
+                if (!r.isSuccessful) {
+                    val msg = runCatching { JSONObject(text).optString("detail", text) }
+                        .getOrDefault(text.ifBlank { "HTTP ${r.code}" })
+                    throw ApiException(msg, r.code)
+                }
+                Pair(r.code, text)
+            }
+        } catch (e: Exception) {
+            if (proxy != null && (e is java.io.IOException || e is java.net.SocketException)) {
+                val path = req.url.encodedPath + (req.url.encodedQuery?.let { "?$it" } ?: "")
+                val bodyStr = req.body?.let { b ->
+                    val buf = okio.Buffer()
+                    b.writeTo(buf)
+                    buf.readUtf8()
+                }.orEmpty()
+                val res: Pair<Int, String> = kotlinx.coroutines.runBlocking(Dispatchers.IO) {
+                    proxy.proxyRequest(req.method, path, bodyStr, token)
+                }
+                if (res.first in 200..299) {
+                    return res
+                }
+            }
+            throw e
         }
     }
 
@@ -453,6 +502,85 @@ class HiveApi {
                 u.optString("display_name", u.optString("username")))
         }
 
+    suspend fun register(server: String, username: String, password: String,
+                         display: String, invite: String = ""): Pair<String, User> =
+        kotlinx.coroutines.withContext(Dispatchers.IO) {
+            if (server.isNotBlank()) baseUrl = server.trim().trimEnd('/')
+            val body = JSONObject().put("username", username).put("password", password)
+                .put("display_name", display).put("invite", invite)
+            val o = postJson("/api/register", body)
+            token = o.getString("token")
+            val u = o.optJSONObject("user") ?: JSONObject()
+            token to User(u.optInt("id"), u.optString("username"),
+                u.optString("display_name", u.optString("username")))
+        }
+
+    /** What auth providers this hive advertises — supabase? crew-only? */
+    suspend fun authConfig(): JSONObject = kotlinx.coroutines.withContext(Dispatchers.IO) {
+        getJson("/api/auth/config")
+    }
+
+    /** Public preview — what role does this mesh invite code grant on signup. */
+    suspend fun inviteRole(code: String): JSONObject =
+        kotlinx.coroutines.withContext(Dispatchers.IO) {
+            getJson("/api/invite-role/${java.net.URLEncoder.encode(code, "UTF-8")}")
+        }
+
+    /** Supabase password grant — goes to supabase.co, not the hive. */
+    suspend fun supaPassword(supaUrl: String, anon: String,
+                             email: String, password: String): String =
+        kotlinx.coroutines.withContext(Dispatchers.IO) {
+            val req = Request.Builder()
+                .url("${supaUrl.trimEnd('/')}/auth/v1/token?grant_type=password")
+                .header("apikey", anon)
+                .header("Authorization", "Bearer $anon")
+                .post(JSONObject().put("email", email).put("password", password)
+                    .toString().toRequestBody(json))
+                .build()
+            reqClient.newCall(req).execute().use { r ->
+                val text = r.body?.string() ?: ""
+                if (!r.isSuccessful)
+                    throw ApiException(
+                        runCatching { JSONObject(text).optString("error_description",
+                            JSONObject(text).optString("msg", text)) }.getOrDefault(text),
+                        r.code)
+                JSONObject(text).getString("access_token")
+            }
+        }
+
+    /** Supabase signup — returns access_token, or "" when email confirm is required. */
+    suspend fun supaSignup(supaUrl: String, anon: String, email: String,
+                           password: String, display: String): String =
+        kotlinx.coroutines.withContext(Dispatchers.IO) {
+            val req = Request.Builder()
+                .url("${supaUrl.trimEnd('/')}/auth/v1/signup")
+                .header("apikey", anon)
+                .post(JSONObject().put("email", email).put("password", password)
+                    .put("data", JSONObject().put("display_name", display))
+                    .toString().toRequestBody(json))
+                .build()
+            reqClient.newCall(req).execute().use { r ->
+                val text = r.body?.string() ?: ""
+                if (!r.isSuccessful)
+                    throw ApiException(
+                        runCatching { JSONObject(text).optString("error_description",
+                            JSONObject(text).optString("msg", text)) }.getOrDefault(text),
+                        r.code)
+                JSONObject(text).optString("access_token", "")
+            }
+        }
+
+    /** Exchange a Supabase access_token for a hive session token. */
+    suspend fun supaExchange(accessToken: String): Pair<String, User> =
+        kotlinx.coroutines.withContext(Dispatchers.IO) {
+            val o = postJson("/api/auth/supabase",
+                JSONObject().put("access_token", accessToken))
+            token = o.getString("token")
+            val u = o.optJSONObject("user") ?: JSONObject()
+            token to User(u.optInt("id"), u.optString("username"),
+                u.optString("display_name", u.optString("username")))
+        }
+
     suspend fun me(): User = kotlinx.coroutines.withContext(Dispatchers.IO) {
         val o = getJson("/api/me")
         User(o.optInt("id"), o.optString("username"),
@@ -481,7 +609,11 @@ class HiveApi {
      */
     suspend fun probeHive(baseOverride: String? = null): Boolean = kotlinx.coroutines.withContext(Dispatchers.IO) {
         val base = (baseOverride ?: baseUrl).trimEnd('/')
-        runCatching {
+        val proxy = proxyHandler
+        if (base.startsWith("phone://")) {
+            return@withContext proxy?.probeMesh() ?: false
+        }
+        val directOk = runCatching {
             val req = Request.Builder().url("$base/api/auth/config").build()
             probeClient.newCall(req).execute().use { r ->
                 val body = r.body?.string() ?: ""
@@ -492,6 +624,13 @@ class HiveApi {
         }.onFailure {
             android.util.Log.d("HiveApi", "probeHive $base failed: ${it.message}")
         }.getOrDefault(false)
+
+        if (!directOk && baseOverride == null && proxy != null) {
+            if (proxy.hasCompanion()) {
+                return@withContext proxy.probeMesh()
+            }
+        }
+        directOk
     }
 
     /**
@@ -527,31 +666,44 @@ class HiveApi {
             .put("history", hist)
         if (!model.isNullOrBlank()) body.put("model", model)
 
+        val proxy = proxyHandler
+        if ((baseUrl.startsWith("phone://") || baseUrl.isBlank()) && proxy != null) {
+            emitAll(proxy.proxyStream(agentId, message, history, model))
+            return@flow
+        }
         val req = request("/api/agents/$agentId/try_stream", "POST", body)
-        client.newCall(req).execute().use { r ->
-            if (!r.isSuccessful) {
-                val t = r.body?.string() ?: ""
-                val msg = runCatching { JSONObject(t).optString("detail", t) }
-                    .getOrDefault("HTTP ${r.code}")
-                emit(StreamEvent.Error(msg))
-                return@use
-            }
-            val source = r.body?.source() ?: return@use
-            while (!source.exhausted()) {
-                val line = source.readUtf8Line() ?: break
-                if (line.isBlank()) continue
-                val ev = runCatching { JSONObject(line) }.getOrNull() ?: continue
-                when (ev.optString("t")) {
-                    "meta" -> emit(StreamEvent.Meta(ev.optString("provider"), ev.optString("model")))
-                    "token" -> emit(StreamEvent.Token(ev.optString("c")))
-                    "thinking" -> emit(StreamEvent.Thinking(ev.optInt("n")))
-                    "tool" -> emit(StreamEvent.Tool(ev.optString("name"), ev.optBoolean("ok")))
-                    "replace" -> emit(StreamEvent.Replace(ev.optString("c")))
-                    "error" -> emit(StreamEvent.Error(ev.optString("message", "stream error")))
-                    "done" -> emit(StreamEvent.Done)
+        try {
+            client.newCall(req).execute().use { r ->
+                if (!r.isSuccessful) {
+                    val t = r.body?.string() ?: ""
+                    val msg = runCatching { JSONObject(t).optString("detail", t) }
+                        .getOrDefault("HTTP ${r.code}")
+                    emit(StreamEvent.Error(msg))
+                    return@use
                 }
+                val source = r.body?.source() ?: return@use
+                while (!source.exhausted()) {
+                    val line = source.readUtf8Line() ?: break
+                    if (line.isBlank()) continue
+                    val ev = runCatching { JSONObject(line) }.getOrNull() ?: continue
+                    when (ev.optString("t")) {
+                        "meta" -> emit(StreamEvent.Meta(ev.optString("provider"), ev.optString("model")))
+                        "token" -> emit(StreamEvent.Token(ev.optString("c")))
+                        "thinking" -> emit(StreamEvent.Thinking(ev.optInt("n")))
+                        "tool" -> emit(StreamEvent.Tool(ev.optString("name"), ev.optBoolean("ok")))
+                        "replace" -> emit(StreamEvent.Replace(ev.optString("c")))
+                        "error" -> emit(StreamEvent.Error(ev.optString("message", "stream error")))
+                        "done" -> emit(StreamEvent.Done)
+                    }
+                }
+                emit(StreamEvent.Done)
             }
-            emit(StreamEvent.Done)
+        } catch (e: Exception) {
+            if (proxy != null && (e is java.io.IOException || e is java.net.SocketException)) {
+                emitAll(proxy.proxyStream(agentId, message, history, model))
+                return@flow
+            }
+            emit(StreamEvent.Error(e.message ?: "stream error"))
         }
     }.flowOn(Dispatchers.IO)
 }

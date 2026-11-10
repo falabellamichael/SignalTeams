@@ -68,8 +68,9 @@ export const api = {
     URL.revokeObjectURL(a.href);
   },
   // auth
-  register: (username, password, display_name) =>
-    req("POST", "/api/register", { username, password, display_name }),
+  register: (username, password, display_name, invite = "") =>
+    req("POST", "/api/register", { username, password, display_name, invite }),
+  inviteRole: (code) => req("GET", `/api/invite-role/${encodeURIComponent(code)}`),
   login: (username, password) => req("POST", "/api/login", { username, password }),
   me: () => req("GET", "/api/me"),
   updateMe: (patch) => req("PATCH", "/api/me", patch),
@@ -250,7 +251,7 @@ export const api = {
   nexusDeviceRemove: (node_id) => req("DELETE", `/api/nexus/devices/${node_id}`),
   nexusEgress: (ip, port) => req("POST", "/api/nexus/egress", { ip, port }),
   nexusEgressClose: (ip, port) => req("DELETE", "/api/nexus/egress", { ip, port }),
-  nexusInvite: (ttl_sec) => req("POST", "/api/nexus/invite", { ttl_sec }),
+  nexusInvite: (ttl_sec, role = "user") => req("POST", "/api/nexus/invite", { ttl_sec, role }),
   nexusWatchPair: () => req("POST", "/api/nexus/watch-pair", {}),
   nexusCfg: (p) => req("PUT", "/api/nexus/config", p),
 

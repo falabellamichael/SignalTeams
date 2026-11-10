@@ -40,6 +40,7 @@ export function MeshPage({ me }) {
   const [adv, setAdv] = useState(false);
   const [form, setForm] = useState({ server: "", region: "", device_name: "", link_token: "" });
   const [invite, setInvite] = useState(null);
+  const [invRole, setInvRole] = useState("user");
   const [watchPair, setWatchPair] = useState(null);
   const [links, setLinks] = useState({});      // peer tunnel_ip -> opened loopback url
   const [dialPort, setDialPort] = useState({}); // peer ip -> vport to dial (default 8075)
@@ -84,7 +85,7 @@ export function MeshPage({ me }) {
 
   async function mintInvite() {
     setBusy("invite"); setErr("");
-    try { setInvite(await api.nexusInvite(86400)); }
+    try { setInvite(await api.nexusInvite(86400, invRole)); }
     catch (e) { setErr(e.message); }
     setBusy("");
   }
@@ -183,6 +184,15 @@ export function MeshPage({ me }) {
                 <div style={{ fontSize: 12, color: "var(--dim)" }}>
                   Single-use code — a friend pastes it into their own Mesh settings
                   (or any nexus client) and joins this hive's group as a peer.
+                  Entering it again at sign-up grants them:
+                  <span style={{ display: "inline-flex", gap: 4, marginLeft: 6 }}>
+                    {["user", "mod", "admin"].map((r) => (
+                      <button key={r} type="button"
+                        className={invRole === r ? "ghost on" : "ghost"}
+                        style={{ padding: "2px 8px", fontSize: 11 }}
+                        onClick={() => setInvRole(r)}>{r}</button>
+                    ))}
+                  </span>
                 </div>
                 <button disabled={!!busy} onClick={mintInvite} style={{ flex: "none" }}>
                   <Ico n="key" s={13} /> {busy === "invite" ? "…" : "Mint code"}
@@ -192,7 +202,9 @@ export function MeshPage({ me }) {
                 <div className="nx-ticket">
                   <div style={{ flex: "none" }}>
                     <div className="nx-code">{invite.code}</div>
-                    <div style={{ fontSize: 10.5, color: "var(--dim)" }}>code · good for 10 min</div>
+                    <div style={{ fontSize: 10.5, color: "var(--dim)" }}>
+                      code · good for 24 h{invite.role && invite.role !== "user" ? ` · grants ${invite.role}` : ""}
+                    </div>
                   </div>
                   <div className="nx-token">{invite.link_token}
                     <div style={{ fontSize: 10.5, marginTop: 2 }}>or full token · good for 24 h</div>

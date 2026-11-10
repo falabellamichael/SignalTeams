@@ -504,6 +504,7 @@ def init():
             ("agents.use_when", "ALTER TABLE agents ADD COLUMN use_when TEXT NOT NULL DEFAULT 'always'"),
             ("agents.ai_flags", "ALTER TABLE agents ADD COLUMN ai_flags TEXT NOT NULL DEFAULT '{}'"),
             ("users.is_admin", "ALTER TABLE users ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0"),
+            ("users.role", "ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'user'"),
         ]:
             table, c = col.split(".")
             try:
@@ -520,10 +521,13 @@ def init():
         conn.execute(
             "UPDATE messages SET content = RTRIM(RTRIM(content,'▌')) "
             "|| ' *(interrupted)*' WHERE content LIKE '%▌'")
+        # keep role ↔ is_admin coherent both directions
+        conn.execute("UPDATE users SET role='admin' WHERE is_admin=1 AND role='user'")
+        conn.execute("UPDATE users SET is_admin=1 WHERE role='admin' AND is_admin=0")
         # permanent site admins — env-listed usernames are re-promoted every boot
         if ADMINS:
             conn.execute(
-                "UPDATE users SET is_admin=1 WHERE lower(username) IN (%s)"
+                "UPDATE users SET is_admin=1, role='admin' WHERE lower(username) IN (%s)"
                 % ",".join("?" * len(ADMINS)), ADMINS)
 
 

@@ -38,6 +38,7 @@ class EgressReq(BaseModel):
 
 class InviteReq(BaseModel):
     ttl_sec: int = 86400
+    role: str = "user"           # site role the invitee lands as: user | mod | admin
 
 
 class CfgReq(BaseModel):
@@ -149,10 +150,23 @@ def _cfg_port() -> int:
 
 @router.post("/api/nexus/invite")
 async def nexus_invite(req: InviteReq, user=Depends(require_admin)):
+    role = (req.role or "user").lower()
+    if role not in ("user", "mod", "admin"):
+        raise HTTPException(400, "role must be user, mod, or admin")
     try:
-        return await asyncio.to_thread(nexus.NODE.invite, req.ttl_sec)
+        inv = await asyncio.to_thread(nexus.NODE.invite, req.ttl_sec)
     except RuntimeError as e:
         raise HTTPException(502, str(e))
+    # the code doubles as a registration grant — the invitee's first crew
+    # signup on this hive redeems it and lands with the chosen role.
+    code = str(inv.get("code") or "")
+    if code:
+        nexus._kv_set(f"invite_role:{code}", {
+            "role": role, "exp": time.time() + req.ttl_sec,
+            "by": user["id"], "by_name": user["username"],
+        })
+    inv["role"] = role
+    return inv
 
 
 # ---------------------------------------------------------------------------

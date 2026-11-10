@@ -5,6 +5,7 @@ import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
+import android.os.SystemClock
 import android.system.Os
 import android.util.Log
 import com.sun.jna.Library
@@ -225,10 +226,19 @@ class NexusNode(private val ctx: Context) {
 
     /** Optional UI status tap — reports what the link path is blocked on. */
     @Volatile var onStatus: ((String) -> Unit)? = null
+    @Volatile var hasCompanionCheck: (() -> Boolean)? = null
 
     private var cli: Pointer? = null
     private var ident: Pointer? = null
+    @Volatile private var connectStart = 0L
+    @Volatile private var joinFails = 0
     private var wifiDemand: ConnectivityManager.NetworkCallback? = null
+    private var cellDemand: ConnectivityManager.NetworkCallback? = null
+
+    fun directNetworkUp(): Boolean {
+        val cm = connectivityManager() ?: return false
+        return directNet(cm) != null
+    }
 
     /** Signaled the instant a direct network comes up — no poll granularity. */
     @Volatile private var directLatch = java.util.concurrent.CountDownLatch(1)
@@ -274,15 +284,22 @@ class NexusNode(private val ctx: Context) {
      * 20–40 s power-up). teardown() only releases it on a real stop.
      */
     private fun registerDirectDemand() {
-        if (wifiDemand != null) return
+        if (wifiDemand != null && cellDemand != null) return
         val cm = connectivityManager() ?: return
         val cb = object : ConnectivityManager.NetworkCallback() {
             override fun onAvailable(network: Network) = offer(network)
             override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) = offer(network)
             override fun onLost(network: Network) {
                 Log.w("NexusNode", "direct net lost ${transports(cm, network)}")
-                if (directNet(cm) == null) directLatch = java.util.concurrent.CountDownLatch(1)
-                else directNet(cm)?.let { cm.bindProcessToNetwork(it) }
+                val rem = directNet(cm)
+                if (rem == null) {
+                    directLatch = java.util.concurrent.CountDownLatch(1)
+                    cm.bindProcessToNetwork(null)
+                    Log.i("NexusNode", "all direct nets lost; unbound process from network")
+                } else {
+                    val ok = cm.bindProcessToNetwork(rem)
+                    Log.i("NexusNode", "re-seated process to ${transports(cm, rem)} ok=$ok")
+                }
             }
             private fun offer(network: Network) {
                 if (!isDirect(cm, network)) return
@@ -291,18 +308,36 @@ class NexusNode(private val ctx: Context) {
                 Log.i("NexusNode", "direct net up ${transports(cm, network)} bind=$ok")
             }
         }
-        wifiDemand = cb
-        try {
-            cm.requestNetwork(
-                NetworkRequest.Builder()
-                    .addTransportType(NetworkCapabilities.TRANSPORT_CELLULAR)
-                    .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
-                    .addTransportType(NetworkCapabilities.TRANSPORT_ETHERNET)
-                    .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
-                    .build(), cb
-            )
-        } catch (e: Exception) {
-            Log.w("NexusNode", "requestNetwork failed: ${e.message}")
+        if (wifiDemand == null) {
+            wifiDemand = cb
+            try {
+                cm.requestNetwork(
+                    NetworkRequest.Builder()
+                        .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
+                        .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                        .build(), cb
+                )
+            } catch (e: Exception) {
+                Log.w("NexusNode", "requestNetwork wifi failed: ${e.message}")
+            }
+        }
+        if (cellDemand == null) {
+            val cellCb = object : ConnectivityManager.NetworkCallback() {
+                override fun onAvailable(network: Network) = cb.onAvailable(network)
+                override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) = cb.onCapabilitiesChanged(network, caps)
+                override fun onLost(network: Network) = cb.onLost(network)
+            }
+            cellDemand = cellCb
+            try {
+                cm.requestNetwork(
+                    NetworkRequest.Builder()
+                        .addTransportType(NetworkCapabilities.TRANSPORT_CELLULAR)
+                        .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                        .build(), cellCb
+                )
+            } catch (e: Exception) {
+                Log.w("NexusNode", "requestNetwork cellular failed: ${e.message}")
+            }
         }
     }
 
@@ -319,19 +354,24 @@ class NexusNode(private val ctx: Context) {
         val cm = connectivityManager() ?: return
         registerDirectDemand()
         var net = directNet(cm)
-        // LTE radio wake routinely takes 20–40 s on Wear OS — wait it out so
-        // SEIP discovery/join don't run against the dead BT-proxy DNS. The
-        // latch wakes the instant a callback fires instead of polling.
-        if (net == null && waitMs > 0) {
+        // If phone is connected over Bluetooth, don't stall for 35s when LTE takes time;
+        // give LTE a short chance (3s) before letting the companion mesh proxy take over.
+        // BUT only on the first join attempts — once a join has failed, the proxy is
+        // presumed dead too, and a cold modem needs its full 20-40s power-up window.
+        val hasPhone = hasCompanionCheck?.invoke() ?: false
+        val effectiveWait = if (hasPhone && joinFails < 2) 3_000L else waitMs
+
+        if (net == null && effectiveWait > 0) {
             onStatus?.invoke("waking LTE radio…")
-            directLatch.await(waitMs, java.util.concurrent.TimeUnit.MILLISECONDS)
+            directLatch.await(effectiveWait, java.util.concurrent.TimeUnit.MILLISECONDS)
             net = directNet(cm)
         }
         if (net != null) {
             val ok = cm.bindProcessToNetwork(net)
             Log.i("NexusNode", "bound process to ${transports(cm, net)} ok=$ok")
         } else {
-            Log.w("NexusNode", "no direct network — BT proxy only, mesh likely to fail")
+            cm.bindProcessToNetwork(null)
+            Log.w("NexusNode", "no direct network — BT proxy or cellular pending, process unbound")
         }
     }
 
@@ -396,9 +436,17 @@ class NexusNode(private val ctx: Context) {
                 }
                 teardown()   // fall through to a real rejoin
             }
-            if (state == NexusState.CONNECTING) throw NexusException("mesh is already joining")
+            if (state == NexusState.CONNECTING) {
+                // A join can wedge inside native code (dead TLS mid-roam, a
+                // seed that never answers) — past 150s it will never finish,
+                // so tear it down and join fresh instead of refusing forever.
+                val stuckMs = SystemClock.elapsedRealtime() - connectStart
+                if (stuckMs < 150_000) throw NexusException("mesh is already joining")
+                Log.w("NexusNode", "join stuck ${stuckMs / 1000}s — tearing down")
+            }
             teardown()
             state = NexusState.CONNECTING; error = ""
+            connectStart = SystemClock.elapsedRealtime()
 
             val c = NexusCfg(
                 domain = domain.ifBlank { cfg.domain },
@@ -411,9 +459,12 @@ class NexusNode(private val ctx: Context) {
 
             try {
                 info = doConnect(api, c, linkToken, genesisPubkey)
+                connectStart = 0L
+                joinFails = 0
                 state = NexusState.RUNNING
                 info
             } catch (e: Exception) {
+                joinFails++
                 state = NexusState.ERROR
                 error = e.message ?: "connect failed"
                 teardown()
@@ -652,17 +703,12 @@ class NexusNode(private val ctx: Context) {
         runCatching { ident?.let { NexusLib.load().ln_identity_destroy(it) } }
         cli = null; ident = null; info = NexusInfo()
         if (releaseDemand) {
-            wifiDemand?.let { cb ->
-                runCatching {
-                    (ctx.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager)
-                        .unregisterNetworkCallback(cb)
-                }
-            }
+            val cm = connectivityManager()
+            wifiDemand?.let { runCatching { cm?.unregisterNetworkCallback(it) } }
+            cellDemand?.let { runCatching { cm?.unregisterNetworkCallback(it) } }
             wifiDemand = null
-            runCatching {
-                (ctx.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager)
-                    .bindProcessToNetwork(null)
-            }
+            cellDemand = null
+            runCatching { cm?.bindProcessToNetwork(null) }
         }
     }
 

@@ -14,7 +14,7 @@ class PhoneApp : Application() {
     override fun onCreate() {
         super.onCreate()
         store = Store(this)
-        api = HiveApi()
+        api = HiveApi(this)
         nexus = NexusNode(this)
     }
 }

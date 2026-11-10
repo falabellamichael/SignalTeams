@@ -74,6 +74,15 @@ async def require_admin(request: Request):
     raise HTTPException(403, "Site admins only")
 
 
+async def require_mod(request: Request):
+    """Mod tier: admins pass; users.role='mod' passes; plain users don't."""
+    user = await current_user(request)
+    if (user.get("is_admin") or user["username"].lower() in ADMINS
+            or user.get("role") == "mod"):
+        return user
+    raise HTTPException(403, "Mods only")
+
+
 async def optional_user(request: Request):
     token = get_token(request)
     with db() as conn:

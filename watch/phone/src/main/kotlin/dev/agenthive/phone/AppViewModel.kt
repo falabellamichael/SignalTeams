@@ -60,6 +60,8 @@ data class UiState(
     val connOAuth: JSONObject? = null,
     /** Fresh mesh invite code minted in settings. */
     val inviteCode: String = "",
+    /** /api/auth/config — which sign-in providers this hive advertises. */
+    val authCfg: JSONObject? = null,
     // chat interaction state — Discord mobile action-sheet model
     val sheetMsg: JSONObject? = null,      // long-press target
     val replyTo: JSONObject? = null,       // composer reply target
@@ -331,20 +333,18 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    /** Normal crew login — same POST /api/login the web UI makes. */
-    fun signIn(server: String, user: String, pass: String) {
-        val host = server.trim().trimEnd('/')
-        if (host.isBlank() || user.isBlank() || pass.isBlank()) {
-            _ui.update { it.copy(error = "hive url, username and password required") }
+    /** Normal crew login — same POST /api/login the web UI makes. The hive is
+     *  wherever we're paired (mesh loopback) — no URL typing. */
+    fun signIn(user: String, pass: String) {
+        if (store.serverUrl.isBlank() || user.isBlank() || pass.isBlank()) {
+            _ui.update { it.copy(error = "username and password required") }
             return
         }
         if (linkJob?.isActive == true) return
         linkJob = viewModelScope.launch {
             _ui.update { it.copy(busy = true, error = "", status = "signing in…") }
             try {
-                val (token, u) = api.login(host, user, pass)
-                store.paired = false
-                store.serverUrl = api.baseUrl
+                val (token, u) = api.login(store.serverUrl, user, pass)
                 store.username = u.username
                 store.displayName = u.displayName
                 store.token = token
@@ -354,6 +354,97 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                                      error = e.message ?: "sign in failed") }
             }
         }
+    }
+
+    /** Crew signup — POST /api/register; a live mesh invite code grants its role. */
+    fun signUp(user: String, pass: String, display: String, invite: String) {
+        if (store.serverUrl.isBlank() || user.isBlank() || pass.isBlank()) {
+            _ui.update { it.copy(error = "username and password required") }
+            return
+        }
+        if (linkJob?.isActive == true) return
+        linkJob = viewModelScope.launch {
+            _ui.update { it.copy(busy = true, error = "", status = "creating account…") }
+            try {
+                val (token, u) = api.register(store.serverUrl, user, pass, display, invite)
+                store.username = u.username
+                store.displayName = u.displayName
+                store.token = token
+                enterHome()
+            } catch (e: Exception) {
+                _ui.update { it.copy(busy = false, status = "",
+                                     error = e.message ?: "sign up failed") }
+            }
+        }
+    }
+
+    /** Supabase password sign-in → exchange the token on this hive. */
+    fun signInSupa(email: String, pass: String) = supaAuth(email, pass, "", false)
+    fun signUpSupa(email: String, pass: String, display: String) = supaAuth(email, pass, display, true)
+
+    private fun supaAuth(email: String, pass: String, display: String, signup: Boolean) {
+        if (email.isBlank() || pass.isBlank()) {
+            _ui.update { it.copy(error = "email and password required") }
+            return
+        }
+        if (linkJob?.isActive == true) return
+        linkJob = viewModelScope.launch {
+            _ui.update { it.copy(busy = true, error = "",
+                status = if (signup) "creating account…" else "signing in…") }
+            try {
+                val cfg = _ui.value.authCfg ?: api.authConfig()
+                if (!cfg.optBoolean("supabase")) {
+                    _ui.update { it.copy(busy = false, status = "",
+                        error = "this hive doesn't offer Supabase sign-in") }
+                    return@launch
+                }
+                val sUrl = cfg.getString("supabase_url"); val anon = cfg.getString("supabase_anon")
+                val at = if (signup) api.supaSignup(sUrl, anon, email, pass, display)
+                         else api.supaPassword(sUrl, anon, email, pass)
+                if (at.isBlank()) {
+                    _ui.update { it.copy(busy = false, status = "",
+                        error = "account created — confirm it from your email, then sign in") }
+                    return@launch
+                }
+                api.baseUrl = store.serverUrl
+                val (token, u) = api.supaExchange(at)
+                store.username = u.username
+                store.displayName = u.displayName
+                store.token = token
+                enterHome()
+            } catch (e: Exception) {
+                _ui.update { it.copy(busy = false, status = "",
+                                     error = e.message ?: "sign in failed") }
+            }
+        }
+    }
+
+    /** Register-form preview — what role does this invite code grant. */
+    fun previewInviteRole(code: String, cb: (role: String?, bad: Boolean) -> Unit) {
+        viewModelScope.launch {
+            runCatching {
+                api.baseUrl = store.serverUrl
+                val o = api.inviteRole(code)
+                cb(o.optString("role").ifBlank { null }, false)
+            }.onFailure { cb(null, true) }
+        }
+    }
+
+    /** Which auth tabs to show — fetched once the hive (mesh bridge) is up. */
+    fun fetchAuthConfig() {
+        if (store.serverUrl.isBlank()) return
+        viewModelScope.launch {
+            runCatching {
+                api.baseUrl = store.serverUrl
+                _ui.update { it.copy(authCfg = api.authConfig()) }
+            }
+        }
+    }
+
+    /** "Switch hive" — forget the pairing target so a fresh code can be entered. */
+    fun forgetHive() {
+        store.token = ""; store.serverUrl = ""; store.paired = false
+        _ui.update { it.copy(authCfg = null, error = "", status = "") }
     }
 
     // -- mesh (transport only) --------------------------------------------------

@@ -31,6 +31,8 @@ def public_user(u):
         "banner_color": u["banner_color"] if "banner_color" in u.keys() else "",
         "pronouns": u["pronouns"] if "pronouns" in u.keys() else "",
         "is_admin": bool(u["is_admin"]) if "is_admin" in u.keys() else False,
+        "role": (u["role"] if "role" in u.keys() and u["role"]
+                 else ("admin" if "is_admin" in u.keys() and u["is_admin"] else "user")),
         "created_at": u["created_at"] if "created_at" in u.keys() else 0,
     }
 

@@ -31,6 +31,7 @@ class MeshService : Service() {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     @Volatile private var linking = false
+    @Volatile private var linkStart = 0L
     private var loopJob: kotlinx.coroutines.Job? = null
     private var mgr: NotificationManager? = null
 
@@ -59,6 +60,18 @@ class MeshService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (loopJob?.isActive == true) return START_STICKY   // one warm loop
+        // watchdog: a hung ln_* call holds linking=true forever AND blocks
+        // reset() on the same mutex — the only escape is a fresh process.
+        scope.launch {
+            while (isActive) {
+                delay(60_000)
+                if (linking && linkStart > 0 &&
+                    android.os.SystemClock.elapsedRealtime() - linkStart > 360_000) {
+                    Log.e("MeshService", "link hung >6min — killing process for a clean rejoin")
+                    android.os.Process.killProcess(android.os.Process.myPid())
+                }
+            }
+        }
         loopJob = scope.launch {
             val app = application as HiveApp
             while (isActive) {
@@ -88,7 +101,21 @@ class MeshService : Service() {
     private suspend fun linkOnce(app: HiveApp) {
         if (linking) return
         linking = true
+        linkStart = android.os.SystemClock.elapsedRealtime()
         try {
+            val hasPhone = dev.agenthive.watch.device.PhoneBridge.hasNearbyPhone(this)
+            val direct = app.nexus.directNetworkUp()
+            if (!direct && hasPhone) {
+                if (dev.agenthive.watch.device.PhoneBridge.probePhoneMesh(this)) {
+                    app.store.meshEnabled = true
+                    app.api.baseUrl = "phone://proxy"
+                    app.store.meshUrl = "phone://proxy"
+                    notify("Linked to Hive via Phone (Bluetooth)")
+                    refreshSuggestion(app)
+                    return
+                }
+            }
+
             for (attempt in 1..3) {
                 try {
                     if (app.nexus.state != NexusState.RUNNING) {
@@ -114,8 +141,26 @@ class MeshService : Service() {
                     }
                 } catch (e: Exception) {
                     Log.w("MeshService", "pass $attempt: ${e.message}")
+                    if (attempt == 3 && hasPhone) {
+                        if (dev.agenthive.watch.device.PhoneBridge.probePhoneMesh(this)) {
+                            app.store.meshEnabled = true
+                            app.api.baseUrl = "phone://proxy"
+                            app.store.meshUrl = "phone://proxy"
+                            notify("Linked to Hive via Phone (Bluetooth)")
+                            refreshSuggestion(app)
+                            return
+                        }
+                    }
                 }
                 delay(if (attempt == 1) 8_000 else 15_000)
+            }
+            if (hasPhone && dev.agenthive.watch.device.PhoneBridge.probePhoneMesh(this)) {
+                app.store.meshEnabled = true
+                app.api.baseUrl = "phone://proxy"
+                app.store.meshUrl = "phone://proxy"
+                notify("Linked to Hive via Phone (Bluetooth)")
+                refreshSuggestion(app)
+                return
             }
             notify("Mesh offline — retrying…")
         } finally { linking = false }

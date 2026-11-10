@@ -189,7 +189,7 @@ class HiveViewModel(app: Application) : AndroidViewModel(app) {
             // warm path — MeshService already holds a live bridge; one probe
             // and a session claim instead of a whole relink.
             val warm = store.meshUrl
-            if (warm.isNotBlank() && api.probeHive(warm)) {
+            if (warm.startsWith("phone://") || (warm.isNotBlank() && api.probeHive(warm))) {
                 api.baseUrl = warm
                 logLine("bridge already warm — skipping relink")
                 if (store.token.isNotBlank()) {
@@ -230,6 +230,21 @@ class HiveViewModel(app: Application) : AndroidViewModel(app) {
                         delay(6000)
                     }
                 }
+            }
+            val hasPhone = dev.agenthive.watch.device.PhoneBridge.hasNearbyPhone(getApplication())
+            if (hasPhone && dev.agenthive.watch.device.PhoneBridge.probePhoneMesh(getApplication())) {
+                api.baseUrl = "phone://proxy"
+                store.meshUrl = "phone://proxy"
+                logLine("linked via phone companion (Bluetooth)")
+                if (store.token.isNotBlank()) {
+                    api.token = store.token
+                    runCatching { api.me() }.onSuccess {
+                        finishReady(); return@launch
+                    }
+                }
+                claimSession("")
+                finishReady()
+                return@launch
             }
             if (store.serverUrl.isNotBlank() && store.token.isNotBlank()) {
                 runCatching {
@@ -885,7 +900,18 @@ class HiveViewModel(app: Application) : AndroidViewModel(app) {
         meshPoll = viewModelScope.launch {
             while (isActive) {
                 delay(10_000)
-                if (nexus.state != NexusState.RUNNING) continue
+                if (nexus.state != NexusState.RUNNING) {
+                    if (store.meshUrl.startsWith("phone://") || api.baseUrl.startsWith("phone://")) {
+                        _ui.update {
+                            it.copy(
+                                mesh = "phone",
+                                meshInfo = "mesh · via phone (BT)",
+                                suggestion = store.suggestion,
+                            )
+                        }
+                    }
+                    continue
+                }
                 val st = runCatching { nexus.meshStatus() }.getOrNull()
                 val peers = runCatching { nexus.peers() }.getOrNull()
                 val pc = peers?.length() ?: st?.optInt("peer_count", 0) ?: 0
