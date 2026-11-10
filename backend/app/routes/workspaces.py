@@ -16,7 +16,7 @@ from ..db import db, now
 from ..hub import hub
 
 from ..helpers import (_agent_llm, _server_llm, _user_llm, audit as server_audit,
-                       can_see_agent, channel_json)
+                       can_see_agent, can_use_agent, channel_json)
 from ..schemas import (WorkspaceAgentIn, WorkspaceExecIn, WorkspaceFileIn, WorkspaceGrantIn,
                        WorkspaceIn, WorkspaceMoveIn, WorkspacePatch, WorkspacePathIn)
 from .. import workspace as wsx
@@ -360,7 +360,7 @@ async def agent_work(wid: int, request: Request, body: WorkspaceAgentIn,
         ws = _ws_or_404(conn, wid)
         _guard(wsx.require, conn, ws, user["id"], "read")
         a = conn.execute("SELECT * FROM agents WHERE id=?", (body.agent_id,)).fetchone()
-        if not a or not can_see_agent(conn, a, user["id"]):
+        if not a or not can_use_agent(conn, a, user["id"]):
             raise HTTPException(404, "No such agent")
         ep = _agent_llm(a) or _server_llm(conn, ws["server_id"]) or _user_llm(conn, user["id"])
         sysp = (a["system_prompt"] or f"You are {a['name']}, a coding agent.") + "\n\n" \

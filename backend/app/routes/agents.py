@@ -8,7 +8,8 @@ from ..db import db, emit_buzz, now, row_to_dict
 from ..hub import hub
 
 from ..helpers import agent_json, can_see_agent, friend_ids, public_user
-from ..schemas import AgentIn, ReviewIn
+from ..schemas import AgentIn, AgentPatch, ReviewIn
+from .engage import AI_FLAG_KEYS
 
 router = APIRouter()
 
@@ -124,17 +125,19 @@ def agent_stats(aid: int, user=Depends(current_user)):
 @router.post("/api/agents")
 async def create_agent(body: AgentIn, user=Depends(current_user)):
     with db() as conn:
+        ai_flags = json.dumps({k: bool(v) for k, v in (body.ai_flags or {}).items()
+                             if k in AI_FLAG_KEYS})
         cur = conn.execute(
             "INSERT INTO agents(owner_id, name, icon, tagline, description, system_prompt, model, "
             "temperature, context_url, context_method, context_headers, api_kind, api_url, api_key, api_headers, "
-            "tags, version, visibility, created_at, updated_at) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "tags, version, visibility, ai_flags, created_at, updated_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (user["id"], body.name, body.icon, body.tagline, body.description, body.system_prompt,
              body.model, body.temperature, (body.context_url or "").strip()[:512],
              (body.context_method or "GET").upper(), body.context_headers,
              (body.api_kind or "").strip(), (body.api_url or "").strip().rstrip("/")[:512],
              (body.api_key or "").strip()[:256], body.api_headers,
-             json.dumps(body.tags), body.version, body.visibility, now(), now()))
+             json.dumps(body.tags), body.version, body.visibility, ai_flags, now(), now()))
         a = conn.execute("SELECT * FROM agents WHERE id=?", (cur.lastrowid,)).fetchone()
         emit_buzz(conn, user["id"], "published", {"agent_id": a["id"], "name": a["name"]})
         result = agent_json(conn, a, user["id"])
@@ -153,7 +156,10 @@ def get_agent(aid: int, user=Depends(current_user)):
 
 
 @router.patch("/api/agents/{aid}")
-def update_agent(aid: int, body: AgentIn, user=Depends(current_user)):
+def update_agent(aid: int, body: AgentPatch, user=Depends(current_user)):
+    """Merge-PATCH — only fields the client actually sent are written, so a
+    partial body (e.g. {use_who, use_when} from mobile permissions, or
+    {ai_flags} alone) never resets everything else to schema defaults."""
     with db() as conn:
         a = conn.execute("SELECT * FROM agents WHERE id=?", (aid,)).fetchone()
         if not a or a["owner_id"] != user["id"]:
@@ -165,24 +171,47 @@ def update_agent(aid: int, body: AgentIn, user=Depends(current_user)):
             "INSERT INTO agent_history(agent_id, version, snapshot, edited_by, created_at) "
             "VALUES (?,?,?,?,?)",
             (aid, a["version"], json.dumps(snap), user["id"], now()))
-        snap.pop("api_key", None)
-        snap.pop("api_headers", None)
-        snap.pop("context_headers", None)
+        sent = body.model_fields_set
+        keep = lambda k: getattr(body, k) if k in sent else a[k]
+        # secrets: None keeps stored, "" clears (unchanged semantics)
         new_key = a["api_key"] if body.api_key is None else body.api_key.strip()[:256]
         new_api_hdrs = a["api_headers"] if body.api_headers is None else (body.api_headers.strip() or None)
         new_ctx_hdrs = a["context_headers"] if body.context_headers is None else (body.context_headers.strip() or None)
+        if body.use_who is None:
+            use_who = a["use_who"]
+        elif body.use_who in ("", "public", "friends", "people", "private"):
+            use_who = body.use_who
+        else:
+            raise HTTPException(400, "use_who must be public|friends|people|private")
+        if body.use_when is None:
+            use_when = a["use_when"]
+        elif body.use_when in ("always", "online", "off"):
+            use_when = body.use_when
+        else:
+            raise HTTPException(400, "use_when must be always|online|off")
+        ai_flags = a["ai_flags"] if body.ai_flags is None else json.dumps(
+            {k: bool(v) for k, v in (body.ai_flags or {}).items() if k in AI_FLAG_KEYS})
         conn.execute(
             "UPDATE agents SET name=?, icon=?, tagline=?, description=?, system_prompt=?, model=?, "
             "temperature=?, context_url=?, context_method=?, context_headers=?, "
             "api_kind=?, api_url=?, api_key=?, api_headers=?, "
-            "tags=?, version=?, visibility=?, updated_at=? WHERE id=?",
-            (body.name, body.icon, body.tagline, body.description, body.system_prompt, body.model,
-             body.temperature, (body.context_url or "").strip()[:512],
-             (body.context_method or a["context_method"] or "GET").upper(), new_ctx_hdrs,
-             (body.api_kind if body.api_kind is not None else (a["api_kind"] or "")).strip(),
-             (body.api_url if body.api_url is not None else (a["api_url"] or "")).strip().rstrip("/")[:512],
+            "tags=?, version=?, visibility=?, use_who=?, use_when=?, ai_flags=?, updated_at=? WHERE id=?",
+            (keep("name"), keep("icon"), keep("tagline"), keep("description"),
+             keep("system_prompt"), keep("model"), keep("temperature"),
+             (keep("context_url") or "").strip()[:512],
+             (keep("context_method") or "GET").upper(), new_ctx_hdrs,
+             (keep("api_kind") or "").strip(),
+             (keep("api_url") or "").strip().rstrip("/")[:512],
              new_key, new_api_hdrs,
-             json.dumps(body.tags), body.version, body.visibility, now(), aid))
+             json.dumps(keep("tags") if "tags" in sent
+                        else json.loads(a["tags"] or "[]")),
+             keep("version"), keep("visibility"),
+             use_who, use_when, ai_flags, now(), aid))
+        if body.allowed_user_ids is not None:
+            conn.execute("DELETE FROM agent_allowed_users WHERE agent_id=?", (aid,))
+            conn.executemany(
+                "INSERT OR IGNORE INTO agent_allowed_users(agent_id, user_id) VALUES (?,?)",
+                [(aid, int(u)) for u in (body.allowed_user_ids or [])[:64]])
         return agent_json(conn, conn.execute(
             "SELECT * FROM agents WHERE id=?", (aid,)).fetchone(), user["id"])
 
@@ -293,11 +322,11 @@ async def fork_agent(aid: int, user=Depends(current_user)):
         attribution = f"{a['name']} by {owner['display_name']}"
         cur = conn.execute(
             "INSERT INTO agents(owner_id, name, icon, tagline, description, system_prompt, model, "
-            "temperature, context_url, tags, version, visibility, forked_from, created_at, updated_at) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "temperature, context_url, tags, version, visibility, forked_from, ai_flags, created_at, updated_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (user["id"], a["name"], a["icon"], a["tagline"], a["description"], a["system_prompt"],
              a["model"], a["temperature"], a["context_url"], a["tags"], a["version"],
-             "friends", attribution, now(), now()))
+             "friends", attribution, a["ai_flags"], now(), now()))
         new = conn.execute("SELECT * FROM agents WHERE id=?", (cur.lastrowid,)).fetchone()
         emit_buzz(conn, user["id"], "forked", {"agent_id": new["id"], "name": a["name"]})
         return agent_json(conn, new, user["id"])

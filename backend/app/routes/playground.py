@@ -1,14 +1,20 @@
 """LLM endpoints + agent playground (try/stream/connect)."""
 import json
+import re
 import time
+import urllib.parse as _up
+import urllib.request as _u
 
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 from ..auth import current_user
 from ..db import db, now, row_to_dict
 
-from ..helpers import _agent_llm, _grounding, _server_llm, _split_model, _sysprompt, _user_llm, agent_json, can_see_agent
-from ..schemas import AgentConnectIn, LlmConfigIn, TryIn
+from ..helpers import _agent_llm, _grounding, _memories, _server_llm, _split_model, _sysprompt, _user_llm, agent_json, can_see_agent, can_use_agent
+from ..schemas import ActIn, AgentConnectIn, EmbedIn, LlmConfigIn, MemIn, TryIn, TtsIn
+from ..services import WEB_TOOLS, _ai_web_tool
+from .. import connections as cx
+from .. import workspace as wsx
 
 router = APIRouter()
 
@@ -138,6 +144,288 @@ def llm_providers(user=Depends(current_user)):
     return providers(ep)
 
 
+@router.get("/api/llm/capabilities")
+def llm_capabilities(user=Depends(current_user)):
+    """Which modality models the user's endpoint exposes — clients (watch)
+    auto-detect and degrade: no TTS model → text-only replies."""
+    from ..llm import modality_models
+    with db() as conn:
+        ep = _user_llm(conn, user["id"])
+    mods = modality_models(ep) if ep else {}
+    return {
+        "tts": bool(mods.get("tts")),
+        "stt": bool(mods.get("stt")),
+        "embed": bool(mods.get("embedding")),
+        "image": bool(mods.get("image")),
+        "models": mods,
+    }
+
+
+@router.post("/api/llm/tts")
+def llm_tts(body: TtsIn, user=Depends(current_user)):
+    """Synthesize speech via the endpoint's detected TTS model — proxies
+    /audio/speech so the provider key never leaves the backend."""
+    from ..llm import tts_speech
+    text = (body.text or "").strip()
+    if not text:
+        raise HTTPException(400, "text required")
+    with db() as conn:
+        ep = _user_llm(conn, user["id"])
+    if not ep or not ep.get("url"):
+        raise HTTPException(404, "no endpoint configured")
+    try:
+        audio, ctype, model = tts_speech(ep, text, voice=body.voice)
+    except RuntimeError as e:
+        raise HTTPException(404, str(e))
+    except Exception as e:
+        raise HTTPException(502, f"tts failed: {str(e)[:200]}")
+    return Response(content=audio, media_type=ctype,
+                    headers={"X-TTS-Model": model})
+
+
+@router.post("/api/llm/embed")
+def llm_embed(body: EmbedIn, user=Depends(current_user)):
+    """Embeddings via the endpoint's detected embedding model."""
+    from ..llm import embed_texts
+    if not body.texts:
+        raise HTTPException(400, "texts required")
+    with db() as conn:
+        ep = _user_llm(conn, user["id"])
+    if not ep or not ep.get("url"):
+        raise HTTPException(404, "no endpoint configured")
+    try:
+        return embed_texts(ep, body.texts)
+    except RuntimeError as e:
+        raise HTTPException(404, str(e))
+    except Exception as e:
+        raise HTTPException(502, f"embed failed: {str(e)[:200]}")
+
+
+_ACT_SYS = """You are the device driver for a watch assistant. The user gave a task and you drive an Android device step by step.
+
+You get the task, the target app, the list of visible on-screen texts (top-to-bottom), and the actions already tried.
+
+Pick the SINGLE next action. Answer with ONLY a JSON object, no prose:
+{"action":"...", "target":"...", "text":"..."}
+
+Actions:
+- "launch": the target app is not on screen — set target to its package-safe name.
+- "tap": tap the element whose visible text best matches target (short, exact as shown).
+- "type": type text into the visible input/search field — put the full query in text. If a previous "type" visibly filled the field but "enter" then searched for nothing (e.g. screen says "Couldn't find \"\""), that app ignores injected text — use "typekeys" instead.
+- "typekeys": type by tapping the on-screen keyboard letter-by-letter — real key input for fields that ignore injected text.
+- "enter": submit the field after typing. On Wear Spotify's search, results live-filter as you type — do NOT press enter there, it submits an empty query. Just scroll and tap a result.
+- "scroll": more results exist off-screen.
+- "back": go back one screen — use it to escape a detail/now-playing view into browse lists.
+- "home": leave the app for the watch face — only when re-launching cleanly is the only path forward.
+- "wait": screen is loading or changing.
+- "ask": multiple equally-good options and you cannot decide — put a numbered list in text (e.g. "1. Lex Fridman  2. The AI Daily").
+- "done": the task is finished (episode playing, message sent).
+- "fail": impossible after the tries so far — explain why in text.
+
+Rules: prefer the most direct path; search before browsing; when several results look right, use ask rather than guessing; never invent UI elements that aren't in the screen list; if a tap did nothing twice, try a different element or scroll.
+
+This is a WATCH — apps are minimal single scroll stacks. The current card (e.g. a now-playing view) usually sits on TOP of the app's home/menu tiles — SCROLL DOWN to reveal search, library and browse sections before backing out; "back" usually exits the whole app. If the screen carries a [hive-ui] marker, the assistant's own UI is covering the screen — launch the target app again. If after honest browsing nothing matches the goal, use ask to list what IS available (names you actually saw) rather than cycling launch/back."""
+
+
+@router.post("/api/llm/act")
+def llm_act(body: ActIn, user=Depends(current_user)):
+    """One device-driving step — {goal, app, screen[], steps[]} → a strict
+    JSON action for the watch's AccessibilityService to execute. Non-streaming,
+    low-temp; keys stay on the backend."""
+    from ..llm import chat
+    goal = (body.goal or "").strip()
+    if not goal:
+        raise HTTPException(400, "goal required")
+    with db() as conn:
+        ep = _user_llm(conn, user["id"])
+    screen = [str(x)[:120] for x in (body.screen or [])][:80]
+    steps = [str(x)[:160] for x in (body.steps or [])][-12:]
+    msg = {
+        "goal": goal,
+        "app": (body.app or "")[:64],
+        "screen": screen,
+        "steps": steps,
+        "picked": (body.picked or "")[:160],
+    }
+    try:
+        reply, _p, _m = chat(_ACT_SYS, [], json.dumps(msg),
+                             model=body.model, temperature=0.15, endpoint=ep)
+    except Exception as e:
+        raise HTTPException(502, f"act failed: {str(e)[:200]}")
+    m = re.search(r"\{[^{}]*\}", reply, re.S)
+    if not m:
+        return {"action": "fail", "text": "model returned no action"}
+    try:
+        act = json.loads(m.group(0))
+    except Exception:
+        return {"action": "fail", "text": "model returned bad JSON"}
+    a = str(act.get("action") or "").strip().lower()
+    if a not in ("launch", "tap", "type", "typekeys", "enter", "scroll", "wait",
+                 "back", "home", "done", "ask", "fail"):
+        return {"action": "fail", "text": f"unknown action {a!r}"}
+    return {
+        "action": a,
+        "target": str(act.get("target") or "")[:160],
+        "text": str(act.get("text") or "")[:2000],
+    }
+
+
+_RESOLVE_SYS = """You pick media for a voice assistant. The user asked to play/listen to something on an app (e.g. spotify).
+
+Reply with ONLY JSON naming up to 3 real, well-known shows/artists/titles matching the request, best first: {"queries":["Lex Fridman Podcast","The TWIML AI Podcast"]}
+Use REAL names only — an AI podcast request maps to shows like Lex Fridman Podcast, TWIML AI, Practical AI. Never generic words like "ai podcast" and never placeholders."""
+
+
+_PICK_SYS = """You pick ONE item for a voice assistant's user, or admit you can't decide.
+
+You get the task and a numbered list of real titles found on the service.
+
+- If one clearly fits best: {"pick": <number>}
+- If several fit equally well: {"pick": 0} — the user will choose.
+
+Output ONLY the JSON."""
+
+
+def _itunes_shows(q):
+    """Canonical podcast names from Apple's public lookup — free, unauthed,
+    never blocks. Returns [(collectionName, collectionId)]."""
+    try:
+        req = _u.Request(
+            "https://itunes.apple.com/search?term=" + _up.quote(q) +
+            "&media=podcast&entity=podcast&limit=3",
+            headers={"User-Agent": "Mozilla/5.0"})
+        data = json.loads(_u.urlopen(req, timeout=8)
+                          .read().decode("utf-8", "replace"))
+        return [(r.get("collectionName") or "", r.get("collectionId"))
+                for r in data.get("results", [])
+                if r.get("collectionName")]
+    except Exception:
+        return []
+
+
+def _spotify_candidates(queries):
+    """Ground candidate names to real open.spotify.com links via DDG-lite.
+    Returns [{label, uri}] with spotify: deep links, deduped by uri.
+    Calls are spaced — bursting gets DDG to soft-block the IP for minutes."""
+    out, seen = [], set()
+    for q in queries[:3]:
+        res = _ai_web_tool("web_search", {"q": f"{q} spotify"})
+        time.sleep(1.2)  # stay under DDG-lite's burst limit
+        for hit in (res.get("results") or []):
+            m = re.search(
+                r"open\.spotify\.com/(show|episode|playlist|album|track|artist)"
+                r"/([A-Za-z0-9]+)", hit)
+            if not m:
+                continue
+            kind, oid = m.group(1), m.group(2)
+            uri = f"spotify:{kind}:{oid}"
+            if uri in seen:
+                continue
+            seen.add(uri)
+            label = hit.split("—")[0].strip()[:80] or q
+            out.append({"label": label, "uri": uri})
+            if len(out) >= 6:
+                return out
+    return out
+
+
+@router.post("/api/llm/resolve")
+def llm_resolve(body: ActIn, user=Depends(current_user)):
+    """Resolve a play/listen goal into a concrete deep link — the backend
+    does the thinking so the watch only opens a URI and taps play.
+    {goal:"play a podcast about ai on spotify"} →
+    {action:"deeplink", uri:"spotify:show:…"} or
+    {action:"ask", options:[{label,uri}]} when picks are genuinely tied."""
+    from ..llm import chat
+    goal = (body.goal or "").strip()
+    if not goal:
+        raise HTTPException(400, "goal required")
+    with db() as conn:
+        ep = _user_llm(conn, user["id"])
+    # 1) goal → specific show/artist candidates
+    try:
+        reply, _p, _m = chat(_RESOLVE_SYS, [], goal,
+                             temperature=0.3, endpoint=ep)
+    except Exception as e:
+        raise HTTPException(502, f"resolve failed: {str(e)[:200]}")
+    m = re.search(r"\{[^{}]*\}", reply, re.S)
+    queries = []
+    if m:
+        try:
+            queries = [str(x)[:80] for x in
+                       json.loads(m.group(0)).get("queries") or []
+                       if "<" not in str(x) and "…" not in str(x)
+                       and str(x).strip() != "..."][:3]
+        except Exception:
+            pass
+    if not queries:
+        cleaned = re.sub(r"(?i)\b(play|listen( to)?|put on|a|the|on|spotify|"
+                         r"podcast(s)?|about|music|song)\b", " ", goal)
+        cleaned = re.sub(r"\s+", " ", cleaned).strip()
+        queries = [cleaned or goal]
+    # canonicalize podcast names through Apple's public catalog — the model's
+    # names are usually right but iTunes confirms and fixes small errors.
+    for i, q in enumerate(queries):
+        shows = _itunes_shows(q)
+        if shows:
+            queries[i] = shows[0][0]
+    # 2) ground to real open.spotify.com links
+    cands = _spotify_candidates(queries)
+    if not cands:
+        # no grounded links — still far better than blind browsing: a
+        # precise search query the watch can fire at the app's search page.
+        return {"action": "search", "query": queries[0],
+                "options": [{"label": q, "uri": ""} for q in queries]}
+    if len(cands) == 1:
+        return {"action": "deeplink", "uri": cands[0]["uri"],
+                "options": cands}
+    # 3) model picks — or defers to the user when tied
+    listing = "\n".join(f"{i+1}. {c['label']}" for i, c in enumerate(cands))
+    try:
+        reply, _p, _m = chat(_PICK_SYS, [],
+                             f"task: {goal}\n\n{listing}",
+                             temperature=0.1, endpoint=ep)
+        pm = re.search(r"\{[^{}]*\}", reply, re.S)
+        pick = int(json.loads(pm.group(0)).get("pick", 0)) if pm else 0
+    except Exception:
+        pick = 0
+    if 1 <= pick <= len(cands):
+        return {"action": "deeplink", "uri": cands[pick - 1]["uri"],
+                "options": cands}
+    return {"action": "ask",
+            "text": "\n".join(f"{i+1}. {c['label']}"
+                              for i, c in enumerate(cands[:5])),
+            "options": cands[:5]}
+
+
+@router.get("/api/memory")
+def memory_list(user=Depends(current_user)):
+    """Personal-context memory — things the user asked the assistant to keep."""
+    with db() as conn:
+        r = conn.execute("SELECT value FROM kv WHERE key=?",
+                         (f"mem:{user['id']}",)).fetchone()
+    return json.loads(r["value"]) if r and r["value"] else []
+
+
+@router.post("/api/memory")
+def memory_add(body: MemIn, user=Depends(current_user)):
+    """Store a memory line ("remember that …"), or forget item idx."""
+    key = f"mem:{user['id']}"
+    with db() as conn:
+        r = conn.execute("SELECT value FROM kv WHERE key=?",
+                         (key,)).fetchone()
+        items = json.loads(r["value"]) if r and r["value"] else []
+        if body.idx is not None:
+            if 1 <= body.idx <= len(items):
+                items.pop(body.idx - 1)
+        elif body.text.strip():
+            items.append({"t": body.text.strip(), "ts": now()})
+        items = items[-50:]
+        conn.execute("INSERT OR REPLACE INTO kv (key, value) VALUES (?, ?)",
+                     (key, json.dumps(items)))
+    return {"ok": True, "items": items}
+
+
 @router.put("/api/agents/{aid}/connect")
 def put_agent_connect(aid: int, body: AgentConnectIn, user=Depends(current_user)):
     """Configure an individual agent's API / LLM / Webhook / Grounding connection."""
@@ -253,7 +541,7 @@ def try_agent(aid: int, body: TryIn, user=Depends(current_user)):
     from ..llm import chat
     with db() as conn:
         a = conn.execute("SELECT * FROM agents WHERE id=?", (aid,)).fetchone()
-        if not a or not can_see_agent(conn, a, user["id"]):
+        if not a or not can_use_agent(conn, a, user["id"]):
             raise HTTPException(404, "No such agent")
         agent = row_to_dict(a)
         ep = _agent_llm(agent) or _user_llm(conn, user["id"])
@@ -275,35 +563,111 @@ def try_agent(aid: int, body: TryIn, user=Depends(current_user)):
 
 @router.post("/api/agents/{aid}/try_stream")
 def try_agent_stream(aid: int, body: TryIn, user=Depends(current_user)):
-    """NDJSON stream: {t:'meta'|'token'|'done', ...} one JSON object per line."""
+    """NDJSON stream: {t:'meta'|'token'|'tool'|'done', ...} one JSON object per
+    line. Agents carrying ai.web get the web tools; the caller's connected
+    plugins (github, gmail, …) act strictly as the caller — same tool loop the
+    channel summon path uses, so watch clients see ⚙ tool events."""
     from ..llm import chat_stream
     with db() as conn:
         a = conn.execute("SELECT * FROM agents WHERE id=?", (aid,)).fetchone()
-        if not a or not can_see_agent(conn, a, user["id"]):
+        if not a or not can_use_agent(conn, a, user["id"]):
             raise HTTPException(404, "No such agent")
         agent = row_to_dict(a)
         ep = _agent_llm(agent) or _user_llm(conn, user["id"])
+        try:
+            ai_flags = json.loads(a["ai_flags"] or "{}") \
+                if "ai_flags" in a.keys() else {}
+        except Exception:
+            ai_flags = {}
+        ai_web = bool(ai_flags.get("web"))
+        plugs = set(cx.connected_plugins(conn, user["id"]))
+        gh_public = False
+        if ai_flags.get("github") and "github" not in plugs:
+            plugs.add("github")
+            gh_public = True
+        uid = user["id"]
+        uname = user["display_name"] or user["username"]
+        mem_line = _memories(conn, uid, uname)
     if body.provider == "custom" and not ep:
         raise HTTPException(400, "Configure an API connection on this agent or in Settings → LLM")
     _aprov, _amdl = _split_model(agent.get("model"))
 
+    sysp = _sysprompt(agent, _grounding(
+        agent["context_url"], agent.get("context_method", "GET"),
+        body.message, agent.get("context_headers")) if agent["context_url"] else "")
+    if ai_web:
+        sysp += ("\n\nYou may also use web tools — reply with ONLY JSON like "
+                 '{"tool":"web_search","args":{"q":"query"}} to search, or '
+                 '{"tool":"web_fetch","args":{"url":"https://…"}} to read a '
+                 "live page. Use them when fresh info would help.")
+    if plugs:
+        conn_plugs = sorted(plugs - ({"github"} if gh_public else set()))
+        if conn_plugs:
+            sysp += (f"\n\n{uname} has these accounts connected in Settings → "
+                     "Connections → Plugins: " + ", ".join(conn_plugs))
+        else:
+            sysp += f"\n\n{uname} has no external accounts connected."
+        sysp += ('. You may READ them with {"tool":"plugin","args":{…}} — '
+            "strictly the asker's own accounts, never anyone else's, and "
+            "never claim access to services not listed here. Calls:\n"
+            + "\n".join(f"- {p}: {cx.PLUGIN_USAGE[p]}"
+                        + (" (public data only — no GitHub account connected; "
+                           "say so if private repos are needed)"
+                           if p == "github" and gh_public else "")
+                        for p in sorted(plugs) if p in cx.PLUGIN_USAGE))
+    sysp += mem_line
+
     def gen():
+        hist = [dict(h) for h in (body.history or [])]
         try:
-            for kind, data in chat_stream(
-                    _sysprompt(agent, _grounding(agent["context_url"], agent.get("context_method", "GET"),
-                               body.message, agent.get("context_headers")) if agent["context_url"] else ""),
-                    body.history, body.message,
-                    model=body.model or _amdl,
-                    provider=body.provider or _aprov,
-                    temperature=agent.get("temperature"), endpoint=ep):
-                if kind == "meta":
-                    yield json.dumps({"t": "meta", **data}) + "\n"
-                elif kind == "thinking":
-                    yield json.dumps({"t": "thinking", "n": data}) + "\n"
-                elif kind == "token":
-                    yield json.dumps({"t": "token", "c": data}) + "\n"
-                else:
-                    yield json.dumps({"t": "done"}) + "\n"
+            for rnd in range(4):
+                reply = ""
+                msg = body.message if rnd == 0 else hist[-1]["content"]
+                ctx = hist if rnd == 0 else hist[:-1]
+                for kind, data in chat_stream(
+                        sysp, ctx, msg,
+                        model=body.model or _amdl,
+                        provider=body.provider or _aprov,
+                        temperature=agent.get("temperature"), endpoint=ep):
+                    if kind == "meta":
+                        yield json.dumps({"t": "meta", **data}) + "\n"
+                    elif kind == "thinking":
+                        yield json.dumps({"t": "thinking", "n": data}) + "\n"
+                    elif kind == "token":
+                        reply += data
+                        yield json.dumps({"t": "token", "c": data}) + "\n"
+                calls = wsx.parse_tool_calls(reply) if (ai_web or plugs) else []
+                if not calls:
+                    break
+                # the round just streamed raw {"tool":…} scaffolding — tell the
+                # client to swap it for the stripped text before tool events
+                yield json.dumps({"t": "replace",
+                                  "c": wsx.strip_tool_calls(reply).strip()}) + "\n"
+                hist.append({"role": "assistant", "content": reply})
+                results = []
+                for c in calls[:3]:
+                    t0 = time.time()
+                    if c["name"] in WEB_TOOLS:
+                        res = _ai_web_tool(c["name"], c["args"]) if ai_web else \
+                            {"ok": False, "error": "web tools are off for this agent"}
+                    elif c["name"] == "plugin":
+                        p_args = c["args"] or {}
+                        with db() as conn:
+                            res = cx.plugin_tool(
+                                conn, uid,
+                                str(p_args.get("plugin") or ""), p_args)
+                    else:
+                        res = {"ok": False, "error": f"unknown tool {c['name']}"}
+                    yield json.dumps({"t": "tool", "name": c["name"],
+                                      "ok": bool(res.get("ok")),
+                                      "secs": round(time.time() - t0, 1)}) + "\n"
+                    results.append(
+                        f"TOOL RESULT {c['name']}: {json.dumps(res)[:4000]}")
+                hist.append({"role": "user", "content":
+                    "(tool output — your calls just ran; quote these results, "
+                    "don't claim you can't see them)\n\n"
+                    + "\n\n".join(results) + "\n\nAnswer in plain text."})
+            yield json.dumps({"t": "done"}) + "\n"
         except Exception as e:
             yield json.dumps({"t": "error", "message": str(e)}) + "\n"
 

@@ -66,6 +66,7 @@ function DiffView({ diff }) {
 export default function Workspace({ workspace, me, members = [], agents = [], onClose, onOpenAgent, chat }) {
   const [ws, setWs] = useState(workspace);
   const [panelW, setPanelW] = useState(() => +(localStorage.getItem("st.wspanel") || 280));
+  const [sideW, setSideW] = useState(() => +(localStorage.getItem("st.wsside") || 250));
   const [tree, setTree] = useState([]);
   const [expanded, setExpanded] = useState(new Set([""]));
   const [tabs, setTabs] = useState([]);            // [{path, content, mtime, size, lang, image, dirty, draft}]
@@ -420,6 +421,25 @@ export default function Workspace({ workspace, me, members = [], agents = [], on
   useEffect(() => {
     localStorage.setItem("st.wspanel", String(panelW));
   }, [panelW]);
+  useEffect(() => {
+    localStorage.setItem("st.wsside", String(sideW));
+  }, [sideW]);
+
+  // drag the file-tree panel's right edge to resize it (desktop only)
+  function startSideDrag(e) {
+    e.preventDefault();
+    const startX = e.clientX, startW = sideW;
+    document.body.classList.add("col-resizing");
+    const move = (ev) =>
+      setSideW(Math.min(520, Math.max(170, startW + ev.clientX - startX)));
+    const up = () => {
+      document.body.classList.remove("col-resizing");
+      window.removeEventListener("mousemove", move);
+      window.removeEventListener("mouseup", up);
+    };
+    window.addEventListener("mousemove", move);
+    window.addEventListener("mouseup", up);
+  }
 
   // the chat tab always knows which file you were last looking at, and the
   // backend records it so a chat summon hands the agent the same context
@@ -482,7 +502,9 @@ export default function Workspace({ workspace, me, members = [], agents = [], on
       </div>
 
       <div className={`ws-body ${isChat ? "chat-mode" : ""}`}>
-        <div className="ws-side">
+        <div className="ws-side" style={{ width: sideW }}>
+          <div className="side-drag ws-side-drag" onMouseDown={startSideDrag}
+            title="Drag to resize the file panel" />
           <div className="ws-search">
             <Ico n="search" s={13} />
             <input value={q} placeholder="search files…" onChange={(e) => search(e.target.value)} />

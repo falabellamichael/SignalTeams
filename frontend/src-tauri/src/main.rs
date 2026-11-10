@@ -12,7 +12,11 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 use base64::{engine::general_purpose::STANDARD, Engine as _};
-use tauri::{image::Image, WebviewWindow, WebviewWindowBuilder, WindowEvent};
+use tauri::{
+    image::Image,
+    webview::{NewWindowResponse, PermissionKind, PermissionResponse},
+    WebviewWindow, WebviewWindowBuilder, WindowEvent,
+};
 
 const APP_URL: &str = "http://127.0.0.1:8075/";
 const BOOTSTRAP_URL: &str = "http://tauri.localhost/";
@@ -26,6 +30,31 @@ const LOGO_PNG: &[u8] = include_bytes!("../bootstrap/signalteams-logo.png");
 #[link(name = "shell32")]
 unsafe extern "system" {
     fn SetCurrentProcessExplicitAppUserModelID(app_id: *const u16) -> i32;
+}
+
+/// Hand a URL to the system default browser — the webview denies new windows
+/// and external navigations, so OAuth sign-ins and links open outside the app.
+fn open_external(url: &str) {
+    if !(url.starts_with("https://") || url.starts_with("http://") || url.starts_with("mailto:")) {
+        return;
+    }
+    log_event(&format!("open_external -> {url}"));
+    // explorer.exe treats its arg as a folder first — long OAuth URLs fall
+    // through to a Documents window. FileProtocolHandler goes straight to the
+    // registered handler for the scheme (the default browser for http/https).
+    let _ = Command::new("rundll32")
+        .args(["url.dll,FileProtocolHandler", url])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .creation_flags(CREATE_NO_WINDOW)
+        .spawn();
+}
+
+fn is_app_origin(url: &tauri::Url) -> bool {
+    matches!(url.scheme(), "tauri" | "about" | "data" | "blob" | "ws" | "wss")
+        || (matches!(url.scheme(), "http" | "https")
+            && matches!(url.host_str(), Some("127.0.0.1") | Some("localhost") | Some("tauri.localhost")))
 }
 
 fn log_event(msg: &str) {
@@ -137,6 +166,32 @@ fn try_build_window(
     let mut builder = WebviewWindowBuilder::from_config(app, config)?
         .icon(icon)?
         .initialization_script(titlebar)
+        // window.open / target=_blank → the user's real browser (OAuth consent,
+        // links in chat) — WebView2 denies popups outright otherwise
+        .on_new_window(|url, _features| {
+            log_event(&format!("on_new_window: {url}"));
+            open_external(url.as_str());
+            NewWindowResponse::Deny
+        })
+        // keep the app on its own origin; anything else goes to the browser
+        .on_navigation(|url| {
+            if is_app_origin(url) {
+                true
+            } else {
+                log_event(&format!("on_navigation blocked: {url}"));
+                open_external(url.as_str());
+                false
+            }
+        })
+        // voice/video features need mic/cam/screen; grant what the app uses
+        .on_permission_request(|_webview, kind| match kind {
+            PermissionKind::Microphone
+            | PermissionKind::Camera
+            | PermissionKind::DisplayCapture
+            | PermissionKind::Notifications
+            | PermissionKind::ClipboardRead => PermissionResponse::Allow,
+            _ => PermissionResponse::Default,
+        })
         .visible(true)
         .focused(true);
     if let Some(dir) = custom_data_dir {

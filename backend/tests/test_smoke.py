@@ -214,5 +214,51 @@ class Smoke(unittest.TestCase):
         self.assertEqual(last_msg["embed"]["color"].lower(), "#5865f2")
 
 
+    def test_category_management(self):
+        reg = self.req("POST", "/api/register",
+                       {"username": "cat_tester", "password": "pw12345"})
+        tok = reg["token"]
+        srv = self.req("POST", "/api/servers", {"name": "Category Server", "icon": "📁"}, token=tok)
+        sid = srv["id"]
+
+        # 1. Add channels with category 'engineering'
+        c1 = self.req("POST", f"/api/servers/{sid}/channels",
+                      {"name": "frontend", "category": "engineering"}, token=tok)
+        c2 = self.req("POST", f"/api/servers/{sid}/channels",
+                      {"name": "backend", "category": "engineering"}, token=tok)
+        self.assertEqual(c1["category"], "engineering")
+        self.assertEqual(c2["category"], "engineering")
+
+        # 2. Rename category to 'core-dev'
+        patch_res = self.req("PATCH", f"/api/servers/{sid}/categories/engineering",
+                             {"new_name": "core-dev"}, token=tok)
+        self.assertTrue(patch_res["ok"])
+        self.assertEqual(patch_res["name"], "core-dev")
+
+        srv_detail = self.req("GET", f"/api/servers/{sid}", token=tok)
+        cat_chans = [c for c in srv_detail["channels"] if c["name"] in ("frontend", "backend")]
+        self.assertTrue(all(c["category"] == "core-dev" for c in cat_chans))
+
+        # 3. Create a role and sync role to all channels in category
+        role = self.req("POST", f"/api/servers/{sid}/roles",
+                        {"name": "Engineers", "color": "#4cc2f2"}, token=tok)
+        rid = role["id"]
+        sync_res = self.req("PATCH", f"/api/servers/{sid}/categories/core-dev",
+                            {"role_id": rid, "sync_roles": True}, token=tok)
+        self.assertTrue(sync_res["ok"])
+
+        srv_detail = self.req("GET", f"/api/servers/{sid}", token=tok)
+        cat_chans = [c for c in srv_detail["channels"] if c["name"] in ("frontend", "backend")]
+        self.assertTrue(all(c["role_id"] == rid for c in cat_chans))
+
+        # 4. Delete category keeping channels
+        del_res = self.req("DELETE", f"/api/servers/{sid}/categories/core-dev", token=tok)
+        self.assertTrue(del_res["ok"])
+
+        srv_detail = self.req("GET", f"/api/servers/{sid}", token=tok)
+        cat_chans = [c for c in srv_detail["channels"] if c["name"] in ("frontend", "backend")]
+        self.assertTrue(all(c["category"] == "" for c in cat_chans))
+
+
 if __name__ == "__main__":
     unittest.main()

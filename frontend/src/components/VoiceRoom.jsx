@@ -5,14 +5,14 @@ import { Avatar } from "../util";
 import { SOUNDS, triggerSound, onSoundboard } from "../soundboard";
 import ChatView from "./ChatView";
 
-function VideoTile({ card, sel, onSel, onZoom, active }) {
+function VideoTile({ card, sel, onSel, onZoom, active, speaking }) {
   const { feeds, name } = card;
   const idx = Math.min(sel, feeds.length - 1);
   const f = feeds[idx];
 
   if (!f) return null;
   return (
-    <div className={`voice-tile video-tile zoomable${active ? " active" : ""}`}
+    <div className={`voice-tile video-tile zoomable${active ? " active" : ""}${speaking ? " speaking" : ""}`}
       title={active ? "Back to grid" : "Expand"} onClick={onZoom}>
       {/* every feed stays mounted + playing — flipping is just an opacity swap,
           no srcObject re-attach, no black flash, no relayout */}
@@ -48,6 +48,22 @@ export default function VoiceRoom({
 }) {
   const [soundboardOpen, setSoundboardOpen] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
+  const [chatW, setChatW] = useState(() => +(localStorage.getItem("st.vchatw") || 380));
+  useEffect(() => { localStorage.setItem("st.vchatw", String(chatW)); }, [chatW]);
+  function startChatDrag(e) {
+    e.preventDefault();
+    const startX = e.clientX, startW = chatW;
+    document.body.classList.add("col-resizing");
+    const move = (ev) =>
+      setChatW(Math.min(640, Math.max(280, startW - (ev.clientX - startX))));
+    const up = () => {
+      document.body.classList.remove("col-resizing");
+      window.removeEventListener("mousemove", move);
+      window.removeEventListener("mouseup", up);
+    };
+    window.addEventListener("mousemove", move);
+    window.addEventListener("mouseup", up);
+  }
   const [lastSound, setLastSound] = useState(null);
   const [focus, setFocus] = useState(null);        // expanded video card id
   const [sels, setSels] = useState({});            // picked feed index per card
@@ -81,8 +97,9 @@ export default function VoiceRoom({
   if (myFeeds.length) videoCards.push({ id: "me", name: me?.display_name || "You", feeds: myFeeds });
   const vidByUid = new Map();
   for (const v of Object.values(voice.videos || {})) {
-    if (!vidByUid.has(v.uid)) vidByUid.set(v.uid, []);
-    vidByUid.get(v.uid).push(v);
+    const k = String(v.uid);
+    if (!vidByUid.has(k)) vidByUid.set(k, []);
+    vidByUid.get(k).push(v);
   }
   for (const [uid, feeds] of vidByUid) {
     // a sharer's screen is the feed people come to watch — default to it
@@ -157,13 +174,18 @@ export default function VoiceRoom({
             {videoCards.map((c) => (
               <VideoTile key={c.id} card={c} sel={vSel(c.id)} onSel={(v) => setSelFor(c.id, v)}
                 active={focus === c.id}
+                speaking={c.id === "me" ? speakingSet.has(me?.id)
+                  : [...speakingSet].some((x) => String(x) === c.id)}
                 onZoom={() => setFocus((f) => (f === c.id ? null : c.id))} />
             ))}
 
-            {/* Avatar Tiles for all room participants */}
+            {/* Avatar Tiles for room participants without a live video feed */}
             {currentRoster.map((m) => {
-              const isSpeaking = speakingSet.has(m.id);
+              // users with an active cam/screen feed render as a VideoTile above
+              if (vidByUid.has(String(m.id))) return null;
               const isMe = m.id === me?.id;
+              if (isMe && myFeeds.length) return null;
+              const isSpeaking = speakingSet.has(m.id);
               const isMuted = isMe ? voice.muted : m.muted;
               const isDeafened = isMe ? voice.deafened : m.deafened;
 
@@ -270,7 +292,9 @@ export default function VoiceRoom({
 
       {/* In-Voice Text Chat Drawer */}
       {chatOpen && (
-        <div className="voice-chat-drawer">
+        <div className="voice-chat-drawer" style={{ width: chatW }}>
+          <div className="side-drag" onMouseDown={startChatDrag}
+            title="Drag to resize the chat panel" />
           <ChatView
             channel={channel}
             server={server}

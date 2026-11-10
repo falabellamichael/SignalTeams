@@ -2,6 +2,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from ..auth import current_user
 from ..db import db, emit_buzz, now
+from ..hub import hub
 
 from ..helpers import is_blocked, public_user
 from ..schemas import FriendIn
@@ -30,7 +31,7 @@ def friends(user=Depends(current_user)):
 
 
 @router.post("/api/friends")
-def add_friend(body: FriendIn, user=Depends(current_user)):
+async def add_friend(body: FriendIn, user=Depends(current_user)):
     with db() as conn:
         target = conn.execute("SELECT * FROM users WHERE username=?", (body.username,)).fetchone()
         if not target:
@@ -46,12 +47,17 @@ def add_friend(body: FriendIn, user=Depends(current_user)):
             if existing["status"] == "pending" and existing["friend_id"] == user["id"]:
                 conn.execute("UPDATE friendships SET status='accepted' WHERE id=?", (existing["id"],))
                 emit_buzz(conn, user["id"], "friended", {"with": target["username"]})
-                return {"status": "accepted"}
-            raise HTTPException(409, "Already friends or pending")
-        conn.execute(
-            "INSERT INTO friendships(user_id, friend_id, status, created_at) VALUES (?,?,?,?)",
-            (user["id"], target["id"], "pending", now()))
-        return {"status": "pending"}
+                status = "accepted"
+            else:
+                raise HTTPException(409, "Already friends or pending")
+        else:
+            conn.execute(
+                "INSERT INTO friendships(user_id, friend_id, status, created_at) VALUES (?,?,?,?)",
+                (user["id"], target["id"], "pending", now()))
+            status = "pending"
+    # nudge both sides to refetch — pending badge / friend list update live
+    await hub.send_many([user["id"], target["id"]], {"type": "buzz"})
+    return {"status": status}
 
 
 @router.get("/api/blocks")
@@ -83,13 +89,16 @@ def toggle_block(uid: int, user=Depends(current_user)):
 
 
 @router.post("/api/friends/{friendship_id}/accept")
-def accept_friend(friendship_id: int, user=Depends(current_user)):
+async def accept_friend(friendship_id: int, user=Depends(current_user)):
     with db() as conn:
         r = conn.execute("SELECT * FROM friendships WHERE id=?", (friendship_id,)).fetchone()
         if not r or r["friend_id"] != user["id"]:
             raise HTTPException(404, "No such request")
         conn.execute("UPDATE friendships SET status='accepted' WHERE id=?", (friendship_id,))
-        return {"status": "accepted"}
+        other = conn.execute("SELECT username FROM users WHERE id=?", (r["user_id"],)).fetchone()
+        emit_buzz(conn, user["id"], "friended", {"with": other["username"] if other else "?"})
+    await hub.send_many([user["id"], r["user_id"]], {"type": "buzz"})
+    return {"status": "accepted"}
 
 
 @router.delete("/api/friends/{friendship_id}")

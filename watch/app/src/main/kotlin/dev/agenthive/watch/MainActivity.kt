@@ -1,0 +1,190 @@
+package dev.agenthive.watch
+
+import android.Manifest
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Bundle
+import android.os.SystemClock
+import android.speech.RecognitionListener
+import android.speech.RecognizerIntent
+import android.speech.SpeechRecognizer
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.viewModels
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import android.view.WindowManager
+import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.launch
+import dev.agenthive.watch.nexus.NexusState
+import dev.agenthive.watch.ui.HiveScreen
+import dev.agenthive.watch.ui.HiveTheme
+
+class MainActivity : ComponentActivity() {
+
+    private val vm: HiveViewModel by viewModels()
+    private var lastAssistAt = 0L
+    private var speech: SpeechRecognizer? = null
+
+    private val micPermission = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) startVoice() else vm.setListening(false)
+    }
+
+    private val listener = object : RecognitionListener {
+        override fun onReadyForSpeech(params: Bundle?) {}
+        override fun onBeginningOfSpeech() {}
+        override fun onRmsChanged(rmsdB: Float) {}
+        override fun onBufferReceived(buffer: ByteArray?) {}
+        override fun onEndOfSpeech() {}
+        override fun onError(error: Int) {
+            vm.setListening(false)
+            // ERROR_NO_MATCH / ERROR_SPEECH_TIMEOUT just means silence — stay quiet.
+        }
+        override fun onResults(results: Bundle?) {
+            vm.setListening(false)
+            val text = results
+                ?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                ?.firstOrNull().orEmpty()
+            vm.voiceResult(text)
+        }
+        override fun onPartialResults(partialResults: Bundle?) {
+            val text = partialResults
+                ?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                ?.firstOrNull().orEmpty()
+            if (text.isNotBlank()) vm.setInput(text)
+        }
+        override fun onEvent(eventType: Int, params: Bundle?) {}
+    }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        handleIntent(intent)
+        setContent {
+            val state by vm.ui.collectAsState()
+            // Keep the screen awake while a link is in flight — Wear dozes
+            // fast, and a sleeping screen froze restores mid-join.
+            SideEffect {
+                if (state.phase == Phase.LINKING) {
+                    window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                } else {
+                    window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                }
+            }
+            HiveTheme {
+                HiveScreen(
+                    state = state,
+                    onCode = vm::setInviteCode,
+                    onLinkCode = vm::linkWithCode,
+                    onLinkHive = vm::linkHive,
+                    onInput = vm::setInput,
+                    onSend = vm::send,
+                    onMic = ::startVoice,
+                    onStop = ::stopAll,
+                    onPickAgent = vm::pickAgent,
+                    onRefreshAgents = vm::refreshAgents,
+                    onRelinkMesh = vm::relinkMesh,
+                    onClearChat = vm::clearChat,
+                    onDisconnect = vm::disconnect,
+                )
+            }
+        }
+
+        // Mesh suspend/resume rides the activity lifecycle (SDK contract).
+        lifecycle.addObserver(LifecycleEventObserver { _, event ->
+            val app = application as HiveApp
+            when (event) {
+                Lifecycle.Event.ON_START ->
+                    if (app.nexus.state == NexusState.RUNNING) {
+                        lifecycleScope.launch { app.nexus.resume() }
+                    }
+                Lifecycle.Event.ON_STOP ->
+                    // a doze mid-link must not suspend the dataplane under us;
+                    // while MeshService owns the link it stays up full-time so
+                    // the next app open (or assistant call) is instant
+                    if (vm.ui.value.phase != Phase.LINKING && !MeshService.running) {
+                        lifecycleScope.launch { app.nexus.suspendMesh() }
+                    }
+                else -> {}
+            }
+        })
+    }
+
+    private fun startVoice() {
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
+            != PackageManager.PERMISSION_GRANTED
+        ) {
+            micPermission.launch(Manifest.permission.RECORD_AUDIO)
+            return
+        }
+        val sr = speech ?: SpeechRecognizer.createSpeechRecognizer(this).also {
+            it.setRecognitionListener(listener)
+            speech = it
+        }
+        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL,
+                RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+            putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+            putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
+            putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, packageName)
+        }
+        runCatching { sr.startListening(intent) }
+            .onSuccess { vm.setListening(true) }
+            .onFailure { vm.setListening(false) }
+    }
+
+    /** Dock Stop button — cancels the mic session plus whatever the
+     *  assistant is doing (stream, playback, in-app task). */
+    private fun stopAll() {
+        runCatching { speech?.cancel() }
+        vm.stopAll()
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        handleIntent(intent)
+    }
+
+    private fun handleIntent(i: Intent?) {
+        val srv = i?.getStringExtra("server")
+        val usr = i?.getStringExtra("user")
+        val pwd = i?.getStringExtra("pass")
+        val code = i?.getStringExtra("code")
+        val ask = i?.getStringExtra("ask")
+        if (!code.isNullOrBlank()) {
+            vm.linkWithCode(code)
+        } else if (!srv.isNullOrBlank() && !usr.isNullOrBlank() && !pwd.isNullOrBlank()) {
+            vm.connectWith(srv, usr, pwd)
+        }
+        if (!ask.isNullOrBlank()) {
+            vm.send(ask)
+            return
+        }
+        // digital-assistant invocation (center-button long-press) — land
+        // straight on the mic, over the keyguard, like Gemini. Both the
+        // session path and the service fallback can deliver within ms of
+        // each other — collapse repeats into one mic start.
+        val isAssist = i?.action == Intent.ACTION_ASSIST
+        setShowWhenLocked(isAssist)
+        setTurnScreenOn(isAssist)
+        if (isAssist) {
+            val now = SystemClock.elapsedRealtime()
+            if (now - lastAssistAt > 1500) {
+                lastAssistAt = now
+                window.decorView.post { startVoice() }
+            }
+        }
+    }
+
+    override fun onDestroy() {
+        speech?.destroy()
+        speech = null
+        super.onDestroy()
+    }
+}

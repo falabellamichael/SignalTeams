@@ -12,7 +12,7 @@ export { ForwardModal } from "./modals/forward.jsx";
 export { ProfileModal } from "./modals/profile.jsx";
 export { PulseModal } from "./modals/pulse.jsx";
 export { SettingsModal } from "./modals/settings.jsx";
-export { ChannelModal } from "./modals/channel.jsx";
+export { ChannelModal, ChannelSettingsModal, CategoryModal, CategorySettingsModal } from "./modals/channel.jsx";
 export { ShortcutsModal } from "./modals/shortcuts.jsx";
 export { PickAgentModal } from "./modals/pickagent.jsx";
 export { MessageAiModal } from "./modals/aimessage.jsx";

@@ -10,7 +10,8 @@ from .config import WORKSPACE_AGENT_TOOLS
 from .db import db, emit_buzz, now
 from .hub import hub
 
-from .helpers import STAR_EMOJI, _agent_llm, _grounding, _server_llm, _split_model, _sysprompt, _user_llm, agent_bot_user, can_see_agent, channel_member_ids, friend_ids, message_json, starboard_bot_user
+from .helpers import STAR_EMOJI, _agent_llm, _grounding, _memories, _server_llm, _split_model, _sysprompt, _user_llm, agent_bot_user, can_see_agent, can_use_agent, channel_member_ids, friend_ids, message_json, starboard_bot_user
+from . import connections as cx
 from . import workspace as wsx
 
 
@@ -491,7 +492,12 @@ async def agent_reply(cid, aid, asker_id, msg_id, depth=0, ping=True):
                     if "ai_flags" in ch.keys() else {}
             except Exception:
                 ai_flags = {}
-            ai_web = bool(ai_flags.get("web"))
+            try:   # agent-carried capabilities travel with the summon
+                a_flags = json.loads(a["ai_flags"] or "{}") \
+                    if "ai_flags" in a.keys() else {}
+            except Exception:
+                a_flags = {}
+            ai_web = bool(ai_flags.get("web")) or bool(a_flags.get("web"))
             # vision: attach the summon's image attachments to the model call
             images = []
             if ai_flags.get("vision"):
@@ -608,9 +614,38 @@ async def agent_reply(cid, aid, asker_id, msg_id, depth=0, ping=True):
                      '{"tool":"web_search","args":{"q":"query"}} to search, or '
                      '{"tool":"web_fetch","args":{"url":"https://…"}} to read a '
                      "live page. Use them when fresh info would help.")
+        with db() as conn:
+            plugs = set(cx.connected_plugins(conn, asker_id))
+        gh_public = False
+        if (ai_flags.get("github") or a_flags.get("github")) \
+                and "github" not in plugs:
+            plugs.add("github")
+            gh_public = True
+        if plugs:
+            conn_plugs = sorted(plugs - ({"github"} if gh_public else set()))
+            if conn_plugs:
+                sysp += (
+                    f"\n\n{asker['display_name'] or asker['username']} has "
+                    "these accounts connected in Settings → Connections → "
+                    "Plugins: " + ", ".join(conn_plugs))
+            else:
+                sysp += (f"\n\n{asker['display_name'] or asker['username']} "
+                         "has no external accounts connected.")
+            sysp += ('. You may READ them with {"tool":"plugin","args":{…}} — '
+                "strictly the asker's own accounts, never anyone else's, and "
+                "never claim access to services not listed here. Calls:\n"
+                + "\n".join(f"- {p}: {cx.PLUGIN_USAGE[p]}"
+                            + (" (public data only — no GitHub account "
+                               "connected; say so if private repos are needed)"
+                               if p == "github" and gh_public else "")
+                            for p in sorted(plugs)
+                            if p in cx.PLUGIN_USAGE))
         if images:
             sysp += ("\n\nThe user attached image(s) — look at them and answer "
                      "about what you see.")
+        with db() as conn:
+            sysp += _memories(conn, asker_id,
+                              asker["display_name"] or asker["username"])
         tool_steps = []
         _aprov, _amdl = _split_model(a["model"])
 
@@ -732,6 +767,14 @@ async def agent_reply(cid, aid, asker_id, msg_id, depth=0, ping=True):
                     if c["name"] in WEB_TOOLS:
                         res = _ai_web_tool(c["name"], c["args"]) if ai_web else \
                             {"ok": False, "error": "web tools are off in this channel"}
+                    elif c["name"] == "plugin":
+                        # plugins act strictly as the summoner — only their
+                        # own connected account is ever touched
+                        p_args = c["args"] or {}
+                        with db() as conn:
+                            res = cx.plugin_tool(
+                                conn, asker_id,
+                                str(p_args.get("plugin") or ""), p_args)
                     elif ws:
                         with db() as conn:
                             res = wsx.run_tool(conn, ws, asker_id, a["id"],
@@ -847,7 +890,7 @@ async def agent_reply(cid, aid, asker_id, msg_id, depth=0, ping=True):
                        conn.execute("SELECT * FROM agents ORDER BY id").fetchall()
                        if a2["id"] != aid and
                        re.sub(r"[^a-z0-9]+", "", a2["name"].lower()) in cand and
-                       can_see_agent(conn, a2, asker_id)]
+                       can_use_agent(conn, a2, asker_id)]
             for naid in nxt[:2]:
                 k = (naid, cid)
                 if time.time() - _agent_cool.get(k, 0) >= 8:

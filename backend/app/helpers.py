@@ -30,6 +30,7 @@ def public_user(u):
                      if "keywords" in u.keys() and u["keywords"] else []),
         "banner_color": u["banner_color"] if "banner_color" in u.keys() else "",
         "pronouns": u["pronouns"] if "pronouns" in u.keys() else "",
+        "is_admin": bool(u["is_admin"]) if "is_admin" in u.keys() else False,
         "created_at": u["created_at"] if "created_at" in u.keys() else 0,
     }
 
@@ -49,6 +50,34 @@ def can_see_agent(conn, agent, uid):
     if agent["visibility"] == "private":
         return False
     return agent["owner_id"] in friend_ids(conn, uid)
+
+
+def can_use_agent(conn, agent, uid):
+    """Summon-time gate — who may @-summon/DM this agent, and when. The owner
+    can always use their own agent; everyone else is bound by the owner's
+    Settings → Permissions choices (use_who falls back to visibility)."""
+    if agent["owner_id"] == uid:
+        return True
+    who = agent["use_who"] or {
+        "public": "public", "friends": "friends", "private": "private",
+    }.get(agent["visibility"], "friends")
+    if who == "private":
+        return False
+    if who == "friends" and agent["owner_id"] not in friend_ids(conn, uid):
+        return False
+    if who == "people" and not conn.execute(
+            "SELECT 1 FROM agent_allowed_users WHERE agent_id=? AND user_id=?",
+            (agent["id"], uid)).fetchone():
+        return False
+    when = agent["use_when"] or "always"
+    if when == "off":
+        return False
+    if when == "online":
+        o = conn.execute("SELECT status FROM users WHERE id=?",
+                         (agent["owner_id"],)).fetchone()
+        if not o or o["status"] == "offline":
+            return False
+    return True
 
 
 def agent_json(conn, a, uid):
@@ -76,6 +105,16 @@ def agent_json(conn, a, uid):
     d["api_url"] = d.get("api_url") or ""
     d["context_method"] = d.get("context_method") or "GET"
     d["connected"] = bool(d["api_url"] or d.get("context_url"))
+    d["use_who"] = d.get("use_who") or ""
+    d["use_when"] = d.get("use_when") or "always"
+    try:
+        d["ai"] = json.loads(d.pop("ai_flags", None) or "{}")
+    except Exception:
+        d["ai"] = {}
+    d["allowed_user_ids"] = [
+        r["user_id"] for r in conn.execute(
+            "SELECT user_id FROM agent_allowed_users WHERE agent_id=?",
+            (a["id"],)).fetchall()] if a["owner_id"] == uid else []
     return d
 
 
@@ -658,6 +697,23 @@ def _sysprompt(a, ctx=""):
     return base
 
 
+def _memories(conn, uid, who=""):
+    """Personal-context memory — lines the user asked the assistant to keep.
+    Injected into agent prompts so 'remember I take coffee black' sticks."""
+    try:
+        r = conn.execute("SELECT value FROM kv WHERE key=?",
+                         (f"mem:{uid}",)).fetchone()
+        items = json.loads(r["value"]) if r and r["value"] else []
+    except Exception:
+        items = []
+    if not items:
+        return ""
+    return ("\n\nThings " + (who or "the user") +
+            " asked you to remember — honor these in every reply: " +
+            " • ".join(str(i.get("t", ""))[:120]
+                       for i in items[-20:] if i.get("t")))
+
+
 def _server_llm(conn, sid):
     """Server's shared LLM endpoint — owner's pick for the whole crew."""
     if not sid:
@@ -687,6 +743,23 @@ def _user_llm(conn, uid):
     if mdl.lower() in _PLACEHOLDER_MODELS:
         mdl = ""
     kind = (r["llm_kind"] or "openai").strip() or "openai"
-    return {"url": r["llm_url"].strip().rstrip("/"), "key": r["llm_key"] or "",
+    url = r["llm_url"].strip().rstrip("/")
+    key = r["llm_key"] or ""
+    # Short-lived session tokens (Copilot ~30min): re-exchange the stored
+    # refresh material so a promoted connection keeps driving chat.
+    if "githubcopilot.com" in url:
+        try:
+            from .connections import fresh
+            cr = conn.execute(
+                "SELECT * FROM user_connections WHERE user_id=? AND provider='copilot'",
+                (uid,)).fetchone()
+            if cr and cr["refresher"]:
+                new = fresh(conn, cr)
+                if new and new["api_key"] != key:
+                    key = new["api_key"] or ""
+                    conn.execute("UPDATE users SET llm_key=? WHERE id=?", (key, uid))
+        except Exception:
+            pass
+    return {"url": url, "key": key,
             "model": mdl, "kind": kind, "headers": r["llm_headers"],
             "label": f"user:{kind}", "source": "user"}

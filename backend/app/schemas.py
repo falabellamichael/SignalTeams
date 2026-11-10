@@ -98,6 +98,37 @@ class AgentIn(BaseModel):
     tags: list[str] = []
     version: str = "1.0.0"
     visibility: str = "friends"
+    use_who: str | None = None               # None keeps stored; '' follows visibility
+    use_when: str | None = None              # always | online | off
+    allowed_user_ids: list[int] | None = None  # use_who='people' allowlist
+    ai_flags: dict | None = None             # agent-carried channel-AI opts (web…)
+
+
+class AgentPatch(BaseModel):
+    """True merge-PATCH — every field optional; only sent keys are written
+    (model_fields_set drives the coalesce, so explicit null still clears
+    nullable fields like temperature while omitted fields are kept)."""
+    name: str | None = Field(None, min_length=1, max_length=64)
+    icon: str | None = None
+    tagline: str | None = None
+    description: str | None = None
+    system_prompt: str | None = None
+    model: str | None = None
+    temperature: float | None = None
+    context_url: str | None = None
+    context_method: str | None = None
+    context_headers: str | None = None
+    api_kind: str | None = None
+    api_url: str | None = None
+    api_key: str | None = None
+    api_headers: str | None = None
+    tags: list[str] | None = None
+    version: str | None = None
+    visibility: str | None = None
+    use_who: str | None = None
+    use_when: str | None = None
+    allowed_user_ids: list[int] | None = None
+    ai_flags: dict | None = None
 
 
 class SupabaseIn(BaseModel):
@@ -160,6 +191,12 @@ class ChannelPatch(BaseModel):
     forum_tags: list[str] | None = None  # allowed tag chips on forum posts
     workspace_id: int | None = None   # absent = unchanged · 0 = unlink · N = wire to workspace
 
+
+class CategoryPatch(BaseModel):
+    new_name: str | None = None
+    role_id: int | None = None
+    sync_roles: bool = False
+    channel_ids: list[int] | None = None
 
 class GroupDmIn(BaseModel):
     user_ids: list[int]
@@ -226,6 +263,29 @@ class LlmConfigIn(BaseModel):
     model: str = ""
     kind: str = "openai"                      # openai | webhook
     headers: str | None = None                # JSON of extra request headers
+
+
+class TtsIn(BaseModel):
+    text: str = Field(min_length=1, max_length=4096)
+    voice: str | None = None
+
+
+class EmbedIn(BaseModel):
+    texts: list[str] = Field(min_length=1, max_length=32)
+
+
+class ActIn(BaseModel):
+    goal: str = Field(min_length=1, max_length=2000)
+    app: str = ""                                        # target app label/package
+    screen: list[str] = []                               # visible texts, in order
+    steps: list[str] = []                                # actions already attempted
+    picked: str = ""                                     # user's pick after an "ask"
+    model: str | None = None
+
+
+class MemIn(BaseModel):
+    text: str = Field(min_length=1, max_length=300)
+    idx: int | None = None                               # forget item N (1-based)
 
 
 class WorkspaceIn(BaseModel):

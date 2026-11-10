@@ -9,7 +9,7 @@ from ..auth import current_user
 from ..db import db, emit_buzz, now
 from ..hub import hub
 
-from ..helpers import STAR_EMOJI, URL_RE, _automod_check, _parse_search, _server_llm, _user_llm, audit, can_see_agent, can_see_pack, channel_member_ids, is_blocked, message_json, public_user, reactions_json, unfurl
+from ..helpers import STAR_EMOJI, URL_RE, _automod_check, _parse_search, _server_llm, _user_llm, audit, can_see_agent, can_see_pack, can_use_agent, channel_member_ids, is_blocked, message_json, public_user, reactions_json, unfurl
 from ..schemas import AiIn, EditIn, MessageIn, ReactIn
 from ..services import (_agent_cool, _summarize_task, agent_reply,
                         note_message_for_recap, starboard_check)
@@ -296,7 +296,7 @@ async def post_message(cid: int, body: MessageIn, user=Depends(current_user)):
                 seen = {}
                 for a in conn.execute("SELECT * FROM agents ORDER BY id").fetchall():
                     slug = re.sub(r"[^a-z0-9]+", "", a["name"].lower())
-                    if slug in cand and can_see_agent(conn, a, user["id"]):
+                    if slug in cand and can_use_agent(conn, a, user["id"]):
                         if slug not in seen or a["owner_id"] == user["id"]:
                             seen[slug] = a
                 hit_agents = [dict(a) for a in seen.values()]
@@ -311,7 +311,7 @@ async def post_message(cid: int, body: MessageIn, user=Depends(current_user)):
                 want = other["username"][6:]
                 for a in conn.execute("SELECT * FROM agents ORDER BY id").fetchall():
                     slug = re.sub(r"[^a-z0-9]+", "", a["name"].lower())[:24]
-                    if slug == want and can_see_agent(conn, a, user["id"]):
+                    if slug == want and can_use_agent(conn, a, user["id"]):
                         if all(x["id"] != a["id"] for x in hit_agents):
                             hit_agents.append(dict(a))
                         break
@@ -379,7 +379,7 @@ async def post_message(cid: int, body: MessageIn, user=Depends(current_user)):
                 continue
             with db() as conn:
                 la = conn.execute("SELECT * FROM agents WHERE id=?", (aid,)).fetchone()
-                ok = la and can_see_agent(conn, la, user["id"])
+                ok = la and can_use_agent(conn, la, user["id"])
             if ok:
                 _agent_cool[key] = time.time()
                 asyncio.create_task(

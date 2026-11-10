@@ -2,8 +2,22 @@ import React, { useState, useEffect } from "react";
 import Ico from "../Ico";
 import { api } from "../../api";
 import { COLORS, EMOJI_CHOICES, Modal, ModelField, NotifCtl, STATUSES } from "./_shared.jsx";
+import { ConnectionsPage } from "./connections.jsx";
+import { MeshPage } from "./mesh.jsx";
+import { PermissionsPage } from "./permissions.jsx";
 import { audioConfig, playCue } from "../../audioCues";
 
+const SET_PAGES = [
+  { id: "look", icon: "palette", label: "Appearance", blurb: "Theme and message density." },
+  { id: "notif", icon: "bell", label: "Notifications", blurb: "Desktop pings and keyword alerts." },
+  { id: "audio", icon: "speaker", label: "Audio", blurb: "Clicks, chimes, and keystroke cues." },
+  { id: "profile", icon: "user", label: "Profile", blurb: "How you show up to friends and servers." },
+  { id: "conn", icon: "link", label: "Connections", blurb: "AI providers and OAuth plugins — subscriptions, keys, browser sign-ins." },
+  { id: "mesh", icon: "dish", label: "Nexus Mesh", blurb: "P2P encrypted mesh — reach this hive through private tunnels, no open ports." },
+  { id: "perms", icon: "lock", label: "Permissions", blurb: "Camera, mic and notifications — plus who may summon your agents." },
+  { id: "models", icon: "sparkle", label: "Models", blurb: "The endpoint summons and the Try tab use first." },
+  { id: "account", icon: "lock", label: "Account", blurb: "Password, sessions, and your data." },
+];
 
 export function SettingsModal({ me, theme, onTheme, onClose, onSaved, onLogout }) {
   const [f, setF] = useState({
@@ -54,6 +68,8 @@ export function SettingsModal({ me, theme, onTheme, onClose, onSaved, onLogout }
   }
 
   const [llmHealth, setLlmHealth] = useState(null);   // null | true | false
+  const [page, setPage] = useState("look");
+  const cur = SET_PAGES.find((p) => p.id === page) || SET_PAGES[0];
 
   async function testLlm() {
     setLlmBusy(true); setLlmMsg("Testing…");
@@ -95,224 +111,297 @@ export function SettingsModal({ me, theme, onTheme, onClose, onSaved, onLogout }
     }
   }
 
+  function railBtn(p) {
+    return (
+      <button key={p.id} type="button" title={p.label} aria-label={p.label}
+        aria-current={page === p.id ? "page" : undefined}
+        className={page === p.id ? "on" : ""}
+        onClick={() => setPage(p.id)}>
+        <Ico n={p.icon} s={18} w={page === p.id ? "fill" : "regular"} />
+      </button>
+    );
+  }
+
+  const mainPages = SET_PAGES.filter((p) => p.id !== "account");
+  const accountPage = SET_PAGES.find((p) => p.id === "account");
+
   return (
-    <Modal title={<span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}><Ico n="gear" s={16} /> Settings</span>}
-      sub={`@${me.username} · build ${__APP_BUILD__?.slice(0, 10) || "dev"}`} onClose={onClose}>
-      <div className="set-row">
-        <div className="lab">Theme<div className="d">Two dark palettes, two light palettes.</div></div>
-        <div className="seg" style={{ flexWrap: "wrap" }}>
-          <button className={theme === "dark" ? "on" : ""} onClick={() => onTheme("dark")}><Ico n="moon" s={12} /> Tokyo Night</button>
-          <button className={theme === "obsidian" ? "on" : ""} onClick={() => onTheme("obsidian")}><Ico n="moon" s={12} /> Obsidian</button>
-          <button className={theme === "light" ? "on" : ""} onClick={() => onTheme("light")}><Ico n="sun" s={12} /> Warm Theme</button>
-          <button className={theme === "daylight" ? "on" : ""} onClick={() => onTheme("daylight")}><Ico n="sun" s={12} /> Daylight</button>
-          <button className={theme === "system" ? "on" : ""} onClick={() => onTheme("system")}><Ico n="screen" s={12} /> Match OS</button>
-        </div>
-      </div>
-      <div className="set-row">
-        <div className="lab">Message density<div className="d">
-          Cozy = avatars + room to breathe. Compact = dense, ops-terminal.</div></div>
-        <div className="seg">
-          {["cozy", "compact"].map((d) => (
-            <button key={d} className={density === d ? "on" : ""}
-              onClick={() => {
-                setDensity(d); localStorage.setItem("st.density", d);
-                document.documentElement.dataset.density = d;
-              }}>{d[0].toUpperCase() + d.slice(1)}</button>
-          ))}
-        </div>
-      </div>
-      <div className="set-row">
-        <div className="lab">Notifications
-          <div className="d">Desktop ping on mentions &amp; DMs when you're away.</div></div>
-        <NotifCtl />
-      </div>
-      <div className="set-row">
-        <div className="lab">Tactile Audio Cues
-          <div className="d">VS Code style soothing clicks, thocks, and soft harmonic chimes.</div></div>
-        <div className="seg">
-          <button className={audioEnabled ? "on" : ""}
-            onClick={() => { setAudioEnabled(true); audioConfig.enabled = true; playCue("click"); }}>On</button>
-          <button className={!audioEnabled ? "on" : ""}
-            onClick={() => { setAudioEnabled(false); audioConfig.enabled = false; }}>Off</button>
-        </div>
-      </div>
-      {audioEnabled && (
-        <>
-          <div className="set-row">
-            <div className="lab">Sound Profile
-              <div className="d">Acoustic timbre for buttons, channels, and clicks.</div></div>
-            <div className="seg" style={{ flexWrap: "wrap" }}>
-              <button className={audioProfile === "thock" ? "on" : ""}
-                onClick={() => { setAudioProfile("thock"); audioConfig.profile = "thock"; playCue("click", { profile: "thock" }); }}>
-                🪵 Soothing Thock
-              </button>
-              <button className={audioProfile === "crisp" ? "on" : ""}
-                onClick={() => { setAudioProfile("crisp"); audioConfig.profile = "crisp"; playCue("click", { profile: "crisp" }); }}>
-                ⌨️ Crisp Tactile
-              </button>
-              <button className={audioProfile === "bubble" ? "on" : ""}
-                onClick={() => { setAudioProfile("bubble"); audioConfig.profile = "bubble"; playCue("click", { profile: "bubble" }); }}>
-                🫧 Soft Bubble
-              </button>
+    <Modal className="settings-modal" bare onClose={onClose}>
+      <div className="set-shell">
+        <nav className="set-rail" aria-label="Settings">
+          {mainPages.map(railBtn)}
+          <span className="set-rail-gap" />
+          {railBtn(accountPage)}
+        </nav>
+        <div className="set-main">
+          <div className="set-head">
+            <div>
+              <h3>{cur.label}</h3>
+              <div className="msub">{cur.blurb}</div>
             </div>
-          </div>
-          <div className="set-row">
-            <div className="lab">Audio Volume ({Math.round(audioVol * 100)}%)
-              <div className="d">Subtle and pleasant volume level.</div></div>
-            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <input type="range" min="0.05" max="1" step="0.05" value={audioVol}
-                onChange={(e) => {
-                  const val = parseFloat(e.target.value);
-                  setAudioVol(val);
-                  audioConfig.volume = val;
-                  playCue("click", { vol: val });
-                }} style={{ width: 140, cursor: "pointer" }} />
-              <button className="ghost" style={{ fontSize: 11.5, padding: "2px 7px" }}
-                onClick={() => { playCue("receive"); setTimeout(() => playCue("click"), 150); }}>
-                🔊 Test Sound
-              </button>
-            </div>
-          </div>
-          <div className="set-row">
-            <div className="lab">Keystroke Cues
-              <div className="d">Satisfying micro-thock when typing in chat and code editor.</div></div>
-            <div className="seg">
-              <button className={audioTyping ? "on" : ""}
-                onClick={() => { setAudioTyping(true); audioConfig.typing = true; playCue("key", { key: "a" }); }}>On</button>
-              <button className={!audioTyping ? "on" : ""}
-                onClick={() => { setAudioTyping(false); audioConfig.typing = false; }}>Off</button>
-            </div>
-          </div>
-        </>
-      )}
-      <div className="set-row">
-        <div className="lab">Status<div className="d">Shown to friends and server members.</div></div>
-        <div className="seg">
-          {STATUSES.map(([k, l]) => (
-            <button key={k} className={f.status === k ? "on" : ""}
-              onClick={() => setF({ ...f, status: k })}>{l}</button>
-          ))}
-        </div>
-      </div>
-      <div className="set-row">
-        <div className="lab">Avatar<div className="d">Emoji + color.</div></div>
-        <div style={{ display: "flex", flexDirection: "column", gap: 8, alignItems: "flex-end" }}>
-          <div className="emoji-pick">
-            {EMOJI_CHOICES.slice(0, 8).map((e) => (
-              <span key={e} className={`e ${f.avatar_emoji === e ? "on" : ""}`}
-                onClick={() => setF({ ...f, avatar_emoji: e })}>{e}</span>
-            ))}
-          </div>
-          <div style={{ display: "flex", gap: 6 }}>
-            {COLORS.map((c) => (
-              <div key={c} className={`swatch ${f.avatar_color === c ? "on" : ""}`}
-                style={{ background: c }} onClick={() => setF({ ...f, avatar_color: c })} />
-            ))}
-          </div>
-        </div>
-      </div>
-      <label>Display name</label>
-      <input value={f.display_name} onChange={(e) => setF({ ...f, display_name: e.target.value })} />
-      <label>Pronouns <span style={{ color: "var(--dim)", fontWeight: 400 }}>(e.g. they/them, she/her, he/him)</span></label>
-      <input value={f.pronouns} onChange={(e) => setF({ ...f, pronouns: e.target.value })}
-        placeholder="they/them" maxLength={32} />
-      <label>Banner color <span style={{ color: "var(--dim)", fontWeight: 400 }}>(profile header)</span></label>
-      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-        <input type="color" value={f.banner_color && /^#[0-9a-f]{6}$/i.test(f.banner_color) ? f.banner_color : "#4da3ff"}
-          style={{ width: 44, height: 32, padding: 2, cursor: "pointer", background: "none" }}
-          onChange={(e) => setF({ ...f, banner_color: e.target.value })} />
-        <input value={f.banner_color}
-          placeholder="#4da3ff or #5865f2" maxLength={24}
-          onChange={(e) => setF({ ...f, banner_color: e.target.value })} style={{ flex: 1 }} />
-      </div>
-      <label>Custom status <span style={{ color: "var(--dim)", fontWeight: 400 }}>(what you're up to)</span></label>
-      <input value={f.status_text} onChange={(e) => setF({ ...f, status_text: e.target.value })}
-        placeholder="🎮 grinding ranked…" maxLength={80} />
-      <label>Bio</label>
-      <input value={f.bio} onChange={(e) => setF({ ...f, bio: e.target.value })}
-        placeholder="A line about you" />
-      <label>Keyword notifications <span style={{ color: "var(--dim)", fontWeight: 400 }}>
-        (get pinged when these words appear in channels you're in — comma-separated)</span></label>
-      <input value={f.keywords}
-        onChange={(e) => setF({ ...f, keywords: e.target.value })}
-        placeholder="deploy, incident, your name…" maxLength={300} />
-      <label>Custom LLM endpoint {llmHealth !== null &&
-        <span title={llmHealth ? "last test passed" : "last test failed"}
-          style={{ color: llmHealth ? "#3fb950" : "var(--bad)", fontSize: 14 }}>
-          {" ● "}</span>}<span style={{ color: "var(--dim)", fontWeight: 400 }}>
-        (any OpenAI-compatible API — Nexus, OpenRouter, Groq, vLLM — or a webhook harness;
-        your summons &amp; Try tab use it first)</span></label>
-      <div style={{ display: "flex", gap: 8 }}>
-        <input value={llm.base_url} style={{ flex: 1 }}
-          placeholder="https://api.nexus-projects.ai/v1 or https://openrouter.ai/api/v1"
-          onChange={(e) => setLlm({ ...llm, base_url: e.target.value })} />
-        <select value={llm.kind} style={{ maxWidth: 132 }}
-          onChange={(e) => setLlm({ ...llm, kind: e.target.value })}>
-          <option value="openai">OpenAI API</option>
-          <option value="anthropic">Anthropic</option>
-          <option value="ollama">Ollama</option>
-          <option value="webhook">Webhook</option>
-        </select>
-      </div>
-      <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
-        <ModelField value={llm.model} style={{ flex: 1 }} options={llmModelOpts}
-          placeholder="model (blank = endpoint default)"
-          onChange={(e) => setLlm({ ...llm, model: e.target.value })} />
-        <input type="password" value={llmKey} style={{ flex: 1 }}
-          placeholder={llm.has_key ? "api key • set" : "api key (optional)"}
-          onChange={(e) => setLlmKey(e.target.value)} />
-      </div>
-      <input value={llmHdrs} onChange={(e) => setLlmHdrs(e.target.value)}
-        placeholder={llm.has_headers ? 'extra headers • set — JSON to replace, "{}" clears'
-          : 'extra headers JSON — e.g. {"X-Api-Key":"…"}'} />
-      {llmModels.custom.length > 0 && (
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginTop: 6 }}>
-          {llmModels.custom.map((m) => (
-            <button key={m} type="button"
-              className={`chip ${llm.model === m ? "on" : ""}`}
-              style={{ fontSize: 11, padding: "2px 8px" }}
-              onClick={() => { setLlm((prev) => ({ ...prev, model: m })); saveLlm(m); }}>
-              {m}
+            <button className="ghost modal-x" onClick={onClose} title="Close (Esc)">
+              <Ico n="x" s={15} />
             </button>
-          ))}
+          </div>
+          <div className="set-body">
+            {page === "look" && (
+              <>
+                <div className="set-row">
+                  <div className="lab">Theme<div className="d">Two dark palettes, two light palettes.</div></div>
+                  <div className="seg" style={{ flexWrap: "wrap" }}>
+                    <button className={theme === "dark" ? "on" : ""} onClick={() => onTheme("dark")}><Ico n="moon" s={12} /> Tokyo Night</button>
+                    <button className={theme === "obsidian" ? "on" : ""} onClick={() => onTheme("obsidian")}><Ico n="moon" s={12} /> Obsidian</button>
+                    <button className={theme === "light" ? "on" : ""} onClick={() => onTheme("light")}><Ico n="sun" s={12} /> Warm Theme</button>
+                    <button className={theme === "daylight" ? "on" : ""} onClick={() => onTheme("daylight")}><Ico n="sun" s={12} /> Daylight</button>
+                    <button className={theme === "system" ? "on" : ""} onClick={() => onTheme("system")}><Ico n="screen" s={12} /> Match OS</button>
+                  </div>
+                </div>
+                <div className="set-row">
+                  <div className="lab">Message density<div className="d">
+                    Cozy = avatars + room to breathe. Compact = dense, ops-terminal.</div></div>
+                  <div className="seg">
+                    {["cozy", "compact"].map((d) => (
+                      <button key={d} className={density === d ? "on" : ""}
+                        onClick={() => {
+                          setDensity(d); localStorage.setItem("st.density", d);
+                          document.documentElement.dataset.density = d;
+                        }}>{d[0].toUpperCase() + d.slice(1)}</button>
+                    ))}
+                  </div>
+                </div>
+              </>
+            )}
+            {page === "notif" && (
+              <>
+                <div className="set-row">
+                  <div className="lab">Notifications
+                    <div className="d">Desktop ping on mentions &amp; DMs when you're away.</div></div>
+                  <NotifCtl />
+                </div>
+                <label>Keyword notifications <span style={{ color: "var(--dim)", fontWeight: 400 }}>
+                  (get pinged when these words appear in channels you're in — comma-separated)</span></label>
+                <input value={f.keywords}
+                  onChange={(e) => setF({ ...f, keywords: e.target.value })}
+                  placeholder="deploy, incident, your name…" maxLength={300} />
+                <div className="mfoot">
+                  <span style={{ flex: 1 }} />
+                  <button className="primary" onClick={save}>Save profile</button>
+                </div>
+              </>
+            )}
+            {page === "audio" && (
+              <>
+                <div className="set-row">
+                  <div className="lab">Tactile Audio Cues
+                    <div className="d">VS Code style soothing clicks, thocks, and soft harmonic chimes.</div></div>
+                  <div className="seg">
+                    <button className={audioEnabled ? "on" : ""}
+                      onClick={() => { setAudioEnabled(true); audioConfig.enabled = true; playCue("click"); }}>On</button>
+                    <button className={!audioEnabled ? "on" : ""}
+                      onClick={() => { setAudioEnabled(false); audioConfig.enabled = false; }}>Off</button>
+                  </div>
+                </div>
+                {audioEnabled && (
+                  <>
+                    <div className="set-row">
+                      <div className="lab">Sound Profile
+                        <div className="d">Acoustic timbre for buttons, channels, and clicks.</div></div>
+                      <div className="seg" style={{ flexWrap: "wrap" }}>
+                        <button className={audioProfile === "thock" ? "on" : ""}
+                          onClick={() => { setAudioProfile("thock"); audioConfig.profile = "thock"; playCue("click", { profile: "thock" }); }}>
+                          🪵 Soothing Thock
+                        </button>
+                        <button className={audioProfile === "crisp" ? "on" : ""}
+                          onClick={() => { setAudioProfile("crisp"); audioConfig.profile = "crisp"; playCue("click", { profile: "crisp" }); }}>
+                          ⌨️ Crisp Tactile
+                        </button>
+                        <button className={audioProfile === "bubble" ? "on" : ""}
+                          onClick={() => { setAudioProfile("bubble"); audioConfig.profile = "bubble"; playCue("click", { profile: "bubble" }); }}>
+                          🫧 Soft Bubble
+                        </button>
+                      </div>
+                    </div>
+                    <div className="set-row">
+                      <div className="lab">Audio Volume ({Math.round(audioVol * 100)}%)
+                        <div className="d">Subtle and pleasant volume level.</div></div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                        <input type="range" min="0.05" max="1" step="0.05" value={audioVol}
+                          onChange={(e) => {
+                            const val = parseFloat(e.target.value);
+                            setAudioVol(val);
+                            audioConfig.volume = val;
+                            playCue("click", { vol: val });
+                          }} style={{ width: 140, cursor: "pointer" }} />
+                        <button className="ghost" style={{ fontSize: 11.5, padding: "2px 7px" }}
+                          onClick={() => { playCue("receive"); setTimeout(() => playCue("click"), 150); }}>
+                          🔊 Test Sound
+                        </button>
+                      </div>
+                    </div>
+                    <div className="set-row">
+                      <div className="lab">Keystroke Cues
+                        <div className="d">Satisfying micro-thock when typing in chat and code editor.</div></div>
+                      <div className="seg">
+                        <button className={audioTyping ? "on" : ""}
+                          onClick={() => { setAudioTyping(true); audioConfig.typing = true; playCue("key", { key: "a" }); }}>On</button>
+                        <button className={!audioTyping ? "on" : ""}
+                          onClick={() => { setAudioTyping(false); audioConfig.typing = false; }}>Off</button>
+                      </div>
+                    </div>
+                  </>
+                )}
+              </>
+            )}
+            {page === "profile" && (
+              <>
+                <div className="set-row">
+                  <div className="lab">Status<div className="d">Shown to friends and server members.</div></div>
+                  <div className="seg">
+                    {STATUSES.map(([k, l]) => (
+                      <button key={k} className={f.status === k ? "on" : ""}
+                        onClick={() => setF({ ...f, status: k })}>{l}</button>
+                    ))}
+                  </div>
+                </div>
+                <div className="set-row">
+                  <div className="lab">Avatar<div className="d">Emoji + color.</div></div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8, alignItems: "flex-end" }}>
+                    <div className="emoji-pick">
+                      {EMOJI_CHOICES.slice(0, 8).map((e) => (
+                        <span key={e} className={`e ${f.avatar_emoji === e ? "on" : ""}`}
+                          onClick={() => setF({ ...f, avatar_emoji: e })}>{e}</span>
+                      ))}
+                    </div>
+                    <div style={{ display: "flex", gap: 6 }}>
+                      {COLORS.map((c) => (
+                        <div key={c} className={`swatch ${f.avatar_color === c ? "on" : ""}`}
+                          style={{ background: c }} onClick={() => setF({ ...f, avatar_color: c })} />
+                      ))}
+                    </div>
+                  </div>
+                </div>
+                <label>Display name</label>
+                <input value={f.display_name} onChange={(e) => setF({ ...f, display_name: e.target.value })} />
+                <label>Pronouns <span style={{ color: "var(--dim)", fontWeight: 400 }}>(e.g. they/them, she/her, he/him)</span></label>
+                <input value={f.pronouns} onChange={(e) => setF({ ...f, pronouns: e.target.value })}
+                  placeholder="they/them" maxLength={32} />
+                <label>Banner color <span style={{ color: "var(--dim)", fontWeight: 400 }}>(profile header)</span></label>
+                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                  <input type="color" value={f.banner_color && /^#[0-9a-f]{6}$/i.test(f.banner_color) ? f.banner_color : "#4da3ff"}
+                    style={{ width: 44, height: 32, padding: 2, cursor: "pointer", background: "none" }}
+                    onChange={(e) => setF({ ...f, banner_color: e.target.value })} />
+                  <input value={f.banner_color}
+                    placeholder="#4da3ff or #5865f2" maxLength={24}
+                    onChange={(e) => setF({ ...f, banner_color: e.target.value })} style={{ flex: 1 }} />
+                </div>
+                <label>Custom status <span style={{ color: "var(--dim)", fontWeight: 400 }}>(what you're up to)</span></label>
+                <input value={f.status_text} onChange={(e) => setF({ ...f, status_text: e.target.value })}
+                  placeholder="🎮 grinding ranked…" maxLength={80} />
+                <label>Bio</label>
+                <input value={f.bio} onChange={(e) => setF({ ...f, bio: e.target.value })}
+                  placeholder="A line about you" />
+                <div className="mfoot">
+                  <span style={{ flex: 1 }} />
+                  <button className="primary" onClick={save}>Save profile</button>
+                </div>
+              </>
+            )}
+            {page === "conn" && (
+              <ConnectionsPage me={me}
+                onUseLlm={(r) => setLlm((prev) => ({ ...prev, ...r, has_key: r.has_key }))} />
+            )}
+            {page === "mesh" && <MeshPage me={acct} />}
+            {page === "perms" && <PermissionsPage me={me} />}
+            {page === "models" && (
+              <>
+                <label>Custom LLM endpoint {llmHealth !== null &&
+                  <span title={llmHealth ? "last test passed" : "last test failed"}
+                    style={{ color: llmHealth ? "#3fb950" : "var(--bad)", fontSize: 14 }}>
+                    {" ● "}</span>}<span style={{ color: "var(--dim)", fontWeight: 400 }}>
+                  (any OpenAI-compatible API — Nexus, OpenRouter, Groq, vLLM — or a webhook harness)</span></label>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <input value={llm.base_url} style={{ flex: 1 }}
+                    placeholder="https://api.nexus-projects.ai/v1 or https://openrouter.ai/api/v1"
+                    onChange={(e) => setLlm({ ...llm, base_url: e.target.value })} />
+                  <select value={llm.kind} style={{ maxWidth: 132 }}
+                    onChange={(e) => setLlm({ ...llm, kind: e.target.value })}>
+                    <option value="openai">OpenAI API</option>
+                    <option value="anthropic">Anthropic</option>
+                    <option value="ollama">Ollama</option>
+                    <option value="webhook">Webhook</option>
+                  </select>
+                </div>
+                <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
+                  <ModelField value={llm.model} style={{ flex: 1 }} options={llmModelOpts}
+                    placeholder="model (blank = endpoint default)"
+                    onChange={(e) => setLlm({ ...llm, model: e.target.value })} />
+                  <input type="password" value={llmKey} style={{ flex: 1 }}
+                    placeholder={llm.has_key ? "api key • set" : "api key (optional)"}
+                    onChange={(e) => setLlmKey(e.target.value)} />
+                </div>
+                <input value={llmHdrs} onChange={(e) => setLlmHdrs(e.target.value)}
+                  placeholder={llm.has_headers ? 'extra headers • set — JSON to replace, "{}" clears'
+                    : 'extra headers JSON — e.g. {"X-Api-Key":"…"}'} />
+                {llmModels.custom.length > 0 && (
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginTop: 6 }}>
+                    {llmModels.custom.map((m) => (
+                      <button key={m} type="button"
+                        className={`chip ${llm.model === m ? "on" : ""}`}
+                        style={{ fontSize: 11, padding: "2px 8px" }}
+                        onClick={() => { setLlm((prev) => ({ ...prev, model: m })); saveLlm(m); }}>
+                        {m}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                  <button disabled={llmBusy} onClick={() => saveLlm()}>Save endpoint</button>
+                  <button disabled={llmBusy || !llm.base_url} onClick={testLlm}>Test</button>
+                  {llm.base_url &&
+                    <button onClick={() => { setLlm({ ...llm, base_url: "", model: "" }); setLlmKey(""); }}
+                      title="Clear the fields — then Save to apply"><Ico n="x" s={12} /></button>}
+                </div>
+                {llmMsg && <div className="msub" style={{ marginTop: 6, color: llmHealth === false ? "var(--bad)" : llmHealth === true ? "var(--good)" : undefined }}>{llmMsg}</div>}
+              </>
+            )}
+            {page === "account" && (
+              <>
+                {acct.supabase_linked &&
+                  <div className="msub" style={{ marginBottom: 6 }}>
+                    ⚡ linked to Supabase{acct.email ? ` — ${acct.email}` : ""}</div>}
+                {acct.is_admin &&
+                  <div className="msub" style={{ marginBottom: 6 }}>
+                    🛡 site admin — the Nexus Mesh page is yours; it manages the
+                    whole hive's node.</div>}
+                <label>Password</label>
+                <div style={{ display: "flex", gap: 8 }}>
+                  {acct.has_password !== false && (
+                    <input type="password" placeholder="current password" value={pwCur}
+                      onChange={(e) => setPwCur(e.target.value)} style={{ flex: 1 }} />)}
+                  <input type="password" value={pwNext}
+                    placeholder={acct.has_password === false ? "set a crew password" : "new password"}
+                    onChange={(e) => setPwNext(e.target.value)} style={{ flex: 1 }} />
+                  <button disabled={pwNext.length < 4} onClick={savePw}>
+                    {acct.has_password === false ? "Set" : "Change"}</button>
+                </div>
+                <button className="ghost" style={{ marginTop: 8 }} onClick={async () => {
+                  const r = await api.signoutOthers().catch((e) => (setAcctMsg(e.message), null));
+                  if (r) setAcctMsg("Every other session was signed out.");
+                }}>Sign out other devices</button>
+                <button className="ghost" style={{ marginTop: 8 }} onClick={async () => {
+                  const r = await api.exportData().then(() => true).catch((e) => (setAcctMsg(e.message), null));
+                  if (r) setAcctMsg("Export downloaded — check your files. 📦");
+                }}><Ico n="download" s={13} /> Download my data</button>
+                {acctMsg && <div style={{ color: "var(--dim)", marginTop: 8, fontSize: 12.5 }}>{acctMsg}</div>}
+                <div className="mfoot">
+                  <button className="danger" onClick={onLogout}><Ico n="leave" s={13} /> Sign out</button>
+                  <span style={{ flex: 1 }} />
+                  <span className="msub" style={{ margin: 0 }}>@{me.username} · build {__APP_BUILD__?.slice(0, 10) || "dev"}</span>
+                </div>
+              </>
+            )}
+          </div>
         </div>
-      )}
-      <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-        <button disabled={llmBusy} onClick={() => saveLlm()}>Save endpoint</button>
-        <button disabled={llmBusy || !llm.base_url} onClick={testLlm}>Test</button>
-        {llm.base_url &&
-          <button onClick={() => { setLlm({ ...llm, base_url: "", model: "" }); setLlmKey(""); }}
-            title="Clear the fields — then Save to apply"><Ico n="x" s={12} /></button>}
-      </div>
-      {llmMsg && <div className="msub" style={{ marginTop: 6, color: llmHealth === false ? "var(--bad)" : llmHealth === true ? "var(--good)" : undefined }}>{llmMsg}</div>}
-      <label>Account <span style={{ color: "var(--dim)", fontWeight: 400 }}>(security)</span></label>
-      {acct.supabase_linked &&
-        <div className="msub" style={{ marginBottom: 6 }}>
-          ⚡ linked to Supabase{acct.email ? ` — ${acct.email}` : ""}</div>}
-      <div style={{ display: "flex", gap: 8 }}>
-        {acct.has_password !== false && (
-          <input type="password" placeholder="current password" value={pwCur}
-            onChange={(e) => setPwCur(e.target.value)} style={{ flex: 1 }} />)}
-        <input type="password" value={pwNext}
-          placeholder={acct.has_password === false ? "set a crew password" : "new password"}
-          onChange={(e) => setPwNext(e.target.value)} style={{ flex: 1 }} />
-        <button disabled={pwNext.length < 4} onClick={savePw}>
-          {acct.has_password === false ? "Set" : "Change"}</button>
-      </div>
-      <button className="ghost" style={{ marginTop: 8 }} onClick={async () => {
-        const r = await api.signoutOthers().catch((e) => (setAcctMsg(e.message), null));
-        if (r) setAcctMsg("Every other session was signed out.");
-      }}>Sign out other devices</button>
-      <button className="ghost" style={{ marginTop: 8 }} onClick={async () => {
-        const r = await api.exportData().then(() => true).catch((e) => (setAcctMsg(e.message), null));
-        if (r) setAcctMsg("Export downloaded — check your files. 📦");
-      }}><Ico n="download" s={13} /> Download my data</button>
-      {acctMsg && <div style={{ color: "var(--dim)", marginTop: 8, fontSize: 12.5 }}>{acctMsg}</div>}
-      <div className="mfoot">
-        <button className="danger" onClick={onLogout}><Ico n="leave" s={13} /> Sign out</button>
-        <span style={{ flex: 1 }} />
-        <button onClick={onClose}>Close</button>
-        <button className="primary" onClick={save}>Save profile</button>
       </div>
     </Modal>
   );

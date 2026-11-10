@@ -1,0 +1,24 @@
+{
+  "google": {
+    "clientId": "",
+    "clientSecret": ""
+  },
+  "github": {
+    "clientId": "Ov23likLGAobbdrAZFDE"
+  },
+  "microsoft": {
+    "clientId": "5e554337-39c0-4a53-aedb-3623d01422a5"
+  },
+  "slack": {
+    "clientId": "12377703093009.12373898301046",
+    "brokerOrigin": "https://unbent-semicolon-hermit.ngrok-free.dev"
+  },
+  "notion": {
+    "clientId": "400d872b-594c-81fd-b649-0037a31b6e2a",
+    "brokerOrigin": "https://unbent-semicolon-hermit.ngrok-free.dev"
+  },
+  "discord": {
+    "clientId": "1562506118251552768",
+    "brokerOrigin": "https://unbent-semicolon-hermit.ngrok-free.dev"
+  }
+}

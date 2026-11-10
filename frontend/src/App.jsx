@@ -44,6 +44,7 @@ const ShareModal = lazyRetry(() => import("./components/modals/share.jsx").then(
 const ServerModal = lazyRetry(() => import("./components/modals/server.jsx").then((m) => ({ default: m.ServerModal })));
 const ServerSettingsModal = lazyRetry(() => import("./components/modals/serversettings.jsx").then((m) => ({ default: m.ServerSettingsModal })));
 const ChannelModal = lazyRetry(() => import("./components/modals/channel.jsx").then((m) => ({ default: m.ChannelModal })));
+const CategoryModal = lazyRetry(() => import("./components/modals/channel.jsx").then((m) => ({ default: m.CategoryModal })));
 const PackModal = lazyRetry(() => import("./components/modals/packs.jsx").then((m) => ({ default: m.PackModal })));
 const PackCreateModal = lazyRetry(() => import("./components/modals/packs.jsx").then((m) => ({ default: m.PackCreateModal })));
 const ProfileModal = lazyRetry(() => import("./components/modals/profile.jsx").then((m) => ({ default: m.ProfileModal })));
@@ -625,6 +626,41 @@ export default function App() {
     setModal(null);
   }
 
+  async function saveCategory(oldCat, newName, roleId, syncRoles, channelIds, starterChan) {
+    if (!server) return;
+    if (oldCat) {
+      await api.editCategory(server.id, oldCat, {
+        new_name: newName,
+        role_id: roleId,
+        sync_roles: syncRoles,
+        channel_ids: channelIds,
+      }).catch((e) => alert(e.message));
+    } else {
+      if (channelIds && channelIds.length > 0) {
+        for (const cid of channelIds) {
+          await api.editChannel(cid, { category: newName, ...(syncRoles ? { role_id: roleId } : {}) }).catch(() => {});
+        }
+      } else {
+        const sName = starterChan || "general";
+        await api.addChannel(server.id, sName, "text", "", [], newName, 0, syncRoles ? (roleId || 0) : 0);
+      }
+    }
+    const full = await api.server(server.id);
+    setServer(full);
+    setModal(null);
+  }
+
+  async function removeCategory(cat, deleteChannels) {
+    if (!server || !cat) return;
+    await api.deleteCategory(server.id, cat, deleteChannels).catch((e) => alert(e.message));
+    const full = await api.server(server.id);
+    setServer(full);
+    if (!full.channels.find((x) => x.id === channel?.id)) {
+      selectChannel(full.channels[0] || null);
+    }
+    setModal(null);
+  }
+
   async function starAgent(a) {
     await api.starAgent(a.id);
     setRefresh((r) => r + 1);
@@ -803,7 +839,7 @@ export default function App() {
       onPackOpen={openPack}
       onShareAgent={() => setModal({ kind: "share", agent: null })}
       onForward={(m) => setModal({ kind: "forward", msg: m })}
-      onEditChannel={(c) => setModal({ kind: "channel", channel: c })}
+      onEditChannel={(c) => setModal({ kind: "chanedit", channel: c, channelKind: c.kind })}
       onFwdJump={openChannelById}
       focusMsg={focusMsg}
       blocked={blocked}
@@ -840,9 +876,16 @@ export default function App() {
         const d = list.find((x) => x.id === channel.id);
         if (d) setChannel(dmShape(d));
         refreshLists();
-      }} />
+      }}
+      onEditChannel={(c) => setModal({ kind: "chanedit", channel: c, channelKind: c.kind })}
+      memOpen={memOpen} onMembersClose={() => setMemOpen(false)} />
   );
   else main = <div className="empty"><div className="big"><KnotMark /></div><div className="serif">Pick a channel.</div></div>;
+
+  // members toggle only makes sense while the chat pane itself is on screen —
+  // `channel` stays populated behind library/buzz/workspace surfaces
+  const chatShown = !!(channel && channel.kind !== "voice" && !wsOpen &&
+    !["buzz", "library", "bench", "friends", "saved"].includes(view));
 
   const title = wsOpen ? `${wsOpen.icon} ${wsOpen.name} — workspace`
     : dmChannel ? `@ ${channel.name}`
@@ -874,9 +917,11 @@ export default function App() {
             mentions={visMentions}
             muted={mutedSet} mentionsOnly={mentionSet} onToggleMute={cycleNotify}
             voiceRosters={voice.rosters || {}} typingMap={dmTyping}
-            onAddChannel={(kind) => setModal({ kind: "channel", channelKind: kind })}
+            onAddChannel={(kind, cat = "") => setModal({ kind: "channel", channelKind: kind, presetCat: cat })}
             onEditChannel={(c) => setModal({ kind: "chanedit", channel: c, channelKind: c.kind })}
             onMoveChannel={moveChannel}
+            onCategorySettings={(cat) => setModal({ kind: "catsettings", category: cat })}
+            onAddCategory={() => setModal({ kind: "catsettings", category: "", isNew: true })}
             srvMuted={srvMutedSet.has(server.id)}
             onToggleSrvMute={async (s) => {
               const cur = new Set(me.server_muted || []);
@@ -884,11 +929,11 @@ export default function App() {
               const u = await api.updateMe({ server_muted: [...cur] }).catch(() => null);
               if (u) setMe(u);
             }}
-            onEvents={() => setModal({ kind: "events", server })}
+            onEvents={() => { setModal({ kind: "events", server }); closeSide(); }}
             evCount={events.filter((e) => e.status !== "cancelled").length}
             workspaces={workspaces} activeWs={wsOpen?.id}
             onWorkspace={(w) => {
-              setWsOpen(w); setChannel(null);
+              setWsOpen(w); setChannel(null); closeSide();
               api.agents({}).then(setWsAgents).catch(() => {});
             }}
             onNewWorkspace={() => setModal({ kind: "workspace", server })}
@@ -1032,12 +1077,29 @@ export default function App() {
       {modal?.kind === "channel" && (
         <ChannelModal kind={modal.channelKind} me={me} roles={server?.roles || []}
           workspaces={workspaces}
+          categories={[...new Set((server?.channels || []).map((c) => c.category).filter(Boolean))]}
+          presetCategory={modal.presetCat || ""}
           onClose={() => setModal(null)} onDone={addChannel} />
       )}
       {modal?.kind === "chanedit" && (
         <ChannelModal kind={modal.channelKind} channel={modal.channel} me={me}
           roles={server?.roles || []} workspaces={workspaces}
+          categories={[...new Set((server?.channels || []).map((c) => c.category).filter(Boolean))]}
           onClose={() => setModal(null)} onDone={saveChannel} onDelete={removeChannel} />
+      )}
+      {modal?.kind === "catsettings" && (
+        <CategoryModal
+          server={server}
+          category={modal.category || ""}
+          isNew={!!modal.isNew}
+          roles={server?.roles || []}
+          onClose={() => setModal(null)}
+          onSave={saveCategory}
+          onDelete={removeCategory}
+          onAddChannel={(kind, cat) => setModal({ kind: "channel", channelKind: kind, presetCat: cat })}
+          onMoveChannel={moveChannel}
+          onEditChannel={(c) => setModal({ kind: "chanedit", channel: c, channelKind: c.kind })}
+        />
       )}
       {modal?.kind === "inbox" && (
         <InboxModal onClose={() => setModal(null)}

@@ -44,9 +44,11 @@ export default function Bell({ me, refreshKey, onOpenAgent, onOpenChannel, onOpe
 
   return (
     <div ref={ref} style={{ position: "relative" }}>
-      <button className="ghost" onClick={toggle} title="Notifications" style={{ position: "relative", display: "inline-flex", alignItems: "center" }}>
+      <button className="ghost" onClick={toggle} title="Notifications"
+        aria-label={unseen > 0 ? `Notifications, ${unseen} unread` : "Notifications"}
+        style={{ position: "relative", display: "inline-flex", alignItems: "center" }}>
         <Ico n="bell" s={15} />
-        {unseen > 0 && <span className="rail-badge" style={{ position: "absolute", right: -4, top: -4 }}>
+        {unseen > 0 && <span className="rail-badge" aria-hidden="true" style={{ position: "absolute", right: -4, top: -4 }}>
           {unseen}</span>}
       </button>
       {open && (

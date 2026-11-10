@@ -9,7 +9,7 @@ from ..db import db, emit_buzz, now
 from ..hub import hub
 
 from ..helpers import _clean_automod, _pub_server, _sys_post, audit, channel_json, public_user
-from ..schemas import BanIn, ChannelIn, ChannelPatch, DigestIn, JoinIn, MemberRoleIn, NickIn, RoleIn, ServerIn, ServerPatch, TimeoutIn, TransferIn
+from ..schemas import BanIn, CategoryPatch, ChannelIn, ChannelPatch, DigestIn, JoinIn, MemberRoleIn, NickIn, RoleIn, ServerIn, ServerPatch, TimeoutIn, TransferIn
 from ..services import _server_changed
 
 router = APIRouter()
@@ -814,6 +814,62 @@ async def del_channel(cid: int, user=Depends(current_user)):
                      "WHERE chat_channel_id=?", (cid,))
         audit(conn, ch["server_id"], user["id"], "channel.delete", f"#{ch['name']}")
         sid = ch["server_id"]
+    with db() as conn:
+        await _server_changed(conn, sid)
+    return {"ok": True}
+
+
+@router.patch("/api/servers/{sid}/categories/{name}")
+async def edit_category(sid: int, name: str, body: CategoryPatch, user=Depends(current_user)):
+    with db() as conn:
+        s = conn.execute("SELECT owner_id FROM servers WHERE id=?", (sid,)).fetchone()
+        if not s or s["owner_id"] != user["id"]:
+            raise HTTPException(403, "Only the owner manages categories")
+        name = name.strip()
+        new_name = (body.new_name or "").strip()[:48] if body.new_name is not None else None
+        target_name = name
+        if new_name is not None and new_name != name:
+            conn.execute("UPDATE channels SET category=? WHERE server_id=? AND category=?",
+                         (new_name, sid, name))
+            audit(conn, sid, user["id"], "category.update", name, f"renamed to {new_name}")
+            target_name = new_name
+        if body.sync_roles:
+            rid = body.role_id or None
+            if rid and not conn.execute("SELECT 1 FROM server_roles WHERE id=? AND server_id=?",
+                                        (rid, sid)).fetchone():
+                raise HTTPException(404, "No such role")
+            conn.execute("UPDATE channels SET role_id=? WHERE server_id=? AND category=?",
+                         (rid, sid, target_name))
+            audit(conn, sid, user["id"], "category.roles", target_name, f"role {rid or 'everyone'}")
+        if body.channel_ids is not None:
+            for cid in body.channel_ids:
+                conn.execute("UPDATE channels SET category=? WHERE id=? AND server_id=?",
+                             (target_name, cid, sid))
+    with db() as conn:
+        await _server_changed(conn, sid)
+    return {"ok": True, "name": target_name}
+
+
+@router.delete("/api/servers/{sid}/categories/{name}")
+async def del_category(sid: int, name: str, delete_channels: bool = False, user=Depends(current_user)):
+    with db() as conn:
+        s = conn.execute("SELECT owner_id FROM servers WHERE id=?", (sid,)).fetchone()
+        if not s or s["owner_id"] != user["id"]:
+            raise HTTPException(403, "Only the owner manages categories")
+        name = name.strip()
+        if delete_channels:
+            total_channels = conn.execute("SELECT COUNT(*) c FROM channels WHERE server_id=?",
+                                          (sid,)).fetchone()["c"]
+            in_cat = conn.execute("SELECT COUNT(*) c FROM channels WHERE server_id=? AND category=?",
+                                  (sid, name)).fetchone()["c"]
+            if total_channels - in_cat < 1:
+                raise HTTPException(400, "A server needs at least one channel")
+            conn.execute("DELETE FROM channels WHERE server_id=? AND category=?", (sid, name))
+            audit(conn, sid, user["id"], "category.delete", name, f"deleted {in_cat} channels")
+        else:
+            conn.execute("UPDATE channels SET category='' WHERE server_id=? AND category=?",
+                         (sid, name))
+            audit(conn, sid, user["id"], "category.delete", name, "uncategorized channels")
     with db() as conn:
         await _server_changed(conn, sid)
     return {"ok": True}

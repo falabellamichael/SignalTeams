@@ -186,6 +186,8 @@ export const api = {
   templatePreview: (code) => req("GET", `/api/templates/${code}`),
   serverFromTemplate: (code, name = "") => req("POST", "/api/servers/from-template", { code, name }),
   leaveServer: (sid) => req("POST", `/api/servers/${sid}/leave`),
+  editCategory: (sid, name, p) => req("PATCH", `/api/servers/${sid}/categories/${encodeURIComponent(name)}`, p),
+  deleteCategory: (sid, name, deleteChannels = false) => req("DELETE", `/api/servers/${sid}/categories/${encodeURIComponent(name)}?delete_channels=${deleteChannels}`),
   editChannel: (cid, p) => req("PATCH", `/api/channels/${cid}`, p),
   deleteChannel: (cid) => req("DELETE", `/api/channels/${cid}`),
   webhooks: (cid) => req("GET", `/api/channels/${cid}/webhooks`),
@@ -228,6 +230,29 @@ export const api = {
     req("POST", `/api/agents/${aid}/try`, { message, history, model, provider }),
   llmProviders: () => req("GET", "/api/llm/providers"),
   history: (aid) => req("GET", `/api/agents/${aid}/history`),
+
+  // AI connections (Settings → Connections)
+  connections: () => req("GET", "/api/connections"),
+  connSave: (pid, p) => req("PUT", `/api/connections/${pid}`, p),
+  connImport: (pid) => req("POST", `/api/connections/${pid}/import`),
+  connDel: (pid) => req("DELETE", `/api/connections/${pid}`),
+  connTest: (pid) => req("POST", `/api/connections/${pid}/test`),
+  connUse: (pid) => req("POST", `/api/connections/${pid}/use`),
+  connBegin: (pid, p) => req("POST", `/api/connections/${pid}/begin`, p || {}),
+  connPoll: (pid, flow) => req("POST", `/api/connections/${pid}/poll`, { flow }),
+
+  // nexus mesh (Settings → Mesh) — P2P encrypted access to this hive
+  nexusStatus: () => req("GET", "/api/nexus/status"),
+  nexusConnect: (p) => req("POST", "/api/nexus/connect", p || {}),
+  nexusDisconnect: () => req("POST", "/api/nexus/disconnect"),
+  nexusPeers: () => req("GET", "/api/nexus/peers"),
+  nexusDevices: () => req("GET", "/api/nexus/devices"),
+  nexusDeviceRemove: (node_id) => req("DELETE", `/api/nexus/devices/${node_id}`),
+  nexusEgress: (ip, port) => req("POST", "/api/nexus/egress", { ip, port }),
+  nexusEgressClose: (ip, port) => req("DELETE", "/api/nexus/egress", { ip, port }),
+  nexusInvite: (ttl_sec) => req("POST", "/api/nexus/invite", { ttl_sec }),
+  nexusWatchPair: () => req("POST", "/api/nexus/watch-pair", {}),
+  nexusCfg: (p) => req("PUT", "/api/nexus/config", p),
 
   // packs
   packs: () => req("GET", "/api/packs"),

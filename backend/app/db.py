@@ -4,7 +4,7 @@ import sqlite3
 import time
 from contextlib import contextmanager
 
-from .config import DB_PATH
+from .config import ADMINS, DB_PATH
 
 SCHEMA = """
 PRAGMA journal_mode=WAL;
@@ -104,6 +104,8 @@ CREATE TABLE IF NOT EXISTS agents (
     tags          TEXT NOT NULL DEFAULT '[]',           -- JSON array
     version       TEXT NOT NULL DEFAULT '1.0.0',
     visibility    TEXT NOT NULL DEFAULT 'friends',      -- public | friends | private
+    use_who       TEXT NOT NULL DEFAULT '',             -- '' = follow visibility | public | friends | people | private
+    use_when      TEXT NOT NULL DEFAULT 'always',       -- always | online (owner present) | off
     forked_from   TEXT NOT NULL DEFAULT '',             -- "BugHunter by nova" attribution
     downloads     INTEGER NOT NULL DEFAULT 0,
     created_at    REAL NOT NULL,
@@ -122,6 +124,12 @@ CREATE TABLE IF NOT EXISTS agent_installs (              -- friends who added it
     agent_id   INTEGER NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
     user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     created_at REAL NOT NULL,
+    PRIMARY KEY (agent_id, user_id)
+);
+
+CREATE TABLE IF NOT EXISTS agent_allowed_users (         -- use_who='people' allowlist
+    agent_id   INTEGER NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+    user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     PRIMARY KEY (agent_id, user_id)
 );
 
@@ -249,6 +257,31 @@ CREATE TABLE IF NOT EXISTS blocks (                      -- user_id blocked bloc
     blocked_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     created_at REAL NOT NULL,
     UNIQUE(user_id, blocked_id)
+);
+
+CREATE TABLE IF NOT EXISTS user_connections (            -- AI provider connections (Settings → Connections)
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    provider   TEXT NOT NULL,                            -- openai, anthropic, xai, mistral, …
+    via        TEXT NOT NULL DEFAULT 'key',              -- key | cli
+    kind       TEXT NOT NULL DEFAULT 'openai',           -- endpoint protocol for llm.py
+    url        TEXT NOT NULL DEFAULT '',
+    api_key    TEXT,
+    headers    TEXT,                                     -- JSON extra headers (e.g. OAuth bearer)
+    model      TEXT NOT NULL DEFAULT '',
+    label      TEXT NOT NULL DEFAULT '',                 -- account hint: email / plan / CLI login
+    usable     INTEGER NOT NULL DEFAULT 1,               -- 0 = credential stored, not chat-routable
+    refresher  TEXT,                                     -- refresh material (OAuth refresh_token / Copilot oauth) — never exposed
+    extra      TEXT,                                     -- OAuth app creds {client_id, client_secret} — never exposed
+    meta       TEXT NOT NULL DEFAULT '{}',
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL,
+    UNIQUE(user_id, provider)
+);
+
+CREATE TABLE IF NOT EXISTS kv (                          -- misc persisted singletons (oauth state secret…)
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS channel_hooks (               -- incoming webhooks per channel
@@ -465,6 +498,12 @@ def init():
             ("users.pronouns", "ALTER TABLE users ADD COLUMN pronouns TEXT NOT NULL DEFAULT ''"),
             ("channels.workspace_id", "ALTER TABLE channels ADD COLUMN workspace_id INTEGER"),
             ("workspaces.chat_channel_id", "ALTER TABLE workspaces ADD COLUMN chat_channel_id INTEGER"),
+            ("user_connections.refresher", "ALTER TABLE user_connections ADD COLUMN refresher TEXT"),
+            ("user_connections.extra", "ALTER TABLE user_connections ADD COLUMN extra TEXT"),
+            ("agents.use_who", "ALTER TABLE agents ADD COLUMN use_who TEXT NOT NULL DEFAULT ''"),
+            ("agents.use_when", "ALTER TABLE agents ADD COLUMN use_when TEXT NOT NULL DEFAULT 'always'"),
+            ("agents.ai_flags", "ALTER TABLE agents ADD COLUMN ai_flags TEXT NOT NULL DEFAULT '{}'"),
+            ("users.is_admin", "ALTER TABLE users ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0"),
         ]:
             table, c = col.split(".")
             try:
@@ -481,6 +520,11 @@ def init():
         conn.execute(
             "UPDATE messages SET content = RTRIM(RTRIM(content,'▌')) "
             "|| ' *(interrupted)*' WHERE content LIKE '%▌'")
+        # permanent site admins — env-listed usernames are re-promoted every boot
+        if ADMINS:
+            conn.execute(
+                "UPDATE users SET is_admin=1 WHERE lower(username) IN (%s)"
+                % ",".join("?" * len(ADMINS)), ADMINS)
 
 
 def now():

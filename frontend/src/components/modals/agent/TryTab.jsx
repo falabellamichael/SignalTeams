@@ -57,6 +57,8 @@ export function TryTab({ agent, onOpenConnect }) {
           if (evt.t === "meta") { provMeta = `${evt.provider} · ${evt.model}`; patch(() => ({ meta: provMeta })); }
           else if (evt.t === "thinking") patch(() => ({ meta: `💭 thinking… (${evt.n})` }));
           else if (evt.t === "token") { reply += evt.c; patch(() => ({ content: reply, meta: provMeta })); }
+          else if (evt.t === "tool") patch(() => ({ meta: `⚙ ${evt.name}${evt.ok ? "" : " · failed"}` }));
+          else if (evt.t === "replace") { reply = evt.c; patch(() => ({ content: reply })); }
           else if (evt.t === "error") throw new Error(evt.message);
         }
       }

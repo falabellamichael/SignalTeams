@@ -1,0 +1,2553 @@
+/// @title Lemonade Nexus SDK FFI Bindings
+/// @description Low-level FFI bindings for the Lemonade Nexus C SDK.
+///
+/// This file contains the raw FFI bindings to the C SDK. Use the
+/// [LemonadeNexusSdk] class for a high-level Dart API.
+library;
+
+import 'dart:ffi' as ffi;
+import 'dart:io';
+import 'dart:typed_data';
+import 'package:ffi/ffi.dart';
+
+/// Error codes from the C SDK.
+enum LnError {
+  success(0),
+  nullArg(-1),
+  connect(-2),
+  auth(-3),
+  notFound(-4),
+  rejected(-5),
+  noIdentity(-6),
+  parse(-7),
+  unsupported(-8),
+  portInUse(-9),
+  internal(-99);
+
+  final int code;
+  const LnError(this.code);
+
+  static LnError fromCode(int code) {
+    for (final error in LnError.values) {
+      if (error.code == code) return error;
+    }
+    return LnError.internal;
+  }
+
+  bool get isSuccess => this == LnError.success;
+}
+
+/// Opaque handle types.
+/// In FFI, these are represented as `Pointer<Void>`
+typedef LnClientHandle = ffi.Pointer<ffi.Void>;
+typedef LnIdentityHandle = ffi.Pointer<ffi.Void>;
+
+/// FFI type mappings for C SDK functions.
+
+// Memory management
+typedef _LnFree = ffi.Void Function(ffi.Pointer<ffi.Char> ptr);
+typedef _LnFreeDart = void Function(ffi.Pointer<ffi.Char> ptr);
+
+// Client lifecycle
+typedef _LnCreate = LnClientHandle Function(
+  ffi.Pointer<ffi.Char> host,
+  ffi.Uint16 port,
+);
+typedef _LnCreateDart = LnClientHandle Function(
+  ffi.Pointer<ffi.Char> host,
+  int port,
+);
+
+typedef _LnCreateTls = LnClientHandle Function(
+  ffi.Pointer<ffi.Char> host,
+  ffi.Uint16 port,
+);
+typedef _LnCreateTlsDart = LnClientHandle Function(
+  ffi.Pointer<ffi.Char> host,
+  int port,
+);
+
+typedef _LnDestroy = ffi.Void Function(LnClientHandle client);
+typedef _LnDestroyDart = void Function(LnClientHandle client);
+
+// Identity management
+typedef _LnIdentityGenerate = LnIdentityHandle Function();
+typedef _LnIdentityGenerateDart = LnIdentityHandle Function();
+
+typedef _LnIdentityLoad = LnIdentityHandle Function(
+  ffi.Pointer<ffi.Char> path,
+);
+typedef _LnIdentityLoadDart = LnIdentityHandle Function(
+  ffi.Pointer<ffi.Char> path,
+);
+
+typedef _LnIdentitySave = ffi.Int32 Function(
+  LnIdentityHandle identity,
+  ffi.Pointer<ffi.Char> path,
+);
+typedef _LnIdentitySaveDart = int Function(
+  LnIdentityHandle identity,
+  ffi.Pointer<ffi.Char> path,
+);
+
+typedef _LnIdentityPubkey = ffi.Pointer<ffi.Char> Function(
+  LnIdentityHandle identity,
+);
+typedef _LnIdentityPubkeyDart = ffi.Pointer<ffi.Char> Function(
+  LnIdentityHandle identity,
+);
+
+typedef _LnIdentityDestroy = ffi.Void Function(LnIdentityHandle identity);
+typedef _LnIdentityDestroyDart = void Function(LnIdentityHandle identity);
+
+typedef _LnSetIdentity = ffi.Int32 Function(
+  LnClientHandle client,
+  LnIdentityHandle identity,
+);
+typedef _LnSetIdentityDart = int Function(
+  LnClientHandle client,
+  LnIdentityHandle identity,
+);
+
+typedef _LnIdentityFromSeed = LnIdentityHandle Function(
+  ffi.Pointer<ffi.Uint8> seed,
+  ffi.Uint32 seedLen,
+);
+typedef _LnIdentityFromSeedDart = LnIdentityHandle Function(
+  ffi.Pointer<ffi.Uint8> seed,
+  int seedLen,
+);
+
+typedef _LnDeriveSeed = ffi.Pointer<ffi.Char> Function(
+  ffi.Pointer<ffi.Char> username,
+  ffi.Pointer<ffi.Char> password,
+);
+typedef _LnDeriveSeedDart = ffi.Pointer<ffi.Char> Function(
+  ffi.Pointer<ffi.Char> username,
+  ffi.Pointer<ffi.Char> password,
+);
+
+// Per-user identity store (ln_identity_user_*). `ln_error_t` is a C enum,
+// so it crosses the boundary as a 32-bit int.
+typedef _LnIdentityUserDir = ffi.Pointer<ffi.Char> Function();
+typedef _LnIdentityUserDirDart = ffi.Pointer<ffi.Char> Function();
+
+typedef _LnIdentityUserStatus = ffi.Int32 Function(
+  ffi.Pointer<ffi.Pointer<ffi.Char>> outJson,
+);
+typedef _LnIdentityUserStatusDart = int Function(
+  ffi.Pointer<ffi.Pointer<ffi.Char>> outJson,
+);
+
+typedef _LnIdentityUserOpen = LnIdentityHandle Function(
+  ffi.Pointer<ffi.Int32> outErr,
+);
+typedef _LnIdentityUserOpenDart = LnIdentityHandle Function(
+  ffi.Pointer<ffi.Int32> outErr,
+);
+
+typedef _LnIdentityUserImport = ffi.Int32 Function(LnIdentityHandle identity);
+typedef _LnIdentityUserImportDart = int Function(LnIdentityHandle identity);
+
+typedef _LnIdentityUserRemove = ffi.Int32 Function();
+typedef _LnIdentityUserRemoveDart = int Function();
+
+typedef _LnIdentityFromJson = LnIdentityHandle Function(
+  ffi.Pointer<ffi.Char> jsonText,
+);
+typedef _LnIdentityFromJsonDart = LnIdentityHandle Function(
+  ffi.Pointer<ffi.Char> jsonText,
+);
+
+// Account group-key envelopes
+typedef _LnGroupKeyGenerate = ffi.Pointer<ffi.Char> Function();
+typedef _LnGroupKeyGenerateDart = ffi.Pointer<ffi.Char> Function();
+typedef _LnGroupKeyWrap = ffi.Pointer<ffi.Char> Function(
+  ffi.Pointer<ffi.Char> recipientPubkey,
+  ffi.Pointer<ffi.Char> groupKey,
+);
+typedef _LnGroupKeyWrapDart = ffi.Pointer<ffi.Char> Function(
+  ffi.Pointer<ffi.Char> recipientPubkey,
+  ffi.Pointer<ffi.Char> groupKey,
+);
+typedef _LnGroupKeyUnwrap = ffi.Pointer<ffi.Char> Function(
+  LnIdentityHandle identity,
+  ffi.Pointer<ffi.Char> envelopeJson,
+);
+typedef _LnGroupKeyUnwrapDart = ffi.Pointer<ffi.Char> Function(
+  LnIdentityHandle identity,
+  ffi.Pointer<ffi.Char> envelopeJson,
+);
+
+// Tier 1 servers (tree traffic)
+typedef _LnSetGenesisKey = ffi.Int32 Function(
+  LnClientHandle client,
+  ffi.Pointer<ffi.Char> genesisPubkeyB64,
+  ffi.Uint64 minEpoch,
+);
+typedef _LnSetGenesisKeyDart = int Function(
+  LnClientHandle client,
+  ffi.Pointer<ffi.Char> genesisPubkeyB64,
+  int minEpoch,
+);
+typedef _LnSetEpochFloor = ffi.Int32 Function(
+  LnClientHandle client,
+  ffi.Pointer<ffi.Char> chain,
+  ffi.Uint64 minEpoch,
+);
+typedef _LnSetEpochFloorDart = int Function(
+  LnClientHandle client,
+  ffi.Pointer<ffi.Char> chain,
+  int minEpoch,
+);
+typedef _LnTier1Json = ffi.Int32 Function(
+  LnClientHandle client,
+  ffi.Pointer<ffi.Pointer<ffi.Char>> outJson,
+);
+typedef _LnTier1JsonDart = int Function(
+  LnClientHandle client,
+  ffi.Pointer<ffi.Pointer<ffi.Char>> outJson,
+);
+typedef _LnDiscoverGenesisKey = ffi.Int32 Function(
+  LnClientHandle client,
+  ffi.Pointer<ffi.Char> hostsJson,
+  ffi.Pointer<ffi.Pointer<ffi.Char>> outJson,
+);
+typedef _LnDiscoverGenesisKeyDart = int Function(
+  LnClientHandle client,
+  ffi.Pointer<ffi.Char> hostsJson,
+  ffi.Pointer<ffi.Pointer<ffi.Char>> outJson,
+);
+
+// Device linking
+typedef _LnSetLinkToken = ffi.Int32 Function(
+  LnClientHandle client,
+  ffi.Pointer<ffi.Char> token,
+);
+typedef _LnSetLinkTokenDart = int Function(
+  LnClientHandle client,
+  ffi.Pointer<ffi.Char> token,
+);
+
+/// `ln_session_moved_fn`: the SDK calls it from a background thread with a
+/// JSON string the callback owns and must release with `ln_free`.
+typedef LnSessionMovedNative = ffi.Void Function(
+  ffi.Pointer<ffi.Char> eventJson,
+  ffi.Pointer<ffi.Void> user,
+);
+typedef _LnSetSessionMovedCallback = ffi.Int32 Function(
+  LnClientHandle client,
+  ffi.Pointer<ffi.NativeFunction<LnSessionMovedNative>> fn,
+  ffi.Pointer<ffi.Void> user,
+);
+typedef _LnSetSessionMovedCallbackDart = int Function(
+  LnClientHandle client,
+  ffi.Pointer<ffi.NativeFunction<LnSessionMovedNative>> fn,
+  ffi.Pointer<ffi.Void> user,
+);
+/// `ln_mesh_event_fn`: same contract as [LnSessionMovedNative].
+typedef LnMeshEventNative = ffi.Void Function(
+  ffi.Pointer<ffi.Char> eventJson,
+  ffi.Pointer<ffi.Void> user,
+);
+typedef _LnSetMeshEventCallback = ffi.Int32 Function(
+  LnClientHandle client,
+  ffi.Pointer<ffi.NativeFunction<LnMeshEventNative>> fn,
+  ffi.Pointer<ffi.Void> user,
+);
+typedef _LnSetMeshEventCallbackDart = int Function(
+  LnClientHandle client,
+  ffi.Pointer<ffi.NativeFunction<LnMeshEventNative>> fn,
+  ffi.Pointer<ffi.Void> user,
+);
+typedef _LnLinkTokenCreate = ffi.Int32 Function(
+  LnClientHandle client,
+  ffi.Uint32 ttlSec,
+  ffi.Pointer<ffi.Pointer<ffi.Char>> outJson,
+);
+typedef _LnLinkTokenCreateDart = int Function(
+  LnClientHandle client,
+  int ttlSec,
+  ffi.Pointer<ffi.Pointer<ffi.Char>> outJson,
+);
+
+// Invites, memberships, and moves
+typedef _LnInviteCreate = ffi.Int32 Function(
+  LnClientHandle client,
+  ffi.Pointer<ffi.Char> targetNodeId,
+  ffi.Pointer<ffi.Char> permissionsJson,
+  ffi.Uint32 ttlSec,
+  ffi.Pointer<ffi.Pointer<ffi.Char>> outJson,
+);
+typedef _LnInviteCreateDart = int Function(
+  LnClientHandle client,
+  ffi.Pointer<ffi.Char> targetNodeId,
+  ffi.Pointer<ffi.Char> permissionsJson,
+  int ttlSec,
+  ffi.Pointer<ffi.Pointer<ffi.Char>> outJson,
+);
+typedef _LnCheckDeviceName = ffi.Int32 Function(
+  LnClientHandle client,
+  ffi.Pointer<ffi.Char> name,
+  ffi.Pointer<ffi.Char> groupNodeId,
+  ffi.Pointer<ffi.Char> linkToken,
+  ffi.Pointer<ffi.Pointer<ffi.Char>> outJson,
+);
+typedef _LnCheckDeviceNameDart = int Function(
+  LnClientHandle client,
+  ffi.Pointer<ffi.Char> name,
+  ffi.Pointer<ffi.Char> groupNodeId,
+  ffi.Pointer<ffi.Char> linkToken,
+  ffi.Pointer<ffi.Pointer<ffi.Char>> outJson,
+);
+typedef _LnStringJson = ffi.Int32 Function(
+  LnClientHandle client,
+  ffi.Pointer<ffi.Char> arg,
+  ffi.Pointer<ffi.Pointer<ffi.Char>> outJson,
+);
+typedef _LnStringJsonDart = int Function(
+  LnClientHandle client,
+  ffi.Pointer<ffi.Char> arg,
+  ffi.Pointer<ffi.Pointer<ffi.Char>> outJson,
+);
+typedef _LnClientJson = ffi.Int32 Function(
+  LnClientHandle client,
+  ffi.Pointer<ffi.Pointer<ffi.Char>> outJson,
+);
+typedef _LnClientJsonDart = int Function(
+  LnClientHandle client,
+  ffi.Pointer<ffi.Pointer<ffi.Char>> outJson,
+);
+typedef _LnMoveNode = ffi.Int32 Function(
+  LnClientHandle client,
+  ffi.Pointer<ffi.Char> nodeId,
+  ffi.Pointer<ffi.Char> newParentId,
+  ffi.Pointer<ffi.Pointer<ffi.Char>> outJson,
+);
+typedef _LnMoveNodeDart = int Function(
+  LnClientHandle client,
+  ffi.Pointer<ffi.Char> nodeId,
+  ffi.Pointer<ffi.Char> newParentId,
+  ffi.Pointer<ffi.Pointer<ffi.Char>> outJson,
+);
+
+// Health
+typedef _LnHealth = ffi.Int32 Function(
+  LnClientHandle client,
+  ffi.Pointer<ffi.Pointer<ffi.Char>> outJson,
+);
+typedef _LnHealthDart = int Function(
+  LnClientHandle client,
+  ffi.Pointer<ffi.Pointer<ffi.Char>> outJson,
+);
+
+// Authentication
+typedef _LnAuthPassword = ffi.Int32 Function(
+  LnClientHandle client,
+  ffi.Pointer<ffi.Char> username,
+  ffi.Pointer<ffi.Char> password,
+  ffi.Pointer<ffi.Pointer<ffi.Char>> outJson,
+);
+typedef _LnAuthPasswordDart = int Function(
+  LnClientHandle client,
+  ffi.Pointer<ffi.Char> username,
+  ffi.Pointer<ffi.Char> password,
+  ffi.Pointer<ffi.Pointer<ffi.Char>> outJson,
+);
+
+typedef _LnAuthPasskey = ffi.Int32 Function(
+  LnClientHandle client,
+  ffi.Pointer<ffi.Char> passkeyJson,
+  ffi.Pointer<ffi.Pointer<ffi.Char>> outJson,
+);
+typedef _LnAuthPasskeyDart = int Function(
+  LnClientHandle client,
+  ffi.Pointer<ffi.Char> passkeyJson,
+  ffi.Pointer<ffi.Pointer<ffi.Char>> outJson,
+);
+
+typedef _LnAuthToken = ffi.Int32 Function(
+  LnClientHandle client,
+  ffi.Pointer<ffi.Char> token,
+  ffi.Pointer<ffi.Pointer<ffi.Char>> outJson,
+);
+typedef _LnAuthTokenDart = int Function(
+  LnClientHandle client,
+  ffi.Pointer<ffi.Char> token,
+  ffi.Pointer<ffi.Pointer<ffi.Char>> outJson,
+);
+
+typedef _LnAuthEd25519 = ffi.Int32 Function(
+  LnClientHandle client,
+  ffi.Pointer<ffi.Pointer<ffi.Char>> outJson,
+);
+typedef _LnAuthEd25519Dart = int Function(
+  LnClientHandle client,
+  ffi.Pointer<ffi.Pointer<ffi.Char>> outJson,
+);
+
+typedef _LnRegisterPasskey = ffi.Int32 Function(
+  LnClientHandle client,
+  ffi.Pointer<ffi.Char> userId,
+  ffi.Pointer<ffi.Char> credentialId,
+  ffi.Pointer<ffi.Char> publicKeyX,
+  ffi.Pointer<ffi.Char> publicKeyY,
+  ffi.Pointer<ffi.Pointer<ffi.Char>> outJson,
+);
+typedef _LnRegisterPasskeyDart = int Function(
+  LnClientHandle client,
+  ffi.Pointer<ffi.Char> userId,
+  ffi.Pointer<ffi.Char> credentialId,
+  ffi.Pointer<ffi.Char> publicKeyX,
+  ffi.Pointer<ffi.Char> publicKeyY,
+  ffi.Pointer<ffi.Pointer<ffi.Char>> outJson,
+);
+
+// Tree operations
+typedef _LnTreeGetNode = ffi.Int32 Function(
+  LnClientHandle client,
+  ffi.Pointer<ffi.Char> nodeId,
+  ffi.Pointer<ffi.Pointer<ffi.Char>> outJson,
+);
+typedef _LnTreeGetNodeDart = int Function(
+  LnClientHandle client,
+  ffi.Pointer<ffi.Char> nodeId,
+  ffi.Pointer<ffi.Pointer<ffi.Char>> outJson,
+);
+
+typedef _LnTreeSubmitDelta = ffi.Int32 Function(
+  LnClientHandle client,
+  ffi.Pointer<ffi.Char> deltaJson,
+  ffi.Pointer<ffi.Pointer<ffi.Char>> outJson,
+);
+typedef _LnTreeSubmitDeltaDart = int Function(
+  LnClientHandle client,
+  ffi.Pointer<ffi.Char> deltaJson,
+  ffi.Pointer<ffi.Pointer<ffi.Char>> outJson,
+);
+
+typedef _LnCreateChildNode = ffi.Int32 Function(
+  LnClientHandle client,
+  ffi.Pointer<ffi.Char> parentId,
+  ffi.Pointer<ffi.Char> nodeType,
+  ffi.Pointer<ffi.Pointer<ffi.Char>> outJson,
+);
+typedef _LnCreateChildNodeDart = int Function(
+  LnClientHandle client,
+  ffi.Pointer<ffi.Char> parentId,
+  ffi.Pointer<ffi.Char> nodeType,
+  ffi.Pointer<ffi.Pointer<ffi.Char>> outJson,
+);
+
+typedef _LnUpdateNode = ffi.Int32 Function(
+  LnClientHandle client,
+  ffi.Pointer<ffi.Char> nodeId,
+  ffi.Pointer<ffi.Char> updatesJson,
+  ffi.Pointer<ffi.Pointer<ffi.Char>> outJson,
+);
+typedef _LnUpdateNodeDart = int Function(
+  LnClientHandle client,
+  ffi.Pointer<ffi.Char> nodeId,
+  ffi.Pointer<ffi.Char> updatesJson,
+  ffi.Pointer<ffi.Pointer<ffi.Char>> outJson,
+);
+
+typedef _LnDeleteNode = ffi.Int32 Function(
+  LnClientHandle client,
+  ffi.Pointer<ffi.Char> nodeId,
+  ffi.Pointer<ffi.Pointer<ffi.Char>> outJson,
+);
+typedef _LnDeleteNodeDart = int Function(
+  LnClientHandle client,
+  ffi.Pointer<ffi.Char> nodeId,
+  ffi.Pointer<ffi.Pointer<ffi.Char>> outJson,
+);
+
+typedef _LnTreeGetChildren = ffi.Int32 Function(
+  LnClientHandle client,
+  ffi.Pointer<ffi.Char> parentId,
+  ffi.Pointer<ffi.Pointer<ffi.Char>> outJson,
+);
+typedef _LnTreeGetChildrenDart = int Function(
+  LnClientHandle client,
+  ffi.Pointer<ffi.Char> parentId,
+  ffi.Pointer<ffi.Pointer<ffi.Char>> outJson,
+);
+
+// IPAM
+typedef _LnIpamAllocate = ffi.Int32 Function(
+  LnClientHandle client,
+  ffi.Pointer<ffi.Char> nodeId,
+  ffi.Pointer<ffi.Char> blockType,
+  ffi.Pointer<ffi.Pointer<ffi.Char>> outJson,
+);
+typedef _LnIpamAllocateDart = int Function(
+  LnClientHandle client,
+  ffi.Pointer<ffi.Char> nodeId,
+  ffi.Pointer<ffi.Char> blockType,
+  ffi.Pointer<ffi.Pointer<ffi.Char>> outJson,
+);
+
+// Relay
+typedef _LnRelayList = ffi.Int32 Function(
+  LnClientHandle client,
+  ffi.Pointer<ffi.Pointer<ffi.Char>> outJson,
+);
+typedef _LnRelayListDart = int Function(
+  LnClientHandle client,
+  ffi.Pointer<ffi.Pointer<ffi.Char>> outJson,
+);
+
+typedef _LnRelayTicket = ffi.Int32 Function(
+  LnClientHandle client,
+  ffi.Pointer<ffi.Char> peerId,
+  ffi.Pointer<ffi.Char> relayId,
+  ffi.Pointer<ffi.Pointer<ffi.Char>> outJson,
+);
+typedef _LnRelayTicketDart = int Function(
+  LnClientHandle client,
+  ffi.Pointer<ffi.Char> peerId,
+  ffi.Pointer<ffi.Char> relayId,
+  ffi.Pointer<ffi.Pointer<ffi.Char>> outJson,
+);
+
+typedef _LnRelayRegister = ffi.Int32 Function(
+  LnClientHandle client,
+  ffi.Pointer<ffi.Char> regJson,
+  ffi.Pointer<ffi.Pointer<ffi.Char>> outJson,
+);
+typedef _LnRelayRegisterDart = int Function(
+  LnClientHandle client,
+  ffi.Pointer<ffi.Char> regJson,
+  ffi.Pointer<ffi.Pointer<ffi.Char>> outJson,
+);
+
+// Certificates
+typedef _LnCertStatus = ffi.Int32 Function(
+  LnClientHandle client,
+  ffi.Pointer<ffi.Char> domain,
+  ffi.Pointer<ffi.Pointer<ffi.Char>> outJson,
+);
+typedef _LnCertStatusDart = int Function(
+  LnClientHandle client,
+  ffi.Pointer<ffi.Char> domain,
+  ffi.Pointer<ffi.Pointer<ffi.Char>> outJson,
+);
+
+typedef _LnCertRequest = ffi.Int32 Function(
+  LnClientHandle client,
+  ffi.Pointer<ffi.Char> hostname,
+  ffi.Pointer<ffi.Pointer<ffi.Char>> outJson,
+);
+typedef _LnCertRequestDart = int Function(
+  LnClientHandle client,
+  ffi.Pointer<ffi.Char> hostname,
+  ffi.Pointer<ffi.Pointer<ffi.Char>> outJson,
+);
+
+typedef _LnCertDecrypt = ffi.Int32 Function(
+  LnClientHandle client,
+  ffi.Pointer<ffi.Char> bundleJson,
+  ffi.Pointer<ffi.Pointer<ffi.Char>> outJson,
+);
+typedef _LnCertDecryptDart = int Function(
+  LnClientHandle client,
+  ffi.Pointer<ffi.Char> bundleJson,
+  ffi.Pointer<ffi.Pointer<ffi.Char>> outJson,
+);
+
+// Group membership
+typedef _LnAddGroupMember = ffi.Int32 Function(
+  LnClientHandle client,
+  ffi.Pointer<ffi.Char> nodeId,
+  ffi.Pointer<ffi.Char> pubkey,
+  ffi.Pointer<ffi.Char> permissionsJson,
+  ffi.Pointer<ffi.Pointer<ffi.Char>> outJson,
+);
+typedef _LnAddGroupMemberDart = int Function(
+  LnClientHandle client,
+  ffi.Pointer<ffi.Char> nodeId,
+  ffi.Pointer<ffi.Char> pubkey,
+  ffi.Pointer<ffi.Char> permissionsJson,
+  ffi.Pointer<ffi.Pointer<ffi.Char>> outJson,
+);
+
+typedef _LnRemoveGroupMember = ffi.Int32 Function(
+  LnClientHandle client,
+  ffi.Pointer<ffi.Char> nodeId,
+  ffi.Pointer<ffi.Char> pubkey,
+  ffi.Pointer<ffi.Pointer<ffi.Char>> outJson,
+);
+typedef _LnRemoveGroupMemberDart = int Function(
+  LnClientHandle client,
+  ffi.Pointer<ffi.Char> nodeId,
+  ffi.Pointer<ffi.Char> pubkey,
+  ffi.Pointer<ffi.Pointer<ffi.Char>> outJson,
+);
+
+typedef _LnGetGroupDevices = ffi.Int32 Function(
+  LnClientHandle client,
+  ffi.Pointer<ffi.Char> groupId,
+  ffi.Pointer<ffi.Pointer<ffi.Char>> outJson,
+);
+typedef _LnGetGroupDevicesDart = int Function(
+  LnClientHandle client,
+  ffi.Pointer<ffi.Char> groupId,
+  ffi.Pointer<ffi.Pointer<ffi.Char>> outJson,
+);
+typedef _LnListNetworkDevices = ffi.Int32 Function(
+  LnClientHandle client,
+  ffi.Pointer<ffi.Pointer<ffi.Char>> outJson,
+);
+typedef _LnListNetworkDevicesDart = int Function(
+  LnClientHandle client,
+  ffi.Pointer<ffi.Pointer<ffi.Char>> outJson,
+);
+
+typedef _LnGetGroupMembers = ffi.Int32 Function(
+  LnClientHandle client,
+  ffi.Pointer<ffi.Char> nodeId,
+  ffi.Pointer<ffi.Pointer<ffi.Char>> outJson,
+);
+typedef _LnGetGroupMembersDart = int Function(
+  LnClientHandle client,
+  ffi.Pointer<ffi.Char> nodeId,
+  ffi.Pointer<ffi.Pointer<ffi.Char>> outJson,
+);
+
+typedef _LnJoinGroup = ffi.Int32 Function(
+  LnClientHandle client,
+  ffi.Pointer<ffi.Char> parentNodeId,
+  ffi.Pointer<ffi.Pointer<ffi.Char>> outJson,
+);
+typedef _LnJoinGroupDart = int Function(
+  LnClientHandle client,
+  ffi.Pointer<ffi.Char> parentNodeId,
+  ffi.Pointer<ffi.Pointer<ffi.Char>> outJson,
+);
+
+// High-level operations
+typedef _LnJoinNetwork = ffi.Int32 Function(
+  LnClientHandle client,
+  ffi.Pointer<ffi.Char> username,
+  ffi.Pointer<ffi.Char> password,
+  ffi.Pointer<ffi.Pointer<ffi.Char>> outJson,
+);
+typedef _LnJoinNetworkDart = int Function(
+  LnClientHandle client,
+  ffi.Pointer<ffi.Char> username,
+  ffi.Pointer<ffi.Char> password,
+  ffi.Pointer<ffi.Pointer<ffi.Char>> outJson,
+);
+
+typedef _LnLeaveNetwork = ffi.Int32 Function(
+  LnClientHandle client,
+  ffi.Pointer<ffi.Pointer<ffi.Char>> outJson,
+);
+typedef _LnLeaveNetworkDart = int Function(
+  LnClientHandle client,
+  ffi.Pointer<ffi.Pointer<ffi.Char>> outJson,
+);
+
+// Auto-switching
+typedef _LnEnableAutoSwitching = ffi.Int32 Function(
+  LnClientHandle client,
+  ffi.Double thresholdMs,
+  ffi.Double hysteresis,
+  ffi.Uint32 cooldownSec,
+);
+typedef _LnEnableAutoSwitchingDart = int Function(
+  LnClientHandle client,
+  double thresholdMs,
+  double hysteresis,
+  int cooldownSec,
+);
+
+typedef _LnDisableAutoSwitching = ffi.Int32 Function(
+  LnClientHandle client,
+);
+typedef _LnDisableAutoSwitchingDart = int Function(
+  LnClientHandle client,
+);
+
+typedef _LnCurrentLatencyMs = ffi.Double Function(
+  LnClientHandle client,
+);
+typedef _LnCurrentLatencyMsDart = double Function(
+  LnClientHandle client,
+);
+
+typedef _LnServerLatencies = ffi.Int32 Function(
+  LnClientHandle client,
+  ffi.Pointer<ffi.Pointer<ffi.Char>> outJson,
+);
+typedef _LnServerLatenciesDart = int Function(
+  LnClientHandle client,
+  ffi.Pointer<ffi.Pointer<ffi.Char>> outJson,
+);
+
+// Mesh P2P
+typedef _LnMeshEnable = ffi.Int32 Function(
+  LnClientHandle client,
+);
+typedef _LnMeshEnableDart = int Function(
+  LnClientHandle client,
+);
+
+typedef _LnMeshEnableConfig = ffi.Int32 Function(
+  LnClientHandle client,
+  ffi.Pointer<ffi.Char> configJson,
+);
+typedef _LnMeshEnableConfigDart = int Function(
+  LnClientHandle client,
+  ffi.Pointer<ffi.Char> configJson,
+);
+
+typedef _LnMeshDisable = ffi.Int32 Function(
+  LnClientHandle client,
+);
+typedef _LnMeshDisableDart = int Function(
+  LnClientHandle client,
+);
+
+typedef _LnMeshStatus = ffi.Int32 Function(
+  LnClientHandle client,
+  ffi.Pointer<ffi.Pointer<ffi.Char>> outJson,
+);
+typedef _LnMeshStatusDart = int Function(
+  LnClientHandle client,
+  ffi.Pointer<ffi.Pointer<ffi.Char>> outJson,
+);
+
+typedef _LnMeshPeers = ffi.Int32 Function(
+  LnClientHandle client,
+  ffi.Pointer<ffi.Pointer<ffi.Char>> outJson,
+);
+typedef _LnMeshPeersDart = int Function(
+  LnClientHandle client,
+  ffi.Pointer<ffi.Pointer<ffi.Char>> outJson,
+);
+
+typedef _LnMeshRefresh = ffi.Int32 Function(
+  LnClientHandle client,
+);
+typedef _LnMeshRefreshDart = int Function(
+  LnClientHandle client,
+);
+
+typedef _LnMeshIsActive = ffi.Int32 Function(
+  LnClientHandle client,
+);
+typedef _LnMeshIsActiveDart = int Function(
+  LnClientHandle client,
+);
+
+// Stats & server listing
+typedef _LnStats = ffi.Int32 Function(
+  LnClientHandle client,
+  ffi.Pointer<ffi.Pointer<ffi.Char>> outJson,
+);
+typedef _LnStatsDart = int Function(
+  LnClientHandle client,
+  ffi.Pointer<ffi.Pointer<ffi.Char>> outJson,
+);
+
+typedef _LnServers = ffi.Int32 Function(
+  LnClientHandle client,
+  ffi.Pointer<ffi.Pointer<ffi.Char>> outJson,
+);
+typedef _LnServersDart = int Function(
+  LnClientHandle client,
+  ffi.Pointer<ffi.Pointer<ffi.Char>> outJson,
+);
+
+// DDNS status
+typedef _LnDdnsStatus = ffi.Int32 Function(
+  LnClientHandle client,
+  ffi.Pointer<ffi.Pointer<ffi.Char>> outJson,
+);
+typedef _LnDdnsStatusDart = int Function(
+  LnClientHandle client,
+  ffi.Pointer<ffi.Pointer<ffi.Char>> outJson,
+);
+
+// Attestation manifests
+typedef _LnAttestationManifests = ffi.Int32 Function(
+  LnClientHandle client,
+  ffi.Pointer<ffi.Pointer<ffi.Char>> outJson,
+);
+typedef _LnAttestationManifestsDart = int Function(
+  LnClientHandle client,
+  ffi.Pointer<ffi.Pointer<ffi.Char>> outJson,
+);
+
+// Session management
+typedef _LnSetSessionToken = ffi.Int32 Function(
+  LnClientHandle client,
+  ffi.Pointer<ffi.Char> token,
+);
+typedef _LnSetSessionTokenDart = int Function(
+  LnClientHandle client,
+  ffi.Pointer<ffi.Char> token,
+);
+
+typedef _LnGetSessionToken = ffi.Pointer<ffi.Char> Function(
+  LnClientHandle client,
+);
+typedef _LnGetSessionTokenDart = ffi.Pointer<ffi.Char> Function(
+  LnClientHandle client,
+);
+
+typedef _LnSetNodeId = ffi.Int32 Function(
+  LnClientHandle client,
+  ffi.Pointer<ffi.Char> nodeId,
+);
+typedef _LnSetNodeIdDart = int Function(
+  LnClientHandle client,
+  ffi.Pointer<ffi.Char> nodeId,
+);
+
+typedef _LnGetNodeId = ffi.Pointer<ffi.Char> Function(
+  LnClientHandle client,
+);
+typedef _LnGetNodeIdDart = ffi.Pointer<ffi.Char> Function(
+  LnClientHandle client,
+);
+
+// Routing layer (connect-by-identifier)
+typedef _LnRoutingProfile = ffi.Int32 Function(
+  LnClientHandle client,
+  ffi.Int32 page,
+  ffi.Int32 pageSize,
+  ffi.Pointer<ffi.Pointer<ffi.Char>> outJson,
+);
+typedef _LnRoutingProfileDart = int Function(
+  LnClientHandle client,
+  int page,
+  int pageSize,
+  ffi.Pointer<ffi.Pointer<ffi.Char>> outJson,
+);
+
+typedef _LnRoutingRequest = ffi.Int32 Function(
+  LnClientHandle client,
+  ffi.Pointer<ffi.Char> identifier,
+  ffi.Pointer<ffi.Char> connNonceB64,
+  ffi.Pointer<ffi.Char> clientMeshPubkey,
+  ffi.Pointer<ffi.Pointer<ffi.Char>> outJson,
+);
+typedef _LnRoutingRequestDart = int Function(
+  LnClientHandle client,
+  ffi.Pointer<ffi.Char> identifier,
+  ffi.Pointer<ffi.Char> connNonceB64,
+  ffi.Pointer<ffi.Char> clientMeshPubkey,
+  ffi.Pointer<ffi.Pointer<ffi.Char>> outJson,
+);
+
+typedef _LnPrivateApiCall = ffi.Int32 Function(
+  LnClientHandle client,
+  ffi.Pointer<ffi.Char> method,
+  ffi.Pointer<ffi.Char> path,
+  ffi.Pointer<ffi.Char> bodyJson,
+  ffi.Pointer<ffi.Pointer<ffi.Char>> outJson,
+);
+typedef _LnPrivateApiCallDart = int Function(
+  LnClientHandle client,
+  ffi.Pointer<ffi.Char> method,
+  ffi.Pointer<ffi.Char> path,
+  ffi.Pointer<ffi.Char> bodyJson,
+  ffi.Pointer<ffi.Pointer<ffi.Char>> outJson,
+);
+
+typedef _LnRoutingConnectionStatus = ffi.Int32 Function(
+  LnClientHandle client,
+  ffi.Pointer<ffi.Char> connectionId,
+  ffi.Pointer<ffi.Pointer<ffi.Char>> outJson,
+);
+typedef _LnRoutingConnectionStatusDart = int Function(
+  LnClientHandle client,
+  ffi.Pointer<ffi.Char> connectionId,
+  ffi.Pointer<ffi.Pointer<ffi.Char>> outJson,
+);
+
+// Mesh port
+typedef _LnMeshPortStart = ffi.Int32 Function(
+  LnClientHandle client,
+  ffi.Uint16 port,
+  ffi.Pointer<ffi.Char> localServiceUrl,
+);
+typedef _LnMeshPortStartDart = int Function(
+  LnClientHandle client,
+  int port,
+  ffi.Pointer<ffi.Char> localServiceUrl,
+);
+
+typedef _LnMeshPortStop = ffi.Int32 Function(LnClientHandle client);
+typedef _LnMeshPortStopDart = int Function(LnClientHandle client);
+
+typedef _LnMeshPortSetCertDir = ffi.Int32 Function(
+  LnClientHandle client,
+  ffi.Pointer<ffi.Char> certDir,
+);
+typedef _LnMeshPortSetCertDirDart = int Function(
+  LnClientHandle client,
+  ffi.Pointer<ffi.Char> certDir,
+);
+
+typedef _LnMeshPortSetSelection = ffi.Int32 Function(
+  LnClientHandle client,
+  ffi.Pointer<ffi.Char> target,
+  ffi.Pointer<ffi.Char> peerKey,
+);
+typedef _LnMeshPortSetSelectionDart = int Function(
+  LnClientHandle client,
+  ffi.Pointer<ffi.Char> target,
+  ffi.Pointer<ffi.Char> peerKey,
+);
+
+typedef _LnMeshPortStatus = ffi.Int32 Function(
+  LnClientHandle client,
+  ffi.Pointer<ffi.Pointer<ffi.Char>> outJson,
+);
+typedef _LnMeshPortStatusDart = int Function(
+  LnClientHandle client,
+  ffi.Pointer<ffi.Pointer<ffi.Char>> outJson,
+);
+
+/// Low-level FFI bindings to the Lemonade Nexus C SDK.
+///
+/// This class provides direct access to all C SDK functions via FFI.
+/// For a higher-level Dart API, use [LemonadeNexusSdk].
+class LemonadeNexusFfi {
+  late final ffi.DynamicLibrary _lib;
+
+  // Memory management
+  late final _lnFree = _lib.lookupFunction<_LnFree, _LnFreeDart>('ln_free');
+
+  // Client lifecycle
+  late final _lnCreate = _lib.lookupFunction<_LnCreate, _LnCreateDart>('ln_create');
+  late final _lnCreateTls =
+      _lib.lookupFunction<_LnCreateTls, _LnCreateTlsDart>('ln_create_tls');
+  late final _lnDestroy =
+      _lib.lookupFunction<_LnDestroy, _LnDestroyDart>('ln_destroy');
+
+  // Identity management
+  late final _lnIdentityGenerate = _lib.lookupFunction<_LnIdentityGenerate,
+          _LnIdentityGenerateDart>('ln_identity_generate');
+  late final _lnIdentityLoad =
+      _lib.lookupFunction<_LnIdentityLoad, _LnIdentityLoadDart>('ln_identity_load');
+  late final _lnIdentitySave =
+      _lib.lookupFunction<_LnIdentitySave, _LnIdentitySaveDart>('ln_identity_save');
+  late final _lnIdentityPubkey = _lib.lookupFunction<_LnIdentityPubkey,
+          _LnIdentityPubkeyDart>('ln_identity_pubkey');
+  late final _lnIdentityDestroy = _lib.lookupFunction<_LnIdentityDestroy,
+          _LnIdentityDestroyDart>('ln_identity_destroy');
+  late final _lnSetIdentity =
+      _lib.lookupFunction<_LnSetIdentity, _LnSetIdentityDart>('ln_set_identity');
+  late final _lnIdentityFromSeed = _lib.lookupFunction<_LnIdentityFromSeed,
+          _LnIdentityFromSeedDart>('ln_identity_from_seed');
+  late final _lnDeriveSeed =
+      _lib.lookupFunction<_LnDeriveSeed, _LnDeriveSeedDart>('ln_derive_seed');
+  late final _lnIdentityUserDir = _lib.lookupFunction<_LnIdentityUserDir,
+      _LnIdentityUserDirDart>('ln_identity_user_dir');
+  late final _lnIdentityUserStatus = _lib.lookupFunction<_LnIdentityUserStatus,
+      _LnIdentityUserStatusDart>('ln_identity_user_status');
+  late final _lnIdentityUserLoad = _lib.lookupFunction<_LnIdentityUserOpen,
+      _LnIdentityUserOpenDart>('ln_identity_user_load');
+  late final _lnIdentityUserCreate = _lib.lookupFunction<_LnIdentityUserOpen,
+      _LnIdentityUserOpenDart>('ln_identity_user_create');
+  late final _lnIdentityUserImport = _lib.lookupFunction<_LnIdentityUserImport,
+      _LnIdentityUserImportDart>('ln_identity_user_import');
+  late final _lnIdentityUserRemove = _lib.lookupFunction<_LnIdentityUserRemove,
+      _LnIdentityUserRemoveDart>('ln_identity_user_remove');
+  late final _lnIdentityFromJson = _lib.lookupFunction<_LnIdentityFromJson,
+      _LnIdentityFromJsonDart>('ln_identity_from_json');
+  late final _lnGroupKeyGenerate = _lib.lookupFunction<_LnGroupKeyGenerate,
+      _LnGroupKeyGenerateDart>('ln_group_key_generate');
+  late final _lnGroupKeyWrap =
+      _lib.lookupFunction<_LnGroupKeyWrap, _LnGroupKeyWrapDart>('ln_group_key_wrap');
+  late final _lnGroupKeyUnwrap = _lib.lookupFunction<_LnGroupKeyUnwrap,
+      _LnGroupKeyUnwrapDart>('ln_group_key_unwrap');
+  late final _lnSetLinkToken =
+      _lib.lookupFunction<_LnSetLinkToken, _LnSetLinkTokenDart>('ln_set_link_token');
+  // Same shape as ln_set_link_token: (client, const char*) -> ln_error_t.
+  late final _lnSetDeviceName =
+      _lib.lookupFunction<_LnSetLinkToken, _LnSetLinkTokenDart>('ln_set_device_name');
+  late final _lnSetSessionMovedCallback = _lib.lookupFunction<_LnSetSessionMovedCallback,
+      _LnSetSessionMovedCallbackDart>('ln_set_session_moved_callback');
+  late final _lnSetMeshEventCallback = _lib.lookupFunction<_LnSetMeshEventCallback,
+      _LnSetMeshEventCallbackDart>('ln_set_mesh_event_callback');
+  late final _lnSetGenesisKey =
+      _lib.lookupFunction<_LnSetGenesisKey, _LnSetGenesisKeyDart>('ln_set_genesis_key');
+  late final _lnTier1Refresh =
+      _lib.lookupFunction<_LnTier1Json, _LnTier1JsonDart>('ln_tier1_refresh');
+  late final _lnTier1Membership =
+      _lib.lookupFunction<_LnTier1Json, _LnTier1JsonDart>('ln_tier1_membership');
+  // Not in requiredSymbols: a native library that predates it only loses the
+  // progress display (tier1Progress returns null).
+  late final _LnTier1JsonDart? _lnTier1Progress = () {
+    try {
+      return _lib.lookupFunction<_LnTier1Json, _LnTier1JsonDart>('ln_tier1_progress');
+    } on ArgumentError {
+      return null;
+    }
+  }();
+  // Not in requiredSymbols: a native library that predates it keeps the
+  // chain-less floor behaviour (setEpochFloor returns null).
+  late final _LnSetEpochFloorDart? _lnSetEpochFloor = () {
+    try {
+      return _lib.lookupFunction<_LnSetEpochFloor, _LnSetEpochFloorDart>('ln_set_epoch_floor');
+    } on ArgumentError {
+      return null;
+    }
+  }();
+  late final _lnDiscoverGenesisKey =
+      _lib.lookupFunction<_LnDiscoverGenesisKey, _LnDiscoverGenesisKeyDart>(
+          'ln_discover_genesis_key');
+  late final _lnLinkTokenCreate = _lib.lookupFunction<_LnLinkTokenCreate,
+      _LnLinkTokenCreateDart>('ln_link_token_create');
+  late final _lnInviteCreate =
+      _lib.lookupFunction<_LnInviteCreate, _LnInviteCreateDart>('ln_invite_create');
+  late final _lnCheckDeviceName = _lib
+      .lookupFunction<_LnCheckDeviceName, _LnCheckDeviceNameDart>('ln_check_device_name');
+  late final _lnInviteAccept =
+      _lib.lookupFunction<_LnStringJson, _LnStringJsonDart>('ln_invite_accept');
+  late final _lnMembershipsList =
+      _lib.lookupFunction<_LnClientJson, _LnClientJsonDart>('ln_memberships_list');
+  late final _lnMembershipLeave =
+      _lib.lookupFunction<_LnStringJson, _LnStringJsonDart>('ln_membership_leave');
+  late final _lnMoveNode =
+      _lib.lookupFunction<_LnMoveNode, _LnMoveNodeDart>('ln_move_node');
+  late final _lnAccountDelete =
+      _lib.lookupFunction<_LnClientJson, _LnClientJsonDart>('ln_account_delete');
+
+  // Health
+  late final _lnHealth =
+      _lib.lookupFunction<_LnHealth, _LnHealthDart>('ln_health');
+
+  // Authentication
+  late final _lnAuthPassword =
+      _lib.lookupFunction<_LnAuthPassword, _LnAuthPasswordDart>('ln_auth_password');
+  late final _lnAuthPasskey =
+      _lib.lookupFunction<_LnAuthPasskey, _LnAuthPasskeyDart>('ln_auth_passkey');
+  late final _lnAuthPasskeyChallenge =
+      _lib.lookupFunction<_LnAuthPasskey, _LnAuthPasskeyDart>('ln_auth_passkey_challenge');
+  late final _lnAuthToken =
+      _lib.lookupFunction<_LnAuthToken, _LnAuthTokenDart>('ln_auth_token');
+  late final _lnAuthEd25519 =
+      _lib.lookupFunction<_LnAuthEd25519, _LnAuthEd25519Dart>('ln_auth_ed25519');
+  late final _lnRegisterPasskey = _lib.lookupFunction<_LnRegisterPasskey,
+          _LnRegisterPasskeyDart>('ln_register_passkey');
+
+  // Tree operations
+  late final _lnTreeGetNode =
+      _lib.lookupFunction<_LnTreeGetNode, _LnTreeGetNodeDart>('ln_tree_get_node');
+  late final _lnTreeSubmitDelta = _lib.lookupFunction<_LnTreeSubmitDelta,
+          _LnTreeSubmitDeltaDart>('ln_tree_submit_delta');
+  late final _lnCreateChildNode = _lib.lookupFunction<_LnCreateChildNode,
+          _LnCreateChildNodeDart>('ln_create_child_node');
+  late final _lnUpdateNode =
+      _lib.lookupFunction<_LnUpdateNode, _LnUpdateNodeDart>('ln_update_node');
+  late final _lnDeleteNode =
+      _lib.lookupFunction<_LnDeleteNode, _LnDeleteNodeDart>('ln_delete_node');
+  late final _lnTreeGetChildren = _lib.lookupFunction<_LnTreeGetChildren,
+          _LnTreeGetChildrenDart>('ln_tree_get_children');
+
+  // IPAM
+  late final _lnIpamAllocate =
+      _lib.lookupFunction<_LnIpamAllocate, _LnIpamAllocateDart>('ln_ipam_allocate');
+
+  // Relay
+  late final _lnRelayList =
+      _lib.lookupFunction<_LnRelayList, _LnRelayListDart>('ln_relay_list');
+  late final _lnRelayTicket =
+      _lib.lookupFunction<_LnRelayTicket, _LnRelayTicketDart>('ln_relay_ticket');
+  late final _lnRelayRegister =
+      _lib.lookupFunction<_LnRelayRegister, _LnRelayRegisterDart>('ln_relay_register');
+
+  // Certificates
+  late final _lnCertStatus =
+      _lib.lookupFunction<_LnCertStatus, _LnCertStatusDart>('ln_cert_status');
+  late final _lnCertRequest =
+      _lib.lookupFunction<_LnCertRequest, _LnCertRequestDart>('ln_cert_request');
+  late final _lnCertDecrypt =
+      _lib.lookupFunction<_LnCertDecrypt, _LnCertDecryptDart>('ln_cert_decrypt');
+
+  // Group membership
+  late final _lnAddGroupMember = _lib.lookupFunction<_LnAddGroupMember,
+          _LnAddGroupMemberDart>('ln_add_group_member');
+  late final _lnRemoveGroupMember = _lib.lookupFunction<_LnRemoveGroupMember,
+          _LnRemoveGroupMemberDart>('ln_remove_group_member');
+  // Looked up on first use: a native build without these symbols still
+  // loads, and only the call fails.
+  late final _lnGetGroupDevices = _lib.lookupFunction<_LnGetGroupDevices,
+      _LnGetGroupDevicesDart>('ln_get_group_devices');
+  late final _lnListNetworkDevices = _lib.lookupFunction<_LnListNetworkDevices,
+      _LnListNetworkDevicesDart>('ln_list_network_devices');
+  late final _lnGetGroupMembers = _lib.lookupFunction<_LnGetGroupMembers,
+          _LnGetGroupMembersDart>('ln_get_group_members');
+  late final _lnJoinGroup =
+      _lib.lookupFunction<_LnJoinGroup, _LnJoinGroupDart>('ln_join_group');
+
+  // High-level operations
+  late final _lnJoinNetwork =
+      _lib.lookupFunction<_LnJoinNetwork, _LnJoinNetworkDart>('ln_join_network');
+  late final _lnLeaveNetwork =
+      _lib.lookupFunction<_LnLeaveNetwork, _LnLeaveNetworkDart>('ln_leave_network');
+
+  // Auto-switching
+  late final _lnEnableAutoSwitching = _lib.lookupFunction<_LnEnableAutoSwitching,
+          _LnEnableAutoSwitchingDart>('ln_enable_auto_switching');
+  late final _lnDisableAutoSwitching = _lib.lookupFunction<_LnDisableAutoSwitching,
+          _LnDisableAutoSwitchingDart>('ln_disable_auto_switching');
+  late final _lnCurrentLatencyMs = _lib.lookupFunction<_LnCurrentLatencyMs,
+          _LnCurrentLatencyMsDart>('ln_current_latency_ms');
+  late final _lnServerLatencies =
+      _lib.lookupFunction<_LnServerLatencies, _LnServerLatenciesDart>('ln_server_latencies');
+
+  // Mesh P2P
+  late final _lnMeshEnable =
+      _lib.lookupFunction<_LnMeshEnable, _LnMeshEnableDart>('ln_mesh_enable');
+  late final _lnMeshEnableConfig = _lib.lookupFunction<_LnMeshEnableConfig,
+          _LnMeshEnableConfigDart>('ln_mesh_enable_config');
+  late final _lnMeshDisable =
+      _lib.lookupFunction<_LnMeshDisable, _LnMeshDisableDart>('ln_mesh_disable');
+  late final _lnMeshStatus =
+      _lib.lookupFunction<_LnMeshStatus, _LnMeshStatusDart>('ln_mesh_status');
+  late final _lnMeshPeers =
+      _lib.lookupFunction<_LnMeshPeers, _LnMeshPeersDart>('ln_mesh_peers');
+  late final _lnMeshRefresh =
+      _lib.lookupFunction<_LnMeshRefresh, _LnMeshRefreshDart>('ln_mesh_refresh');
+  late final _lnMeshIsActive =
+      _lib.lookupFunction<_LnMeshIsActive, _LnMeshIsActiveDart>('ln_mesh_is_active');
+  // Same shape as ln_mesh_refresh: (client) -> ln_error_t. Not in
+  // requiredSymbols: with a native library that predates it, resume() does
+  // nothing and the SDK's own wall-clock gap detection still runs the
+  // resume pass.
+  late final _LnMeshRefreshDart? _lnResume = () {
+    try {
+      return _lib.lookupFunction<_LnMeshRefresh, _LnMeshRefreshDart>('ln_resume');
+    } on ArgumentError {
+      return null;
+    }
+  }();
+  late final _LnMeshRefreshDart? _lnSuspend = () {
+    try {
+      return _lib.lookupFunction<_LnMeshRefresh, _LnMeshRefreshDart>('ln_suspend');
+    } on ArgumentError {
+      return null;
+    }
+  }();
+
+  // Stats & server listing
+  late final _lnStats =
+      _lib.lookupFunction<_LnStats, _LnStatsDart>('ln_stats');
+  late final _lnServers =
+      _lib.lookupFunction<_LnServers, _LnServersDart>('ln_servers');
+
+  // DDNS status
+  late final _lnDdnsStatus =
+      _lib.lookupFunction<_LnDdnsStatus, _LnDdnsStatusDart>('ln_ddns_status');
+
+  // Attestation manifests
+  late final _lnAttestationManifests = _lib.lookupFunction<_LnAttestationManifests,
+          _LnAttestationManifestsDart>('ln_attestation_manifests');
+
+  // Session management
+  late final _lnSetSessionToken = _lib.lookupFunction<_LnSetSessionToken,
+          _LnSetSessionTokenDart>('ln_set_session_token');
+  late final _lnGetSessionToken = _lib.lookupFunction<_LnGetSessionToken,
+          _LnGetSessionTokenDart>('ln_get_session_token');
+  late final _lnSetNodeId =
+      _lib.lookupFunction<_LnSetNodeId, _LnSetNodeIdDart>('ln_set_node_id');
+  late final _lnGetNodeId =
+      _lib.lookupFunction<_LnGetNodeId, _LnGetNodeIdDart>('ln_get_node_id');
+
+  // Routing layer (connect-by-identifier)
+  late final _lnRoutingProfile = _lib.lookupFunction<_LnRoutingProfile,
+          _LnRoutingProfileDart>('ln_routing_profile');
+  late final _lnRoutingRequest = _lib.lookupFunction<_LnRoutingRequest,
+          _LnRoutingRequestDart>('ln_routing_request');
+  late final _lnPrivateApiCall = _lib.lookupFunction<_LnPrivateApiCall,
+          _LnPrivateApiCallDart>('ln_private_api_call');
+  late final _lnRoutingConnectionStatus = _lib.lookupFunction<
+          _LnRoutingConnectionStatus,
+          _LnRoutingConnectionStatusDart>('ln_routing_connection_status');
+  late final _lnMeshPortStart =
+      _lib.lookupFunction<_LnMeshPortStart, _LnMeshPortStartDart>('ln_mesh_port_start');
+  late final _lnMeshPortStop =
+      _lib.lookupFunction<_LnMeshPortStop, _LnMeshPortStopDart>('ln_mesh_port_stop');
+  late final _lnMeshPortSetCertDir = _lib.lookupFunction<_LnMeshPortSetCertDir,
+      _LnMeshPortSetCertDirDart>('ln_mesh_port_set_cert_dir');
+  late final _lnMeshPortSetSelection = _lib.lookupFunction<_LnMeshPortSetSelection,
+      _LnMeshPortSetSelectionDart>('ln_mesh_port_set_selection');
+  late final _lnMeshPortStatus =
+      _lib.lookupFunction<_LnMeshPortStatus, _LnMeshPortStatusDart>('ln_mesh_port_status');
+
+  /// Recently-added C ABI symbols. The native library is built separately from
+  /// the Dart layer, so these are what a stale build is missing.
+  static const List<String> requiredSymbols = [
+    'ln_set_link_token',
+    'ln_set_device_name',
+    'ln_link_token_create',
+    'ln_invite_create',
+    'ln_check_device_name',
+    'ln_invite_accept',
+    'ln_memberships_list',
+    'ln_membership_leave',
+    'ln_move_node',
+    'ln_account_delete',
+    'ln_private_api_call',
+    'ln_group_key_generate',
+    'ln_group_key_wrap',
+    'ln_group_key_unwrap',
+    'ln_mesh_port_start',
+    'ln_mesh_port_stop',
+    'ln_mesh_port_set_cert_dir',
+    'ln_mesh_port_set_selection',
+    'ln_mesh_port_status',
+    'ln_set_genesis_key',
+    'ln_tier1_refresh',
+    'ln_tier1_membership',
+    'ln_discover_genesis_key',
+    'ln_set_session_moved_callback',
+    'ln_identity_user_dir',
+    'ln_identity_user_status',
+    'ln_identity_user_load',
+    'ln_identity_user_create',
+    'ln_identity_user_import',
+    'ln_identity_user_remove',
+    'ln_identity_from_json',
+  ];
+
+  /// Required symbols absent from the loaded native library (empty when the
+  /// library is current).
+  List<String> missingSymbols() =>
+      requiredSymbols.where((s) => !_lib.providesSymbol(s)).toList();
+
+  /// Creates a new FFI binding instance.
+  ///
+  /// [libraryPath] - Optional path to the C SDK dynamic library.
+  /// If not provided, uses platform default naming.
+  /// Binds to an already opened [library] (tests use the test process itself
+  /// to exercise the paths for a native library that lacks a symbol).
+  LemonadeNexusFfi.fromLibrary(ffi.DynamicLibrary library) : _lib = library;
+
+  LemonadeNexusFfi({String? libraryPath}) {
+    if (libraryPath != null) {
+      _lib = ffi.DynamicLibrary.open(libraryPath);
+    } else {
+      // Platform-specific library naming
+      if (Platform.isWindows) {
+        _lib = ffi.DynamicLibrary.open('lemonade_nexus_sdk.dll');
+      } else if (Platform.isMacOS) {
+        _lib = ffi.DynamicLibrary.open('liblemonade_nexus_sdk.dylib');
+      } else if (Platform.isLinux) {
+        // The Linux runner installs the library into <bundle>/lib. Open that
+        // copy by absolute path so loading does not depend on the dynamic
+        // loader's search path; fall back to the leaf name (LD_LIBRARY_PATH,
+        // system install) when running outside a bundle.
+        final bundled = '${File(Platform.resolvedExecutable).parent.path}'
+            '/lib/liblemonade_nexus_sdk.so';
+        _lib = ffi.DynamicLibrary.open(
+            File(bundled).existsSync() ? bundled : 'liblemonade_nexus_sdk.so');
+      } else if (Platform.isIOS) {
+        // The plugin's XCFramework is embedded in the app's Frameworks dir.
+        _lib = ffi.DynamicLibrary.open(
+            'lemonade_nexus_sdk.framework/lemonade_nexus_sdk');
+      } else if (Platform.isAndroid) {
+        // Packaged from the plugin's jniLibs into the APK's native libraries.
+        _lib = ffi.DynamicLibrary.open('liblemonade_nexus_sdk.so');
+      } else {
+        throw UnsupportedError('Unsupported platform: ${Platform.operatingSystem}');
+      }
+    }
+  }
+
+  // =========================================================================
+  // Memory Management
+  // =========================================================================
+
+  /// Frees a string returned by the C SDK.
+  void freeString(ffi.Pointer<ffi.Char> ptr) {
+    if (ptr != ffi.nullptr) {
+      _lnFree(ptr);
+    }
+  }
+
+  /// Converts a C string pointer to a Dart String and frees the original.
+  String? toStringAndFree(ffi.Pointer<ffi.Char> ptr) {
+    if (ptr == ffi.nullptr) return null;
+    final result = ptr.cast<Utf8>().toDartString();
+    _lnFree(ptr);
+    return result;
+  }
+
+  /// Converts a C string pointer to a Dart String without freeing.
+  String? toStringNoFree(ffi.Pointer<ffi.Char> ptr) {
+    if (ptr == ffi.nullptr) return null;
+    return ptr.cast<Utf8>().toDartString();
+  }
+
+  /// Converts a Dart String to a native C string (caller must free).
+  ffi.Pointer<ffi.Char> toNativeString(String? str) {
+    if (str == null) return ffi.nullptr;
+    return str.toNativeUtf8().cast<ffi.Char>();
+  }
+
+  // =========================================================================
+  // Client Lifecycle
+  // =========================================================================
+
+  LnClientHandle create(String host, int port) {
+    final hostPtr = host.toNativeUtf8().cast<ffi.Char>();
+    final result = _lnCreate(hostPtr, port);
+    malloc.free(hostPtr);
+    return result;
+  }
+
+  LnClientHandle createTls(String host, int port) {
+    final hostPtr = host.toNativeUtf8().cast<ffi.Char>();
+    final result = _lnCreateTls(hostPtr, port);
+    malloc.free(hostPtr);
+    return result;
+  }
+
+  void destroy(LnClientHandle client) {
+    _lnDestroy(client);
+  }
+
+  // =========================================================================
+  // Identity Management
+  // =========================================================================
+
+  LnIdentityHandle identityGenerate() {
+    return _lnIdentityGenerate();
+  }
+
+  LnIdentityHandle identityLoad(String path) {
+    final pathPtr = path.toNativeUtf8().cast<ffi.Char>();
+    final result = _lnIdentityLoad(pathPtr);
+    malloc.free(pathPtr);
+    return result;
+  }
+
+  LnError identitySave(LnIdentityHandle identity, String path) {
+    final pathPtr = path.toNativeUtf8().cast<ffi.Char>();
+    final result = _lnIdentitySave(identity, pathPtr);
+    malloc.free(pathPtr);
+    return LnError.fromCode(result);
+  }
+
+  String? identityPubkey(LnIdentityHandle identity) {
+    final ptr = _lnIdentityPubkey(identity);
+    return toStringAndFree(ptr);
+  }
+
+  void identityDestroy(LnIdentityHandle identity) {
+    _lnIdentityDestroy(identity);
+  }
+
+  LnError setIdentity(LnClientHandle client, LnIdentityHandle identity) {
+    return LnError.fromCode(_lnSetIdentity(client, identity));
+  }
+
+  LnIdentityHandle identityFromSeed(Uint8List seed) {
+    final native = malloc<ffi.Uint8>(seed.length);
+    native.asTypedList(seed.length).setAll(0, seed);
+    final result = _lnIdentityFromSeed(native, seed.length);
+    native.asTypedList(seed.length).fillRange(0, seed.length, 0);
+    malloc.free(native);
+    return result;
+  }
+
+  /// Parses an identity from `identity.json` text held in memory (migration
+  /// only). The native copy of the text is wiped before it is released.
+  /// Returns null for malformed text.
+  LnIdentityHandle identityFromJson(String jsonText) {
+    final native = jsonText.toNativeUtf8();
+    final result = _lnIdentityFromJson(native.cast<ffi.Char>());
+    native.cast<ffi.Uint8>().asTypedList(native.length).fillRange(0, native.length, 0);
+    malloc.free(native);
+    return result;
+  }
+
+  // =========================================================================
+  // Per-user identity store (protected by the OS keystore)
+  // =========================================================================
+
+  /// The per-user identity directory, or null when it cannot be resolved.
+  String? identityUserDir() => toStringAndFree(_lnIdentityUserDir());
+
+  /// The store state as JSON {present, backend, unlocked, public_key?, dir}.
+  /// It never carries secret material.
+  (LnError, String?) identityUserStatus() => _jsonOut(_lnIdentityUserStatus);
+
+  /// Loads the user's stored identity. The handle is null unless the code is
+  /// [LnError.success]; see `ln_identity_user_load` for the codes.
+  (LnError, LnIdentityHandle) identityUserLoad() => _identityOut(_lnIdentityUserLoad);
+
+  /// Creates and stores a new identity for the user. The handle is null
+  /// unless the code is [LnError.success]; [LnError.rejected] means one is
+  /// stored already.
+  (LnError, LnIdentityHandle) identityUserCreate() => _identityOut(_lnIdentityUserCreate);
+
+  /// Stores an existing identity for the user (one-time migration). The
+  /// handle stays owned by the caller. [LnError.rejected] when one is
+  /// stored already.
+  LnError identityUserImport(LnIdentityHandle identity) =>
+      LnError.fromCode(_lnIdentityUserImport(identity));
+
+  /// Removes the stored identity: keystore item first, then the file.
+  LnError identityUserRemove() => LnError.fromCode(_lnIdentityUserRemove());
+
+  /// Runs a C call that returns an identity handle and writes its error code
+  /// to the out-parameter.
+  (LnError, LnIdentityHandle) _identityOut(_LnIdentityUserOpenDart call) {
+    final outErr = calloc<ffi.Int32>();
+    try {
+      final handle = call(outErr);
+      return (LnError.fromCode(outErr.value), handle);
+    } finally {
+      calloc.free(outErr);
+    }
+  }
+
+  String? deriveSeed(String username, String password) {
+    final userPtr = username.toNativeUtf8().cast<ffi.Char>();
+    final passPtr = password.toNativeUtf8().cast<ffi.Char>();
+    final result = _lnDeriveSeed(userPtr, passPtr);
+    malloc.free(userPtr);
+    malloc.free(passPtr);
+    return toStringAndFree(result);
+  }
+
+  /// Generate a fresh account group key (base64), or null on failure.
+  String? groupKeyGenerate() => toStringAndFree(_lnGroupKeyGenerate());
+
+  /// Seal [groupKeyB64] to [recipientPubkey]; returns the envelope JSON, or null.
+  String? groupKeyWrap(String recipientPubkey, String groupKeyB64) {
+    final rp = recipientPubkey.toNativeUtf8().cast<ffi.Char>();
+    final gk = groupKeyB64.toNativeUtf8().cast<ffi.Char>();
+    final result = _lnGroupKeyWrap(rp, gk);
+    malloc.free(rp);
+    malloc.free(gk);
+    return toStringAndFree(result);
+  }
+
+  /// Open [envelopeJson] with [identity]'s private key; returns the group key
+  /// (base64), or null if it isn't addressed to us / is corrupt.
+  String? groupKeyUnwrap(LnIdentityHandle identity, String envelopeJson) {
+    final env = envelopeJson.toNativeUtf8().cast<ffi.Char>();
+    final result = _lnGroupKeyUnwrap(identity, env);
+    malloc.free(env);
+    return toStringAndFree(result);
+  }
+
+  /// Pin the network's Genesis public key (base64). The SDK sends tree,
+  /// session, and private-API requests only to Tier 1 servers it verifies
+  /// from this key; without it those requests are not sent.
+  LnError setGenesisKey(LnClientHandle client, String genesisPubkeyB64,
+      {int minEpoch = 0}) {
+    final key = genesisPubkeyB64.toNativeUtf8().cast<ffi.Char>();
+    final result = _lnSetGenesisKey(client, key, minEpoch);
+    malloc.free(key);
+    return LnError.fromCode(result);
+  }
+
+  /// The lowest epoch to accept for the chain instance [chain] (64 hex digits,
+  /// a membership's `chain`). Null when the native library predates
+  /// ln_set_epoch_floor.
+  LnError? setEpochFloor(LnClientHandle client, String chain, int minEpoch) {
+    final call = _lnSetEpochFloor;
+    if (call == null) return null;
+    final text = chain.toNativeUtf8().cast<ffi.Char>();
+    final result = call(client, text, minEpoch);
+    malloc.free(text);
+    return LnError.fromCode(result);
+  }
+
+  /// Verify the Tier 1 membership now. Returns the error code and the JSON:
+  /// {epoch, members, servers} on success, {error} on failure.
+  (LnError, String?) tier1Refresh(LnClientHandle client) =>
+      _tier1Json(client, _lnTier1Refresh);
+
+  /// The last verified Tier 1 membership, without network I/O.
+  (LnError, String?) tier1Membership(LnClientHandle client) =>
+      _tier1Json(client, _lnTier1Membership);
+
+  /// Progress of the Tier 1 chain walk running now, as JSON; never blocks.
+  /// Null when the native library predates ln_tier1_progress.
+  (LnError, String?)? tier1Progress(LnClientHandle client) {
+    final call = _lnTier1Progress;
+    return call == null ? null : _tier1Json(client, call);
+  }
+
+  /// First-connect discovery of the network key, only when none is pinned.
+  /// [hostsJson] is null or a JSON array of `{"host", "port"}` candidates.
+  /// Returns the error code and the JSON: {genesis_pubkey, network_id,
+  /// dns_base_domain, hosts} on success, {error} on failure.
+  (LnError, String?) discoverGenesisKey(LnClientHandle client, String? hostsJson) {
+    final hosts = hostsJson == null
+        ? ffi.nullptr.cast<ffi.Char>()
+        : hostsJson.toNativeUtf8().cast<ffi.Char>();
+    final outJson = calloc<ffi.Pointer<ffi.Char>>();
+    try {
+      final result = _lnDiscoverGenesisKey(client, hosts, outJson);
+      final json =
+          outJson.value == ffi.nullptr ? null : toStringAndFree(outJson.value);
+      return (LnError.fromCode(result), json);
+    } finally {
+      calloc.free(outJson);
+      if (hosts != ffi.nullptr) malloc.free(hosts);
+    }
+  }
+
+  (LnError, String?) _tier1Json(LnClientHandle client, _LnTier1JsonDart call) {
+    final outJson = calloc<ffi.Pointer<ffi.Char>>();
+    try {
+      final result = call(client, outJson);
+      final json =
+          outJson.value == ffi.nullptr ? null : toStringAndFree(outJson.value);
+      return (LnError.fromCode(result), json);
+    } finally {
+      calloc.free(outJson);
+    }
+  }
+
+  /// Set the single-use device-link token injected into the next join_network.
+  LnError setLinkToken(LnClientHandle client, String token) {
+    final t = token.toNativeUtf8().cast<ffi.Char>();
+    final result = _lnSetLinkToken(client, t);
+    malloc.free(t);
+    return LnError.fromCode(result);
+  }
+
+  /// Set the name the next join_network gives a device it creates. See
+  /// ln_set_device_name.
+  LnError setDeviceName(LnClientHandle client, String name) {
+    final n = name.toNativeUtf8().cast<ffi.Char>();
+    final result = _lnSetDeviceName(client, n);
+    malloc.free(n);
+    return LnError.fromCode(result);
+  }
+
+  /// Sets (or, with [fn] null, clears) the session-move callback. The SDK
+  /// calls [fn] from a background thread with a JSON string the callback
+  /// owns ([toStringAndFree] releases it). When this returns, the previous
+  /// callback is not running and is not called again.
+  LnError setSessionMovedCallback(
+    LnClientHandle client,
+    ffi.Pointer<ffi.NativeFunction<LnSessionMovedNative>> fn,
+    ffi.Pointer<ffi.Void> user,
+  ) {
+    return LnError.fromCode(_lnSetSessionMovedCallback(client, fn, user));
+  }
+
+  /// Whether the native library has ln_set_mesh_event_callback (mobile SDK
+  /// 0.9.8.12 and later). Without it there are no mesh events.
+  bool get hasMeshEvents => _lib.providesSymbol('ln_set_mesh_event_callback');
+
+  /// Sets (or, with [fn] null, clears) the mesh event callback, with the
+  /// rules of [setSessionMovedCallback]. Requires [hasMeshEvents].
+  LnError setMeshEventCallback(
+    LnClientHandle client,
+    ffi.Pointer<ffi.NativeFunction<LnMeshEventNative>> fn,
+    ffi.Pointer<ffi.Void> user,
+  ) {
+    return LnError.fromCode(_lnSetMeshEventCallback(client, fn, user));
+  }
+
+  /// Mint a link token so another device can join this account. On success
+  /// the JSON is {link_token, group_node_id, expires_at}; on failure it is the
+  /// SDK's {error} body, so callers can show the server's reason.
+  (LnError, String?) linkTokenCreate(LnClientHandle client, int ttlSec) {
+    final outJson = calloc<ffi.Pointer<ffi.Char>>();
+    try {
+      final result = _lnLinkTokenCreate(client, ttlSec, outJson);
+      final json = outJson.value == ffi.nullptr ? null : toStringAndFree(outJson.value);
+      return (LnError.fromCode(result), json);
+    } finally {
+      calloc.free(outJson);
+    }
+  }
+
+  /// Runs a C call that writes a caller-owned JSON string to its last
+  /// argument, and returns the code with the JSON (freed with ln_free).
+  (LnError, String?) _jsonOut(int Function(ffi.Pointer<ffi.Pointer<ffi.Char>> out) call) {
+    final outJson = calloc<ffi.Pointer<ffi.Char>>();
+    try {
+      final result = call(outJson);
+      final json = outJson.value == ffi.nullptr ? null : toStringAndFree(outJson.value);
+      return (LnError.fromCode(result), json);
+    } finally {
+      calloc.free(outJson);
+    }
+  }
+
+  /// Mint an invite into [targetNodeId] (null: this account's own group) with
+  /// [permissionsJson] (null: the server default). See ln_invite_create.
+  (LnError, String?) inviteCreate(
+      LnClientHandle client, String? targetNodeId, String? permissionsJson, int ttlSec) {
+    final target = targetNodeId == null
+        ? ffi.nullptr.cast<ffi.Char>()
+        : targetNodeId.toNativeUtf8().cast<ffi.Char>();
+    final perms = permissionsJson == null
+        ? ffi.nullptr.cast<ffi.Char>()
+        : permissionsJson.toNativeUtf8().cast<ffi.Char>();
+    try {
+      return _jsonOut((out) => _lnInviteCreate(client, target, perms, ttlSec, out));
+    } finally {
+      if (target != ffi.nullptr) malloc.free(target);
+      if (perms != ffi.nullptr) malloc.free(perms);
+    }
+  }
+
+  /// Check a device name in a group (by [groupNodeId] or an invite's
+  /// [linkToken]) before a join or a rename. See ln_check_device_name.
+  (LnError, String?) checkDeviceName(
+      LnClientHandle client, String name, String? groupNodeId, String? linkToken) {
+    ffi.Pointer<ffi.Char> utf8(String? v) =>
+        v == null ? ffi.nullptr.cast<ffi.Char>() : v.toNativeUtf8().cast<ffi.Char>();
+    final namePtr = utf8(name);
+    final group = utf8(groupNodeId);
+    final token = utf8(linkToken);
+    try {
+      return _jsonOut((out) => _lnCheckDeviceName(client, namePtr, group, token, out));
+    } finally {
+      for (final p in [namePtr, group, token]) {
+        if (p != ffi.nullptr) malloc.free(p);
+      }
+    }
+  }
+
+  /// Accept an invite as an account that already joined. See ln_invite_accept.
+  (LnError, String?) inviteAccept(LnClientHandle client, String linkToken) {
+    final token = linkToken.toNativeUtf8().cast<ffi.Char>();
+    try {
+      return _jsonOut((out) => _lnInviteAccept(client, token, out));
+    } finally {
+      malloc.free(token);
+    }
+  }
+
+  /// The groups this identity belongs to. See ln_memberships_list.
+  (LnError, String?) membershipsList(LnClientHandle client) =>
+      _jsonOut((out) => _lnMembershipsList(client, out));
+
+  /// Leave a group entered through an invite. See ln_membership_leave.
+  (LnError, String?) membershipLeave(LnClientHandle client, String groupNodeId) {
+    final group = groupNodeId.toNativeUtf8().cast<ffi.Char>();
+    try {
+      return _jsonOut((out) => _lnMembershipLeave(client, group, out));
+    } finally {
+      malloc.free(group);
+    }
+  }
+
+  /// Move a device or subgroup under another group. See ln_move_node.
+  (LnError, String?) moveNode(LnClientHandle client, String nodeId, String newParentId) {
+    final node = nodeId.toNativeUtf8().cast<ffi.Char>();
+    final parent = newParentId.toNativeUtf8().cast<ffi.Char>();
+    try {
+      return _jsonOut((out) => _lnMoveNode(client, node, parent, out));
+    } finally {
+      malloc.free(node);
+      malloc.free(parent);
+    }
+  }
+
+  /// Permanently delete this identity's account. Irreversible. See
+  /// ln_account_delete.
+  (LnError, String?) accountDelete(LnClientHandle client) =>
+      _jsonOut((out) => _lnAccountDelete(client, out));
+
+  // =========================================================================
+  // Health
+  // =========================================================================
+
+  /// Calls `ln_health` and returns the JSON body (e.g. `{status, service,
+  /// rp_id}`), or null on error. Previously this discarded the JSON and only
+  /// returned the error code, which is why the dashboard could never show real
+  /// health fields.
+  String? health(LnClientHandle client) {
+    final outJson = calloc<ffi.Pointer<ffi.Char>>();
+    try {
+      final result = _lnHealth(client, outJson);
+      if (result == 0) {
+        return toStringAndFree(outJson.value);
+      }
+      freeString(outJson.value);
+      return null;
+    } finally {
+      calloc.free(outJson);
+    }
+  }
+
+  // =========================================================================
+  // Authentication
+  // =========================================================================
+
+  String? authPassword(LnClientHandle client, String username, String password) {
+    final userPtr = username.toNativeUtf8().cast<ffi.Char>();
+    final passPtr = password.toNativeUtf8().cast<ffi.Char>();
+    final outJson = calloc<ffi.Pointer<ffi.Char>>();
+    try {
+      final result = _lnAuthPassword(client, userPtr, passPtr, outJson);
+      malloc.free(userPtr);
+      malloc.free(passPtr);
+      if (result == 0) {
+        return toStringAndFree(outJson.value);
+      }
+      freeString(outJson.value);
+      return null;
+    } finally {
+      calloc.free(outJson);
+    }
+  }
+
+  String? authPasskey(LnClientHandle client, String passkeyJson) {
+    final jsonPtr = passkeyJson.toNativeUtf8().cast<ffi.Char>();
+    final outJson = calloc<ffi.Pointer<ffi.Char>>();
+    try {
+      final result = _lnAuthPasskey(client, jsonPtr, outJson);
+      malloc.free(jsonPtr);
+      if (result == 0) {
+        return toStringAndFree(outJson.value);
+      }
+      freeString(outJson.value);
+      return null;
+    } finally {
+      calloc.free(outJson);
+    }
+  }
+
+  String? authPasskeyChallenge(LnClientHandle client, String userId) {
+    final userPtr = userId.toNativeUtf8().cast<ffi.Char>();
+    final outJson = calloc<ffi.Pointer<ffi.Char>>();
+    try {
+      final result = _lnAuthPasskeyChallenge(client, userPtr, outJson);
+      malloc.free(userPtr);
+      if (result == 0) {
+        return toStringAndFree(outJson.value);
+      }
+      freeString(outJson.value);
+      return null;
+    } finally {
+      calloc.free(outJson);
+    }
+  }
+
+  String? authToken(LnClientHandle client, String token) {
+    final tokenPtr = token.toNativeUtf8().cast<ffi.Char>();
+    final outJson = calloc<ffi.Pointer<ffi.Char>>();
+    try {
+      final result = _lnAuthToken(client, tokenPtr, outJson);
+      malloc.free(tokenPtr);
+      if (result == 0) {
+        return toStringAndFree(outJson.value);
+      }
+      freeString(outJson.value);
+      return null;
+    } finally {
+      calloc.free(outJson);
+    }
+  }
+
+  /// Generic authenticated call to a private-mesh API route ([method] "GET" or
+  /// "POST"). Returns the raw JSON response body, or null on error.
+  String? privateApiCall(
+      LnClientHandle client, String method, String path, String body) {
+    final methodPtr = method.toNativeUtf8().cast<ffi.Char>();
+    final pathPtr = path.toNativeUtf8().cast<ffi.Char>();
+    final bodyPtr = body.toNativeUtf8().cast<ffi.Char>();
+    final outJson = calloc<ffi.Pointer<ffi.Char>>();
+    try {
+      final result = _lnPrivateApiCall(client, methodPtr, pathPtr, bodyPtr, outJson);
+      malloc.free(methodPtr);
+      malloc.free(pathPtr);
+      malloc.free(bodyPtr);
+      if (result == 0) {
+        return toStringAndFree(outJson.value);
+      }
+      freeString(outJson.value);
+      return null;
+    } finally {
+      calloc.free(outJson);
+    }
+  }
+
+  /// Authenticates with Ed25519 challenge-response.
+  ///
+  /// The C API fills the out JSON on success AND on failure (the failure
+  /// JSON carries the real reason in an "error" field), so both are
+  /// returned. [json] is null only when the native side produced nothing.
+  ({String? json, int code}) authEd25519(LnClientHandle client) {
+    final outJson = calloc<ffi.Pointer<ffi.Char>>();
+    try {
+      final code = _lnAuthEd25519(client, outJson);
+      final text = toStringAndFree(outJson.value);
+      return (json: text, code: code);
+    } finally {
+      calloc.free(outJson);
+    }
+  }
+
+  String? registerPasskey(
+    LnClientHandle client,
+    String userId,
+    String credentialId,
+    String publicKeyX,
+    String publicKeyY,
+  ) {
+    final userIdPtr = userId.toNativeUtf8().cast<ffi.Char>();
+    final credIdPtr = credentialId.toNativeUtf8().cast<ffi.Char>();
+    final pkXPtr = publicKeyX.toNativeUtf8().cast<ffi.Char>();
+    final pkYPtr = publicKeyY.toNativeUtf8().cast<ffi.Char>();
+    final outJson = calloc<ffi.Pointer<ffi.Char>>();
+    try {
+      final result = _lnRegisterPasskey(
+        client,
+        userIdPtr,
+        credIdPtr,
+        pkXPtr,
+        pkYPtr,
+        outJson,
+      );
+      malloc.free(userIdPtr);
+      malloc.free(credIdPtr);
+      malloc.free(pkXPtr);
+      malloc.free(pkYPtr);
+      if (result == 0) {
+        return toStringAndFree(outJson.value);
+      }
+      freeString(outJson.value);
+      return null;
+    } finally {
+      calloc.free(outJson);
+    }
+  }
+
+  // =========================================================================
+  // Tree Operations
+  // =========================================================================
+
+  String? treeGetNode(LnClientHandle client, String nodeId) {
+    final nodeIdPtr = nodeId.toNativeUtf8().cast<ffi.Char>();
+    final outJson = calloc<ffi.Pointer<ffi.Char>>();
+    try {
+      final result = _lnTreeGetNode(client, nodeIdPtr, outJson);
+      malloc.free(nodeIdPtr);
+      if (result == 0) {
+        return toStringAndFree(outJson.value);
+      }
+      freeString(outJson.value);
+      return null;
+    } finally {
+      calloc.free(outJson);
+    }
+  }
+
+  String? treeSubmitDelta(LnClientHandle client, String deltaJson) {
+    final jsonPtr = deltaJson.toNativeUtf8().cast<ffi.Char>();
+    final outJson = calloc<ffi.Pointer<ffi.Char>>();
+    try {
+      final result = _lnTreeSubmitDelta(client, jsonPtr, outJson);
+      malloc.free(jsonPtr);
+      if (result == 0) {
+        return toStringAndFree(outJson.value);
+      }
+      freeString(outJson.value);
+      return null;
+    } finally {
+      calloc.free(outJson);
+    }
+  }
+
+  String? createChildNode(
+    LnClientHandle client,
+    String parentId,
+    String nodeType,
+  ) {
+    final parentIdPtr = parentId.toNativeUtf8().cast<ffi.Char>();
+    final nodeTypePtr = nodeType.toNativeUtf8().cast<ffi.Char>();
+    final outJson = calloc<ffi.Pointer<ffi.Char>>();
+    try {
+      final result = _lnCreateChildNode(client, parentIdPtr, nodeTypePtr, outJson);
+      malloc.free(parentIdPtr);
+      malloc.free(nodeTypePtr);
+      if (result == 0) {
+        return toStringAndFree(outJson.value);
+      }
+      freeString(outJson.value);
+      return null;
+    } finally {
+      calloc.free(outJson);
+    }
+  }
+
+  String? updateNode(
+    LnClientHandle client,
+    String nodeId,
+    String updatesJson,
+  ) {
+    final nodeIdPtr = nodeId.toNativeUtf8().cast<ffi.Char>();
+    final jsonPtr = updatesJson.toNativeUtf8().cast<ffi.Char>();
+    final outJson = calloc<ffi.Pointer<ffi.Char>>();
+    try {
+      final result = _lnUpdateNode(client, nodeIdPtr, jsonPtr, outJson);
+      malloc.free(nodeIdPtr);
+      malloc.free(jsonPtr);
+      if (result == 0) {
+        return toStringAndFree(outJson.value);
+      }
+      freeString(outJson.value);
+      return null;
+    } finally {
+      calloc.free(outJson);
+    }
+  }
+
+  String? deleteNode(LnClientHandle client, String nodeId) {
+    final nodeIdPtr = nodeId.toNativeUtf8().cast<ffi.Char>();
+    final outJson = calloc<ffi.Pointer<ffi.Char>>();
+    try {
+      final result = _lnDeleteNode(client, nodeIdPtr, outJson);
+      malloc.free(nodeIdPtr);
+      if (result == 0) {
+        return toStringAndFree(outJson.value);
+      }
+      freeString(outJson.value);
+      return null;
+    } finally {
+      calloc.free(outJson);
+    }
+  }
+
+  String? treeGetChildren(LnClientHandle client, String parentId) {
+    final parentIdPtr = parentId.toNativeUtf8().cast<ffi.Char>();
+    final outJson = calloc<ffi.Pointer<ffi.Char>>();
+    try {
+      final result = _lnTreeGetChildren(client, parentIdPtr, outJson);
+      malloc.free(parentIdPtr);
+      if (result == 0) {
+        return toStringAndFree(outJson.value);
+      }
+      freeString(outJson.value);
+      return null;
+    } finally {
+      calloc.free(outJson);
+    }
+  }
+
+  // =========================================================================
+  // IPAM
+  // =========================================================================
+
+  String? ipamAllocate(
+    LnClientHandle client,
+    String nodeId,
+    String blockType,
+  ) {
+    final nodeIdPtr = nodeId.toNativeUtf8().cast<ffi.Char>();
+    final blockTypePtr = blockType.toNativeUtf8().cast<ffi.Char>();
+    final outJson = calloc<ffi.Pointer<ffi.Char>>();
+    try {
+      final result = _lnIpamAllocate(client, nodeIdPtr, blockTypePtr, outJson);
+      malloc.free(nodeIdPtr);
+      malloc.free(blockTypePtr);
+      if (result == 0) {
+        return toStringAndFree(outJson.value);
+      }
+      freeString(outJson.value);
+      return null;
+    } finally {
+      calloc.free(outJson);
+    }
+  }
+
+  // =========================================================================
+  // Relay
+  // =========================================================================
+
+  String? relayList(LnClientHandle client) {
+    final outJson = calloc<ffi.Pointer<ffi.Char>>();
+    try {
+      final result = _lnRelayList(client, outJson);
+      if (result == 0) {
+        return toStringAndFree(outJson.value);
+      }
+      freeString(outJson.value);
+      return null;
+    } finally {
+      calloc.free(outJson);
+    }
+  }
+
+  String? relayTicket(
+    LnClientHandle client,
+    String peerId,
+    String relayId,
+  ) {
+    final peerIdPtr = peerId.toNativeUtf8().cast<ffi.Char>();
+    final relayIdPtr = relayId.toNativeUtf8().cast<ffi.Char>();
+    final outJson = calloc<ffi.Pointer<ffi.Char>>();
+    try {
+      final result = _lnRelayTicket(client, peerIdPtr, relayIdPtr, outJson);
+      malloc.free(peerIdPtr);
+      malloc.free(relayIdPtr);
+      if (result == 0) {
+        return toStringAndFree(outJson.value);
+      }
+      freeString(outJson.value);
+      return null;
+    } finally {
+      calloc.free(outJson);
+    }
+  }
+
+  String? relayRegister(LnClientHandle client, String regJson) {
+    final jsonPtr = regJson.toNativeUtf8().cast<ffi.Char>();
+    final outJson = calloc<ffi.Pointer<ffi.Char>>();
+    try {
+      final result = _lnRelayRegister(client, jsonPtr, outJson);
+      malloc.free(jsonPtr);
+      if (result == 0) {
+        return toStringAndFree(outJson.value);
+      }
+      freeString(outJson.value);
+      return null;
+    } finally {
+      calloc.free(outJson);
+    }
+  }
+
+  // =========================================================================
+  // Certificates
+  // =========================================================================
+
+  String? certStatus(LnClientHandle client, String domain) {
+    final domainPtr = domain.toNativeUtf8().cast<ffi.Char>();
+    final outJson = calloc<ffi.Pointer<ffi.Char>>();
+    try {
+      final result = _lnCertStatus(client, domainPtr, outJson);
+      malloc.free(domainPtr);
+      if (result == 0) {
+        return toStringAndFree(outJson.value);
+      }
+      freeString(outJson.value);
+      return null;
+    } finally {
+      calloc.free(outJson);
+    }
+  }
+
+  String? certRequest(LnClientHandle client, String hostname) {
+    final hostnamePtr = hostname.toNativeUtf8().cast<ffi.Char>();
+    final outJson = calloc<ffi.Pointer<ffi.Char>>();
+    try {
+      final result = _lnCertRequest(client, hostnamePtr, outJson);
+      malloc.free(hostnamePtr);
+      if (result == 0) {
+        return toStringAndFree(outJson.value);
+      }
+      freeString(outJson.value);
+      return null;
+    } finally {
+      calloc.free(outJson);
+    }
+  }
+
+  String? certDecrypt(LnClientHandle client, String bundleJson) {
+    final jsonPtr = bundleJson.toNativeUtf8().cast<ffi.Char>();
+    final outJson = calloc<ffi.Pointer<ffi.Char>>();
+    try {
+      final result = _lnCertDecrypt(client, jsonPtr, outJson);
+      malloc.free(jsonPtr);
+      if (result == 0) {
+        return toStringAndFree(outJson.value);
+      }
+      freeString(outJson.value);
+      return null;
+    } finally {
+      calloc.free(outJson);
+    }
+  }
+
+  // =========================================================================
+  // Group Membership
+  // =========================================================================
+
+  String? addGroupMember(
+    LnClientHandle client,
+    String nodeId,
+    String pubkey,
+    String permissionsJson,
+  ) {
+    final nodeIdPtr = nodeId.toNativeUtf8().cast<ffi.Char>();
+    final pubkeyPtr = pubkey.toNativeUtf8().cast<ffi.Char>();
+    final jsonPtr = permissionsJson.toNativeUtf8().cast<ffi.Char>();
+    final outJson = calloc<ffi.Pointer<ffi.Char>>();
+    try {
+      final result = _lnAddGroupMember(
+        client,
+        nodeIdPtr,
+        pubkeyPtr,
+        jsonPtr,
+        outJson,
+      );
+      malloc.free(nodeIdPtr);
+      malloc.free(pubkeyPtr);
+      malloc.free(jsonPtr);
+      if (result == 0) {
+        return toStringAndFree(outJson.value);
+      }
+      freeString(outJson.value);
+      return null;
+    } finally {
+      calloc.free(outJson);
+    }
+  }
+
+  String? removeGroupMember(
+    LnClientHandle client,
+    String nodeId,
+    String pubkey,
+  ) {
+    final nodeIdPtr = nodeId.toNativeUtf8().cast<ffi.Char>();
+    final pubkeyPtr = pubkey.toNativeUtf8().cast<ffi.Char>();
+    final outJson = calloc<ffi.Pointer<ffi.Char>>();
+    try {
+      final result = _lnRemoveGroupMember(client, nodeIdPtr, pubkeyPtr, outJson);
+      malloc.free(nodeIdPtr);
+      malloc.free(pubkeyPtr);
+      if (result == 0) {
+        return toStringAndFree(outJson.value);
+      }
+      freeString(outJson.value);
+      return null;
+    } finally {
+      calloc.free(outJson);
+    }
+  }
+
+  /// ln_get_group_devices: the error code and the out JSON (the device
+  /// array, or {"error": ...} on failure).
+  (LnError, String?) getGroupDevices(LnClientHandle client, String groupId) {
+    final groupIdPtr = groupId.toNativeUtf8().cast<ffi.Char>();
+    final outJson = calloc<ffi.Pointer<ffi.Char>>();
+    try {
+      final result = _lnGetGroupDevices(client, groupIdPtr, outJson);
+      return (LnError.fromCode(result), toStringAndFree(outJson.value));
+    } finally {
+      malloc.free(groupIdPtr);
+      calloc.free(outJson);
+    }
+  }
+
+  /// ln_list_network_devices: the error code and the out JSON.
+  (LnError, String?) listNetworkDevices(LnClientHandle client) {
+    final outJson = calloc<ffi.Pointer<ffi.Char>>();
+    try {
+      final result = _lnListNetworkDevices(client, outJson);
+      return (LnError.fromCode(result), toStringAndFree(outJson.value));
+    } finally {
+      calloc.free(outJson);
+    }
+  }
+
+  String? getGroupMembers(LnClientHandle client, String nodeId) {
+    final nodeIdPtr = nodeId.toNativeUtf8().cast<ffi.Char>();
+    final outJson = calloc<ffi.Pointer<ffi.Char>>();
+    try {
+      final result = _lnGetGroupMembers(client, nodeIdPtr, outJson);
+      malloc.free(nodeIdPtr);
+      if (result == 0) {
+        return toStringAndFree(outJson.value);
+      }
+      freeString(outJson.value);
+      return null;
+    } finally {
+      calloc.free(outJson);
+    }
+  }
+
+  String? joinGroup(LnClientHandle client, String parentNodeId) {
+    final parentNodeIdPtr = parentNodeId.toNativeUtf8().cast<ffi.Char>();
+    final outJson = calloc<ffi.Pointer<ffi.Char>>();
+    try {
+      final result = _lnJoinGroup(client, parentNodeIdPtr, outJson);
+      malloc.free(parentNodeIdPtr);
+      if (result == 0) {
+        return toStringAndFree(outJson.value);
+      }
+      freeString(outJson.value);
+      return null;
+    } finally {
+      calloc.free(outJson);
+    }
+  }
+
+  // =========================================================================
+  // High-level Operations
+  // =========================================================================
+
+  String? joinNetwork(LnClientHandle client, String username, String password) {
+    final userPtr = username.toNativeUtf8().cast<ffi.Char>();
+    final passPtr = password.toNativeUtf8().cast<ffi.Char>();
+    final outJson = calloc<ffi.Pointer<ffi.Char>>();
+    try {
+      final result = _lnJoinNetwork(client, userPtr, passPtr, outJson);
+      malloc.free(userPtr);
+      malloc.free(passPtr);
+      if (result == 0) {
+        return toStringAndFree(outJson.value);
+      }
+      freeString(outJson.value);
+      return null;
+    } finally {
+      calloc.free(outJson);
+    }
+  }
+
+  /// The SDK result and its JSON ({success, error?}), also on failure.
+  (LnError, String?) leaveNetwork(LnClientHandle client) {
+    final outJson = calloc<ffi.Pointer<ffi.Char>>();
+    try {
+      final result = _lnLeaveNetwork(client, outJson);
+      return (LnError.fromCode(result), toStringAndFree(outJson.value));
+    } finally {
+      calloc.free(outJson);
+    }
+  }
+
+  // =========================================================================
+  // Auto-switching
+  // =========================================================================
+
+  LnError enableAutoSwitching(
+    LnClientHandle client,
+    double thresholdMs,
+    double hysteresis,
+    int cooldownSec,
+  ) {
+    return LnError.fromCode(
+      _lnEnableAutoSwitching(client, thresholdMs, hysteresis, cooldownSec),
+    );
+  }
+
+  LnError disableAutoSwitching(LnClientHandle client) {
+    return LnError.fromCode(_lnDisableAutoSwitching(client));
+  }
+
+  double currentLatencyMs(LnClientHandle client) {
+    return _lnCurrentLatencyMs(client);
+  }
+
+  String? serverLatencies(LnClientHandle client) {
+    final outJson = calloc<ffi.Pointer<ffi.Char>>();
+    try {
+      final result = _lnServerLatencies(client, outJson);
+      if (result == 0) {
+        return toStringAndFree(outJson.value);
+      }
+      freeString(outJson.value);
+      return null;
+    } finally {
+      calloc.free(outJson);
+    }
+  }
+
+  // =========================================================================
+  // Mesh P2P
+  // =========================================================================
+
+  LnError meshEnable(LnClientHandle client) {
+    return LnError.fromCode(_lnMeshEnable(client));
+  }
+
+  LnError meshEnableConfig(LnClientHandle client, String configJson) {
+    final jsonPtr = configJson.toNativeUtf8().cast<ffi.Char>();
+    final result = _lnMeshEnableConfig(client, jsonPtr);
+    malloc.free(jsonPtr);
+    return LnError.fromCode(result);
+  }
+
+  LnError meshDisable(LnClientHandle client) {
+    return LnError.fromCode(_lnMeshDisable(client));
+  }
+
+  String? meshStatus(LnClientHandle client) {
+    final outJson = calloc<ffi.Pointer<ffi.Char>>();
+    try {
+      final result = _lnMeshStatus(client, outJson);
+      if (result == 0) {
+        return toStringAndFree(outJson.value);
+      }
+      freeString(outJson.value);
+      return null;
+    } finally {
+      calloc.free(outJson);
+    }
+  }
+
+  String? meshPeers(LnClientHandle client) {
+    final outJson = calloc<ffi.Pointer<ffi.Char>>();
+    try {
+      final result = _lnMeshPeers(client, outJson);
+      if (result == 0) {
+        return toStringAndFree(outJson.value);
+      }
+      freeString(outJson.value);
+      return null;
+    } finally {
+      calloc.free(outJson);
+    }
+  }
+
+  LnError meshRefresh(LnClientHandle client) {
+    return LnError.fromCode(_lnMeshRefresh(client));
+  }
+
+  /// The host process returned from a suspension (ln_resume). Never blocks
+  /// on the network. [LnError.success] without a call when the native
+  /// library predates ln_resume.
+  LnError resume(LnClientHandle client) {
+    final call = _lnResume;
+    return call == null ? LnError.success : LnError.fromCode(call(client));
+  }
+
+  /// Whether the native library has ln_resume.
+  bool get hasResume => _lnResume != null;
+
+  /// The host process is about to be suspended (ln_suspend): the dataplane
+  /// socket is closed now, keeping the peers, and the private connections
+  /// are dropped. Never blocks on the network. [LnError.success] without a
+  /// call when the native library predates ln_suspend.
+  LnError suspend(LnClientHandle client) {
+    final call = _lnSuspend;
+    return call == null ? LnError.success : LnError.fromCode(call(client));
+  }
+
+  /// Whether the native library has ln_suspend.
+  bool get hasSuspend => _lnSuspend != null;
+
+  /// Whether the client's mesh dataplane is up right now (no network I/O).
+  bool meshIsActive(LnClientHandle client) => _lnMeshIsActive(client) == 1;
+
+  // =========================================================================
+  // Stats & Server Listing
+  // =========================================================================
+
+  String? stats(LnClientHandle client) {
+    final outJson = calloc<ffi.Pointer<ffi.Char>>();
+    try {
+      final result = _lnStats(client, outJson);
+      if (result == 0) {
+        return toStringAndFree(outJson.value);
+      }
+      freeString(outJson.value);
+      return null;
+    } finally {
+      calloc.free(outJson);
+    }
+  }
+
+  String? servers(LnClientHandle client) {
+    final outJson = calloc<ffi.Pointer<ffi.Char>>();
+    try {
+      final result = _lnServers(client, outJson);
+      if (result == 0) {
+        return toStringAndFree(outJson.value);
+      }
+      freeString(outJson.value);
+      return null;
+    } finally {
+      calloc.free(outJson);
+    }
+  }
+
+  // =========================================================================
+  // DDNS Status
+  // =========================================================================
+
+  String? ddnsStatus(LnClientHandle client) {
+    final outJson = calloc<ffi.Pointer<ffi.Char>>();
+    try {
+      final result = _lnDdnsStatus(client, outJson);
+      if (result == 0) {
+        return toStringAndFree(outJson.value);
+      }
+      freeString(outJson.value);
+      return null;
+    } finally {
+      calloc.free(outJson);
+    }
+  }
+
+  // =========================================================================
+  // Attestation Manifests
+  // =========================================================================
+
+  String? attestationManifests(LnClientHandle client) {
+    final outJson = calloc<ffi.Pointer<ffi.Char>>();
+    try {
+      final result = _lnAttestationManifests(client, outJson);
+      if (result == 0) {
+        return toStringAndFree(outJson.value);
+      }
+      freeString(outJson.value);
+      return null;
+    } finally {
+      calloc.free(outJson);
+    }
+  }
+
+  // =========================================================================
+  // Session Management
+  // =========================================================================
+
+  LnError setSessionToken(LnClientHandle client, String token) {
+    final tokenPtr = token.toNativeUtf8().cast<ffi.Char>();
+    final result = _lnSetSessionToken(client, tokenPtr);
+    malloc.free(tokenPtr);
+    return LnError.fromCode(result);
+  }
+
+  String? getSessionToken(LnClientHandle client) {
+    final ptr = _lnGetSessionToken(client);
+    return toStringAndFree(ptr);
+  }
+
+  LnError setNodeId(LnClientHandle client, String nodeId) {
+    final nodeIdPtr = nodeId.toNativeUtf8().cast<ffi.Char>();
+    final result = _lnSetNodeId(client, nodeIdPtr);
+    malloc.free(nodeIdPtr);
+    return LnError.fromCode(result);
+  }
+
+  String? getNodeId(LnClientHandle client) {
+    final ptr = _lnGetNodeId(client);
+    return toStringAndFree(ptr);
+  }
+
+  // =========================================================================
+  // Routing Layer (connect-by-identifier)
+  // =========================================================================
+
+  /// GET /api/routing/profile — the authorized endpoint profile (paginated).
+  /// Returns the response JSON, or null on error.
+  String? routingProfile(LnClientHandle client, {int page = 0, int pageSize = 200}) {
+    final outJson = calloc<ffi.Pointer<ffi.Char>>();
+    try {
+      final result = _lnRoutingProfile(client, page, pageSize, outJson);
+      if (result == 0) {
+        return toStringAndFree(outJson.value);
+      }
+      freeString(outJson.value);
+      return null;
+    } finally {
+      calloc.free(outJson);
+    }
+  }
+
+  /// POST /api/routing/request — request a connection to [identifier].
+  /// [connNonceB64] is a client-chosen 16-byte nonce (base64). [clientMeshPubkey]
+  /// may be empty. Returns {connection_id,state} JSON, or null on error.
+  String? routingRequest(
+    LnClientHandle client,
+    String identifier,
+    String connNonceB64, {
+    String clientMeshPubkey = '',
+  }) {
+    final identifierPtr = identifier.toNativeUtf8().cast<ffi.Char>();
+    final noncePtr = connNonceB64.toNativeUtf8().cast<ffi.Char>();
+    final meshPubkeyPtr = clientMeshPubkey.toNativeUtf8().cast<ffi.Char>();
+    final outJson = calloc<ffi.Pointer<ffi.Char>>();
+    try {
+      final result = _lnRoutingRequest(
+          client, identifierPtr, noncePtr, meshPubkeyPtr, outJson);
+      if (result == 0) {
+        return toStringAndFree(outJson.value);
+      }
+      freeString(outJson.value);
+      return null;
+    } finally {
+      malloc.free(identifierPtr);
+      malloc.free(noncePtr);
+      malloc.free(meshPubkeyPtr);
+      calloc.free(outJson);
+    }
+  }
+
+  /// Starts the loopback mesh port (see ln_mesh_port_start). [port] 0 selects
+  /// 13306. [localServiceUrl] null means no local service.
+  LnError meshPortStart(LnClientHandle client, int port, String? localServiceUrl) {
+    final urlPtr = localServiceUrl == null
+        ? ffi.nullptr
+        : localServiceUrl.toNativeUtf8().cast<ffi.Char>();
+    try {
+      return LnError.fromCode(_lnMeshPortStart(client, port, urlPtr));
+    } finally {
+      if (urlPtr != ffi.nullptr) malloc.free(urlPtr);
+    }
+  }
+
+  LnError meshPortStop(LnClientHandle client) =>
+      LnError.fromCode(_lnMeshPortStop(client));
+
+  /// Sets the group loopback certificate directory; null clears it.
+  LnError meshPortSetCertDir(LnClientHandle client, String? certDir) {
+    final dirPtr = certDir == null ? ffi.nullptr : certDir.toNativeUtf8().cast<ffi.Char>();
+    try {
+      return LnError.fromCode(_lnMeshPortSetCertDir(client, dirPtr));
+    } finally {
+      if (dirPtr != ffi.nullptr) malloc.free(dirPtr);
+    }
+  }
+
+  /// Sets the selection: "local", "auto", a node ID, or null to clear it.
+  LnError meshPortSetSelection(LnClientHandle client, String? target, String? peerKey) {
+    final targetPtr = target == null ? ffi.nullptr : target.toNativeUtf8().cast<ffi.Char>();
+    final keyPtr = peerKey == null ? ffi.nullptr : peerKey.toNativeUtf8().cast<ffi.Char>();
+    try {
+      return LnError.fromCode(_lnMeshPortSetSelection(client, targetPtr, keyPtr));
+    } finally {
+      if (targetPtr != ffi.nullptr) malloc.free(targetPtr);
+      if (keyPtr != ffi.nullptr) malloc.free(keyPtr);
+    }
+  }
+
+  /// Mesh port status JSON, or null on error.
+  String? meshPortStatus(LnClientHandle client) {
+    final outJson = calloc<ffi.Pointer<ffi.Char>>();
+    try {
+      final result = _lnMeshPortStatus(client, outJson);
+      if (result == 0) {
+        return toStringAndFree(outJson.value);
+      }
+      freeString(outJson.value);
+      return null;
+    } finally {
+      calloc.free(outJson);
+    }
+  }
+
+  /// GET /api/routing/session/{id} — current connection/session state.
+  /// Returns the session-state JSON, or null on error.
+  String? routingConnectionStatus(LnClientHandle client, String connectionId) {
+    final connIdPtr = connectionId.toNativeUtf8().cast<ffi.Char>();
+    final outJson = calloc<ffi.Pointer<ffi.Char>>();
+    try {
+      final result = _lnRoutingConnectionStatus(client, connIdPtr, outJson);
+      if (result == 0) {
+        return toStringAndFree(outJson.value);
+      }
+      freeString(outJson.value);
+      return null;
+    } finally {
+      malloc.free(connIdPtr);
+      calloc.free(outJson);
+    }
+  }
+
+}

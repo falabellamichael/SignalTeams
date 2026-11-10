@@ -118,6 +118,12 @@ export function PublishModal({ initial, onClose, onDone }) {
             <option value="private">Private</option>
           </select></div>
       </div>
+      <label style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 6, fontWeight: 400, color: "var(--dim)" }}>
+        <input type="checkbox" style={{ width: "auto" }}
+          checked={!!(f.ai_flags?.web ?? f.ai?.web)}
+          onChange={(e) => setF({ ...f, ai_flags: { ...(f.ai_flags || f.ai || {}), web: e.target.checked } })} />
+        Live web access — this agent may search the web and fetch pages wherever it's summoned
+      </label>
       {err && <div style={{ color: "var(--bad)", marginTop: 10, fontSize: 12.5 }}>{err}</div>}
       <div className="mfoot">
         <button onClick={onClose}>Cancel</button>

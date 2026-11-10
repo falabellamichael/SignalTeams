@@ -32,11 +32,11 @@ export function HomeSidebar({ view, setView, dms, onOpenDm, onNewGroupDm, onLeav
         <div className="side-group">People</div>
         <NavItem ic="👥" txt="Friends" on={view === "friends"} onClick={() => setView("friends")} count={pendingCount} />
         <div className="side-group">Direct messages
-          <span className="ch-mute" style={{ float: "right" }} title="New group DM"
-            onClick={(e) => { e.stopPropagation(); onNewGroupDm?.(); }}><Ico n="plus" s={13} /></span>
-          <span className="ch-mute" style={{ float: "right", marginRight: 4 }}
+          <button type="button" className="ch-mute" style={{ float: "right" }} title="New group DM"
+            onClick={(e) => { e.stopPropagation(); onNewGroupDm?.(); }}><Ico n="plus" s={13} /></button>
+          <button type="button" className="ch-mute" style={{ float: "right", marginRight: 4 }}
             title="Mark all read — clears every badge"
-            onClick={(e) => { e.stopPropagation(); onMarkAllRead?.(); }}><Ico n="check" s={12} /></span></div>
+            onClick={(e) => { e.stopPropagation(); onMarkAllRead?.(); }}><Ico n="check" s={12} /></button></div>
         {dms.length === 0 && <div style={{ fontSize: 11.5, color: "var(--dim)", padding: "2px 8px" }}>
           No DMs yet — poke a friend.</div>}
         {dms.map((d) => (
@@ -61,8 +61,8 @@ export function HomeSidebar({ view, setView, dms, onOpenDm, onNewGroupDm, onLeav
                 ? <span className="cnt ping" title={`${mentions[d.id]} mention${mentions[d.id] > 1 ? "s" : ""}`}>@{mentions[d.id]}</span>
                 : unread[d.id] > 0 && <span className="cnt">{unread[d.id]}</span>}
               {(d.members || []).length > 1 && onLeaveDm &&
-                <span className="ch-mute" title="Leave group"
-                  onClick={(e) => { e.stopPropagation(); onLeaveDm(d); }}><Ico n="x" s={11} /></span>}
+                <button type="button" className="ch-mute" title="Leave group"
+                  onClick={(e) => { e.stopPropagation(); onLeaveDm(d); }}><Ico n="x" s={11} /></button>}
               <MuteBtn state={muted?.has(d.id) ? 2 : mentionsOnly?.has(d.id) ? 1 : 0}
                 onToggle={(e) => { e.stopPropagation(); onToggleMute?.(d); }} />
             </div>
@@ -101,12 +101,12 @@ function MuteBtn({ state = 0, onToggle }) {
     [<Ico n="bellOff" s={11} />, "Muted — click to re-enable"],
   ][state];
   return (
-    <span className={`ch-mute s${state}`} title={tip}
-      onClick={onToggle}>{ic}</span>
+    <button type="button" className={`ch-mute s${state}`} title={tip}
+      onClick={onToggle}>{ic}</button>
   );
 }
 
-export function ServerSidebar({ server, channel, me, voice, onJoinVoice, onChannel, onAddChannel, onEditChannel, onServerSettings, onMoveChannel, onToggleSrvMute, srvMuted, onEvents, evCount = 0, unread = {}, mentions = {}, muted, mentionsOnly, onToggleMute, voiceRosters = {}, workspaces = [], activeWs, onWorkspace, onNewWorkspace, typingMap = {} }) {
+export function ServerSidebar({ server, channel, me, voice, onJoinVoice, onChannel, onAddChannel, onEditChannel, onCategorySettings, onAddCategory, onServerSettings, onMoveChannel, onToggleSrvMute, srvMuted, onEvents, evCount = 0, unread = {}, mentions = {}, muted, mentionsOnly, onToggleMute, voiceRosters = {}, workspaces = [], activeWs, onWorkspace, onNewWorkspace, typingMap = {} }) {
   const text = server.channels.filter((c) => c.kind === "text" || c.kind === "forum" || c.kind === "voice");
   // workspace chat channels are scoped to their workspace — they get there via
   // the workspace's own chat tab, not the generic agent-channel list
@@ -162,12 +162,12 @@ export function ServerSidebar({ server, channel, me, voice, onJoinVoice, onChann
               {vroom.length}/{c.voice_cap}</span>)}
           {(c.lurkers || []).length > 0 && (
             <span className="ch-slow" title="Lurking agents — auto-reply to new messages">⚡</span>)}
-          {owner && <span className="ch-gear" title="Move up"
-            onClick={(e) => { e.stopPropagation(); onMoveChannel?.(c, -1); }}><Ico n="up" s={11} /></span>}
-          {owner && <span className="ch-gear" title="Move down"
-            onClick={(e) => { e.stopPropagation(); onMoveChannel?.(c, 1); }}><Ico n="down" s={11} /></span>}
-          {owner && <span className="ch-gear" title="Edit channel"
-            onClick={(e) => { e.stopPropagation(); onEditChannel(c); }}><Ico n="gear" s={11} /></span>}
+          {owner && <button type="button" className="ch-gear" title="Move up"
+            onClick={(e) => { e.stopPropagation(); onMoveChannel?.(c, -1); }}><Ico n="up" s={11} /></button>}
+          {owner && <button type="button" className="ch-gear" title="Move down"
+            onClick={(e) => { e.stopPropagation(); onMoveChannel?.(c, 1); }}><Ico n="down" s={11} /></button>}
+          {owner && <button type="button" className="ch-gear" title="Edit channel"
+            onClick={(e) => { e.stopPropagation(); onEditChannel(c); }}><Ico n="gear" s={11} /></button>}
         </div>
         {vroom.length > 0 && (
           <div className="ch-voice">
@@ -190,11 +190,11 @@ export function ServerSidebar({ server, channel, me, voice, onJoinVoice, onChann
               ? <img src={api.fileUrl(server.icon_file)} alt="" onError={() => setImgErr(true)}
                   style={{ width: 18, height: 18, borderRadius: 5, verticalAlign: "-3px", marginRight: 4 }} />
               : server.icon} {server.name}
-            <span className="srv-gear" title={srvMuted ? "Unmute server" : "Mute server"}
+            <button type="button" className="srv-gear" title={srvMuted ? "Unmute server" : "Mute server"}
               style={srvMuted ? { opacity: 1 } : undefined}
-              onClick={(e) => { e.stopPropagation(); onToggleSrvMute?.(server); }}>{srvMuted ? <Ico n="bellOff" s={13} /> : <Ico n="bell" s={13} />}</span>
-            <span className="srv-gear" title={owner ? "Server settings" : "Leave server"}
-              onClick={() => onServerSettings(server)}>{owner ? <Ico n="gear" s={13} /> : <Ico n="logout" s={13} />}</span></div>
+              onClick={(e) => { e.stopPropagation(); onToggleSrvMute?.(server); }}>{srvMuted ? <Ico n="bellOff" s={13} /> : <Ico n="bell" s={13} />}</button>
+            <button type="button" className="srv-gear" title={owner ? "Server settings" : "Leave server"}
+              onClick={() => onServerSettings(server)}>{owner ? <Ico n="gear" s={13} /> : <Ico n="logout" s={13} />}</button></div>
           <div className="sub" style={{ cursor: "pointer" }} onClick={copyInvite}
             title="Click to copy invite link">
             invite: <code>{server.invite_code}</code> {copied && "· link copied!"}
@@ -207,28 +207,42 @@ export function ServerSidebar({ server, channel, me, voice, onJoinVoice, onChann
           <span className="txt">Events</span>
           {evCount > 0 && <span className="cnt">{evCount}</span>}
         </div>
-        <div className="side-group">Text channels
+        <div className="side-group">
+          <span>Text channels</span>
           <span className="ch-cnt">{text.length}</span>
-          <span className="add" onClick={() => onAddChannel("text")}><Ico n="plus" s={13} /></span></div>
+          <span className="group-actions" style={{ display: "inline-flex", alignItems: "center", gap: 3 }}>
+            {owner && <button type="button" className="add" title="Create category" onClick={() => onAddCategory?.()}><Ico n="folderPlus" s={12} /></button>}
+            <button type="button" className="add" title="Add text channel" onClick={() => onAddChannel("text")}><Ico n="plus" s={13} /></button>
+          </span>
+        </div>
         {uncategorized.map((c) => chRow(c, false))}
         {cats.map((cat) => (
           <React.Fragment key={cat}>
             <div className="side-group cat" onClick={() => toggleCat(cat)}>
-              <span className={`cat-arrow ${collapsed.has(cat) ? "" : "open"}`}>▾</span> {cat}
+              <span className={`cat-arrow ${collapsed.has(cat) ? "" : "open"}`}>▾</span>
+              <span className="cat-name">{cat}</span>
+              {owner && (
+                <span className="cat-actions" onClick={(e) => e.stopPropagation()}>
+                  <button type="button" className="add" title={`New channel under ${cat}`}
+                    onClick={() => onAddChannel("text", cat)}><Ico n="plus" s={13} /></button>
+                  <button type="button" className="ch-gear" title="Category settings"
+                    onClick={() => onCategorySettings?.(cat)}><Ico n="gear" s={11} /></button>
+                </span>
+              )}
             </div>
             {!collapsed.has(cat) && text.filter((c) => c.category === cat).map((c) => chRow(c, false))}
           </React.Fragment>
         ))}
         <div className="side-group">Agent channels
           <span className="ch-cnt">{agentCh.length}</span>
-          <span className="add" onClick={() => onAddChannel("agents")}><Ico n="plus" s={13} /></span></div>
+          <button type="button" className="add" title="Add agent channel" onClick={() => onAddChannel("agents")}><Ico n="plus" s={13} /></button></div>
         {agentCh.map((c) => chRow(c, true))}
         {(workspaces.length > 0 || owner) && (
           <>
             <div className="side-group">Workspaces
               <span className="ch-cnt">{workspaces.length}</span>
-              {owner && <span className="add" title="Link a folder on this machine"
-                onClick={() => onNewWorkspace?.()}><Ico n="plus" s={13} /></span>}</div>
+              {owner && <button type="button" className="add" title="Link a folder on this machine"
+                onClick={() => onNewWorkspace?.()}><Ico n="plus" s={13} /></button>}</div>
             {workspaces.map((w) => (
               <div key={w.id} className={`nav-item ws-nav ${activeWs === w.id ? "on" : ""}`}
                 onClick={() => onWorkspace?.(w)} title={`${w.root} — ${w.files} files`}>

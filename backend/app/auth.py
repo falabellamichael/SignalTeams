@@ -5,6 +5,7 @@ import secrets
 
 from fastapi import Depends, HTTPException, Request
 
+from .config import ADMINS
 from .db import db
 
 _ITER = 120_000
@@ -62,6 +63,15 @@ async def current_user(request: Request):
         if not row:
             raise HTTPException(401, "Not authenticated")
         return dict(row)
+
+
+async def require_admin(request: Request):
+    """Site-admin gate. Env-listed names (AGENTHIVE_ADMINS) always pass —
+    they're permanent — otherwise the users.is_admin flag decides."""
+    user = await current_user(request)
+    if user.get("is_admin") or user["username"].lower() in ADMINS:
+        return user
+    raise HTTPException(403, "Site admins only")
 
 
 async def optional_user(request: Request):

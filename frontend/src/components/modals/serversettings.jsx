@@ -15,6 +15,7 @@ const AUDIT_LABEL = {
   "role.create": "created role", "role.delete": "deleted role",
   "channel.create": "created channel", "channel.update": "edited channel",
   "channel.delete": "deleted channel", "channel.reorder": "reordered channels",
+  "category.update": "edited category", "category.delete": "deleted category", "category.roles": "synced category roles",
   "emoji.create": "added emoji", "emoji.delete": "removed emoji",
   "hook.create": "added webhook", "hook.update": "edited webhook",
   "hook.rotate": "rotated webhook", "hook.delete": "deleted webhook",

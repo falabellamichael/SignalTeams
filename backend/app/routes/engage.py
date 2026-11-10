@@ -9,7 +9,7 @@ from ..db import db, now
 from ..hub import hub
 
 from ..helpers import (_fmt_due, _gated_channel, _server_llm, _user_llm, audit,
-                       can_see_agent, channel_member_ids, public_user)
+                       can_see_agent, can_use_agent, channel_member_ids, public_user)
 from ..schemas import EventIn, KnockIn, ReminderIn, SummarizeIn
 from ..services import (REMIND_BOT, _agent_cool, _reply_cancel, _server_changed,
                         _summarize_task,
@@ -300,7 +300,7 @@ async def huddle(cid: int, user=Depends(current_user)):
             raise HTTPException(400, "No messages yet — say something first")
         visible = {a["id"]: a["name"] for a in
                    conn.execute("SELECT * FROM agents").fetchall()
-                   if can_see_agent(conn, a, user["id"])}
+                   if can_use_agent(conn, a, user["id"])}
     summoned = []
     for i, aid in enumerate([a for a in roster if a in visible]):
         k = (aid, cid)
@@ -319,7 +319,7 @@ async def huddle(cid: int, user=Depends(current_user)):
     return {"summoned": summoned}
 
 
-AI_FLAG_KEYS = ("web", "stt", "tts", "vision", "translate", "summarize")
+AI_FLAG_KEYS = ("web", "stt", "tts", "vision", "translate", "summarize", "github")
 
 
 @router.patch("/api/channels/{cid}/ai")

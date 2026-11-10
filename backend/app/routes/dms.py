@@ -4,7 +4,7 @@ from ..auth import current_user
 from ..db import db, now
 from ..hub import hub
 
-from ..helpers import agent_bot_user, can_see_agent, is_blocked, public_user
+from ..helpers import agent_bot_user, can_see_agent, can_use_agent, is_blocked, public_user
 from ..schemas import AgentDmAddIn, DmRenameIn, GroupDmIn
 from ..services import bot_post
 
@@ -104,7 +104,7 @@ async def add_agent_to_dm(cid: int, body: AgentDmAddIn, user=Depends(current_use
         if user["id"] not in members:
             raise HTTPException(403, "Not a member")
         a = conn.execute("SELECT * FROM agents WHERE id=?", (body.agent_id,)).fetchone()
-        if not a or not can_see_agent(conn, a, user["id"]):
+        if not a or not can_use_agent(conn, a, user["id"]):
             raise HTTPException(404, "No such agent")
         bot = agent_bot_user(conn, a)
         if bot["id"] in members:
@@ -184,7 +184,7 @@ def open_agent_dm(aid: int, user=Depends(current_user)):
     """1:1 DM with an agent's bot user — every message auto-summons it."""
     with db() as conn:
         a = conn.execute("SELECT * FROM agents WHERE id=?", (aid,)).fetchone()
-        if not a or not can_see_agent(conn, a, user["id"]):
+        if not a or not can_use_agent(conn, a, user["id"]):
             raise HTTPException(404, "No such agent")
         other = agent_bot_user(conn, a)
         row = conn.execute(

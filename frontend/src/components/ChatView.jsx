@@ -23,7 +23,7 @@ function _nonLatin(s) {
   return latin / t.length < 0.5;
 }
 
-export default function ChatView({ channel, server, onDm, members, me, emojis, roles, channels = [], onAgentOpen, onPackOpen, onShareAgent, onUserOpen, onForward, onFwdJump, focusMsg, newSince = 0, onGroupAdd, onGroupRename, blocked, onMarkUnread, onWorkspace, onEditChannel }) {
+export default function ChatView({ channel, server, onDm, members, me, emojis, roles, channels = [], onAgentOpen, onPackOpen, onShareAgent, onUserOpen, onForward, onFwdJump, focusMsg, newSince = 0, onGroupAdd, onGroupRename, blocked, onMarkUnread, onWorkspace, onEditChannel, memOpen, onMembersClose }) {
   const [msgs, setMsgs] = useState([]);
   const [draft, setDraft] = useState("");
   const [atts, setAtts] = useState([]);
@@ -113,6 +113,25 @@ export default function ChatView({ channel, server, onDm, members, me, emojis, r
   const [vsSels, setVsSels] = useState({});       // picked feed index per card
   useEffect(() => onVoice(setVoice), []);
   useEffect(() => { if (voice.err) setSendErr(voice.err); }, [voice.err]);
+
+  // resizable member list (right panel) — width persists per app, like the sidebar
+  const [memW, setMemW] = useState(() =>
+    +(localStorage.getItem("st.memw") || 190));
+  useEffect(() => { localStorage.setItem("st.memw", String(memW)); }, [memW]);
+  function startMemDrag(e) {
+    e.preventDefault();
+    const startX = e.clientX, startW = memW;
+    document.body.classList.add("col-resizing");
+    const move = (ev) =>
+      setMemW(Math.min(420, Math.max(160, startW - (ev.clientX - startX))));
+    const up = () => {
+      document.body.classList.remove("col-resizing");
+      window.removeEventListener("mousemove", move);
+      window.removeEventListener("mouseup", up);
+    };
+    window.addEventListener("mousemove", move);
+    window.addEventListener("mouseup", up);
+  }
   async function joinCall() {
     try { await joinVoice(channel.id, me); }
     catch (e) { console.warn("voice join failed:", e); setSendErr("No mic access — allow microphone to join voice"); }
@@ -1107,8 +1126,12 @@ export default function ChatView({ channel, server, onDm, members, me, emojis, r
             onClick={(e) => e.stopPropagation()} />
         </div>
       )}
+      {memOpen && members && members.length > 0 && (
+        <div className="mem-scrim" onClick={() => onMembersClose?.()} />)}
       {members && members.length > 0 && (
-        <div className="members">
+        <div className={`members${memOpen ? " open" : ""}`} style={{ width: memW }}>
+          <div className="side-drag" onMouseDown={startMemDrag}
+            title="Drag to resize the member list" />
           {channel.kind === "dm" && (channel.members || []).length > 1 && (
             <div className="mgroup gdm-tools">
               <span>Group DM</span>

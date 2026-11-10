@@ -16,7 +16,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from ..auth import current_user
 from ..db import db, emit_buzz, now
 from ..hub import hub
-from ..helpers import audit, can_see_agent, channel_member_ids, hook_bot_user, is_blocked, message_json
+from ..helpers import audit, can_see_agent, can_use_agent, channel_member_ids, hook_bot_user, is_blocked, message_json
 from ..services import _agent_cool, agent_reply
 
 router = APIRouter()
@@ -294,7 +294,7 @@ async def post_hook(token: str, request: Request):
             for a in conn.execute("SELECT * FROM agents ORDER BY id").fetchall():
                 slug = re.sub(r"[^a-z0-9]+", "", a["name"].lower())
                 if slug in {re.sub(r"[^a-z0-9]+", "", n) for n in cand} \
-                        and can_see_agent(conn, a, h["creator_id"]):
+                        and can_use_agent(conn, a, h["creator_id"]):
                     if slug not in seen or a["owner_id"] == h["creator_id"]:
                         seen[slug] = a
             hit_agents = [dict(a) for a in seen.values()]

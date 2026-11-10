@@ -21,6 +21,10 @@ backend/*.db-*
 /agenthive.db
 backend/uploads/
 
+# nexus mesh — SDK binary + node identity/state (fetch.py downloads the SDK)
+backend/nexus/*
+!backend/nexus/fetch.py
+
 # logs
 *.log
 

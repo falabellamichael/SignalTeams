@@ -884,7 +884,8 @@ _TOOL_NAMES = frozenset((
     "list_files", "read_file", "search_files", "file_info",
     "write_file", "edit_file", "delete_file", "move_file",
     "make_dir", "run_command",
-    "web_search", "web_fetch"))
+    "web_search", "web_fetch",
+    "plugin"))
 
 
 def _json_spans(text):
@@ -962,6 +963,10 @@ def _call_items(d, out):
         if not isinstance(it, dict):
             continue
         name = it.get("tool") or it.get("name") or it.get("function")
+        if not name and isinstance(it.get("plugin"), str):
+            # bare {"plugin":"github","action":"search",…} shorthand — the
+            # whole dict becomes args via the extras hoisting below
+            name = "plugin"
         raw = it.get("args") or it.get("arguments") or it.get("parameters") \
             or it.get("input") or {}
         args = raw

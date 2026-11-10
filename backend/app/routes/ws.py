@@ -19,7 +19,7 @@ async def ws_endpoint(ws: WebSocket, token: str = ""):
             await ws.close(code=4401)
             return
         uid = u["id"]
-        conn.execute("UPDATE users SET status='online' WHERE id=?", (uid,))
+        conn.execute("UPDATE users SET status='online' WHERE id=? AND status='offline'", (uid,))
     await hub.connect(uid, ws)
     try:
         while True:
@@ -131,7 +131,10 @@ async def ws_endpoint(ws: WebSocket, token: str = ""):
     finally:
         hub.disconnect(uid, ws)
         with db() as conn:
-            conn.execute("UPDATE users SET status='offline' WHERE id=?", (uid,))
+            # only flip to offline once the user's LAST socket is gone — other
+            # tabs/devices keep them online
+            if uid not in hub.sockets:
+                conn.execute("UPDATE users SET status='offline' WHERE id=?", (uid,))
             for cid, roster in hub.voice_leave_ws(uid, ws):
                 ch = conn.execute("SELECT * FROM channels WHERE id=?", (cid,)).fetchone()
                 if ch:

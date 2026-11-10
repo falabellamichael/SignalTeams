@@ -332,6 +332,97 @@ def _temp(t):
         return 0.7
 
 
+_mod_cache = {"t": 0.0, "url": "", "mods": {}}
+
+_MOD_TOKEN_MAP = (
+    (("tts", "kokoro", "orpheus", "piper"), "tts"),
+    (("whisper", "stt", "moonshine"), "stt"),
+    (("embed", "bge-", "e5-", "gte-"), "embedding"),
+    (("sd-turbo", "sd-", "flux", "stable-diffusion"), "image"),
+)
+
+
+def modality_models(endpoint):
+    """Non-chat models an OpenAI-compatible endpoint exposes, grouped by
+    modality: {'tts': [ids], 'stt': [...], 'embedding': [...], 'image': [...]}.
+    Uses declared `modality`/`type`/`labels` first, model-id tokens as fallback.
+    Cached 60s per base URL."""
+    if not endpoint or not endpoint.get("url") \
+            or (endpoint.get("kind") or "openai") != "openai":
+        return {}
+    base = _oai_base(endpoint["url"])
+    if _mod_cache["mods"] and _mod_cache["url"] == base \
+            and time.time() - _mod_cache["t"] < 60:
+        return _mod_cache["mods"]
+    try:
+        d = _get(f"{base}/models", timeout=8,
+                 key=endpoint.get("key"), extra=_ep_headers(endpoint))
+    except Exception:
+        return {}
+    out = {}
+    for m in d.get("data") or []:
+        if not isinstance(m, dict) or not m.get("id"):
+            continue
+        mod = str(m.get("modality") or m.get("type") or "").lower()
+        labels = {str(x).lower() for x in (m.get("labels") or []) if x}
+        bucket = ""
+        for want in ("tts", "stt", "embedding", "image"):
+            if mod == want or want in labels or \
+                    (want == "embedding" and "embeddings" in labels) or \
+                    (want == "tts" and "speech" in labels):
+                bucket = want
+                break
+        if not bucket:
+            mid = str(m["id"]).lower()
+            for toks, want in _MOD_TOKEN_MAP:
+                if any(t in mid for t in toks):
+                    bucket = want
+                    break
+        if bucket:
+            out.setdefault(bucket, []).append(str(m["id"]))
+    _mod_cache.update(t=time.time(), url=base, mods=out)
+    return out
+
+
+def tts_speech(endpoint, text, voice=None, model=None):
+    """POST /audio/speech on an OpenAI-compatible endpoint.
+    Returns (audio_bytes, content_type, model_used).
+    Raises RuntimeError when the endpoint exposes no TTS model."""
+    mods = modality_models(endpoint)
+    use = (model or "").strip() or (mods.get("tts") or [""])[0]
+    if not use:
+        raise RuntimeError("endpoint exposes no TTS model")
+    hdrs = {"User-Agent": DEFAULT_UA, "Content-Type": "application/json",
+            **_ep_headers(endpoint)}
+    if endpoint.get("key") and "Authorization" not in hdrs \
+            and "authorization" not in hdrs:
+        hdrs["Authorization"] = f"Bearer {endpoint['key']}"
+    payload = {"model": use, "input": (text or "")[:4096],
+               "response_format": "mp3"}
+    if voice:
+        payload["voice"] = voice
+    req = urllib.request.Request(
+        f"{_oai_base(endpoint['url'])}/audio/speech",
+        data=json.dumps(payload).encode(), headers=hdrs, method="POST")
+    with urllib.request.urlopen(req, timeout=45) as r:
+        return r.read(), r.headers.get("Content-Type") or "audio/mpeg", use
+
+
+def embed_texts(endpoint, texts):
+    """POST /embeddings with the endpoint's detected embedding model.
+    Returns the response payload plus `_model` = the model used."""
+    mods = modality_models(endpoint)
+    use = (mods.get("embedding") or [""])[0]
+    if not use:
+        raise RuntimeError("endpoint exposes no embedding model")
+    d = _post(f"{_oai_base(endpoint['url'])}/embeddings",
+              {"model": use,
+               "input": [str(t)[:8000] for t in (texts or [])][:32]},
+              45, endpoint.get("key"), _ep_headers(endpoint))
+    d["_model"] = use
+    return d
+
+
 def chat(system_prompt, history, message, model=None, provider=None, temperature=None,
          endpoint=None):
     """Return (reply, provider, model). Raises RuntimeError if all providers fail."""
