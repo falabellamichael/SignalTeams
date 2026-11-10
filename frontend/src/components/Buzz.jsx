@@ -1,6 +1,6 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { api } from "../api";
-import { timeAgo } from "../util";
+import { Avatar, timeAgo } from "../util";
 import Ico from "./Ico";
 
 const ICONS = {
@@ -34,13 +34,22 @@ function line(item, onUser) {
 }
 
 const FILTERS = [
-  ["all", "All"], ["agents", "🧰 Agents"], ["people", "👥 People"], ["activity", "✦ Activity"],
+  ["all", "All"], ["agents", "Agents"], ["people", "People"], ["activity", "Activity"],
 ];
 const GROUPS = {
   agents: ["published", "starred", "installed", "forked", "packed", "remixed", "reviewed"],
   people: ["joined", "friended"],
   activity: ["answered", "shared"],
 };
+const inGroup = (g, i) => g === "all" || GROUPS[g]?.includes(i.kind);
+
+function dayLabel(ts) {
+  const today = new Date().setHours(0, 0, 0, 0);
+  const days = Math.round((today - new Date(ts * 1000).setHours(0, 0, 0, 0)) / 86400000);
+  if (days <= 0) return "Today";
+  if (days === 1) return "Yesterday";
+  return days < 7 ? "This week" : "Earlier";
+}
 
 export default function Buzz({ refreshKey, onOpenAgent, onOpenPack, onOpenChannel, onUser }) {
   const [items, setItems] = useState([]);
@@ -48,7 +57,16 @@ export default function Buzz({ refreshKey, onOpenAgent, onOpenPack, onOpenChanne
   useEffect(() => {
     api.buzz().then((all) => setItems(all.filter((i) => i.kind !== "mentioned"))).catch(() => {});
   }, [refreshKey]);
-  const shown = filter === "all" ? items : items.filter((i) => GROUPS[filter]?.includes(i.kind));
+  const shown = items.filter((i) => inGroup(filter, i));
+  const sections = useMemo(() => {
+    const out = [];
+    for (const i of shown) {
+      const label = dayLabel(i.created_at);
+      if (out[out.length - 1]?.label !== label) out.push({ label, rows: [] });
+      out[out.length - 1].rows.push(i);
+    }
+    return out;
+  }, [items, filter]);
 
   function openItem(i) {
     const p = i.payload || {};
@@ -58,42 +76,59 @@ export default function Buzz({ refreshKey, onOpenAgent, onOpenPack, onOpenChanne
   }
 
   return (
-    <div className="buzz">
+    <div className="buzz buzz-feed">
       <div className="buzz-inner">
-      <div className="lib-head"><h2>The <span className="serif">Buzz</span></h2></div>
-      <div className="lib-sub">What your friends have been up to — fresh drops, stars, new faces.</div>
-      <div className="seg" style={{ margin: "8px 0 14px", width: "fit-content" }}>
-        {FILTERS.map(([k, l]) => (
-          <button key={k} className={filter === k ? "on" : ""}
-            onClick={() => setFilter(k)}>{l}</button>
-        ))}
-      </div>
-      {shown.length === 0 && items.length > 0 && (
-        <div className="idehint" style={{ padding: "12px 4px" }}>Nothing in this lane yet.</div>)}
-      {items.length === 0 && (
-        <div className="empty"><div className="big">🐝</div>
-          <div className="serif">All quiet.</div>
-          <div>When your friends publish or bench agents, it'll show up here.</div>
-        </div>
-      )}
-      {shown.map((i) => {
-        const p = i.payload || {};
-        const clickable = !!(p.pack_id || p.agent_id || p.channel_id);
-        return (
-          <div className={`buzz-item ${clickable ? "clickable" : ""}`} key={i.id}
-            onClick={() => clickable && openItem(i)}>
-            <div className="bicon" style={{ borderColor: `${i.user.avatar_color}66` }}
-              onClick={(e) => { if (onUser) { e.stopPropagation(); onUser(i.user, e); } }}>
-              {ICONS[i.kind] || "•"}
-            </div>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div className="bt">{line(i, onUser)}</div>
-              <div className="when">{timeAgo(i.created_at)} · {i.user.avatar_emoji} @{i.user.username}</div>
-            </div>
-            {clickable && <span className="buzz-go" title="Open"><Ico n="caretR" s={13} /></span>}
+        <div className="buzz-head">
+          <div>
+            <h2>The <span className="serif">Buzz</span></h2>
+            <div className="buzz-sub">What your friends have been up to — fresh drops, stars, new faces.</div>
           </div>
-        );
-      })}
+          {items.length > 0 && (
+            <div className="buzz-count"><b>{items.length}</b> update{items.length === 1 ? "" : "s"}</div>)}
+        </div>
+        <div className="buzz-tabs">
+          {FILTERS.map(([k, l]) => (
+            <button key={k} className={filter === k ? "on" : ""} onClick={() => setFilter(k)}>
+              {l}<span className="n">{items.filter((i) => inGroup(k, i)).length}</span>
+            </button>
+          ))}
+        </div>
+        {shown.length === 0 && items.length > 0 && (
+          <div className="idehint" style={{ padding: "12px 4px" }}>Nothing in this lane yet.</div>)}
+        {items.length === 0 && (
+          <div className="empty"><div className="big">🐝</div>
+            <div className="serif">All quiet.</div>
+            <div>When your friends publish or bench agents, it'll show up here.</div>
+          </div>
+        )}
+        {sections.map((sec) => (
+          <section className="buzz-sec" key={sec.label}>
+            <div className="buzz-day"><span>{sec.label}</span><i>{sec.rows.length}</i></div>
+            <div className="buzz-list">
+              {sec.rows.map((i) => {
+                const p = i.payload || {};
+                const clickable = !!(p.pack_id || p.agent_id || p.channel_id);
+                return (
+                  <div className={`buzz-item ${clickable ? "clickable" : ""}`} key={i.id}
+                    data-kind={i.kind} onClick={() => clickable && openItem(i)}>
+                    <div className="buzz-av"
+                      onClick={(e) => { if (onUser) { e.stopPropagation(); onUser(i.user, e); } }}>
+                      <Avatar user={i.user} />
+                      <span className="buzz-kind">{ICONS[i.kind] || "•"}</span>
+                    </div>
+                    <div className="buzz-body">
+                      <div className="bt">{line(i, onUser)}</div>
+                      <div className="when">@{i.user.username}</div>
+                    </div>
+                    <div className="buzz-time">{timeAgo(i.created_at)}</div>
+                    <span className="buzz-go" title="Open">
+                      {clickable && <Ico n="caretR" s={13} />}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+        ))}
       </div>
     </div>
   );

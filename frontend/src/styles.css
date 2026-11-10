@@ -1095,23 +1095,55 @@ a.de-title:hover { text-decoration: underline; }
   border: 1px solid var(--border); color: var(--dim); }
 
 /* ---------- buzz feed ---------- */
-/* .buzz scrolls at full pane width (scrollbar on the window edge);
-   the feed itself is a centered reading column */
-.buzz { flex: 1; overflow-y: auto; padding: 18px 22px; }
-.buzz-inner { max-width: 820px; margin: 0 auto; }
-.buzz-item { display: flex; align-items: center; gap: 11px; padding: 11px 10px;
-  border-bottom: 1px solid var(--border); border-radius: 8px; transition: background .12s; }
+.buzz { flex: 1; overflow-y: auto; padding: 18px 22px; max-width: 720px; }
+/* the feed pane scrolls at full width; its content is a top-left column */
+.buzz.buzz-feed { max-width: none; padding-top: 22px; padding-bottom: 28px; }
+.buzz-inner { max-width: 720px; }
+.buzz-head { display: flex; align-items: flex-end; justify-content: space-between;
+  gap: 16px; margin-bottom: 16px; }
+.buzz-head h2 { margin: 0; font-size: 24px; letter-spacing: -.01em; }
+.buzz-head .serif { color: var(--honey); }
+.buzz-sub { color: var(--dim); font-size: 12.5px; margin-top: 4px; }
+.buzz-count { font-size: 11.5px; color: var(--dim); white-space: nowrap;
+  padding: 4px 10px; border: 1px solid var(--border); border-radius: 999px; }
+.buzz-count b { color: var(--fg); font-weight: 600; }
+.buzz-tabs { display: flex; gap: 6px; padding-bottom: 14px; margin-bottom: 4px;
+  border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+.buzz-tabs button { display: inline-flex; align-items: center; gap: 7px;
+  padding: 5px 12px; border-radius: 999px; font-size: 12.5px; cursor: pointer;
+  color: var(--dim); background: none; border: 1px solid transparent; }
+.buzz-tabs button:hover { background: var(--hover); color: var(--fg); }
+.buzz-tabs button.on { background: var(--sel2); border-color: var(--selb); color: var(--fg); }
+.buzz-tabs .n { font-size: 10.5px; color: var(--dim); font-variant-numeric: tabular-nums; }
+.buzz-day { display: flex; align-items: center; gap: 8px; margin: 18px 0 8px;
+  font-size: 10.5px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase;
+  color: var(--dim); }
+.buzz-day i { font-style: normal; font-weight: 600; letter-spacing: 0; padding: 0 6px;
+  border-radius: 999px; background: var(--panel2); }
+.buzz-day::after { content: ""; flex: 1; height: 1px; background: var(--border); }
+.buzz-list { border: 1px solid var(--border); border-radius: 12px; background: var(--panel);
+  overflow: hidden; }
+.buzz-item { display: flex; align-items: center; gap: 12px; padding: 10px 14px;
+  transition: background .12s; }
+.buzz-item + .buzz-item { border-top: 1px solid var(--border); }
 .buzz-item.clickable { cursor: pointer; }
 .buzz-item.clickable:hover { background: var(--hover); }
-.buzz-go { color: var(--dim); opacity: 0; transition: opacity .15s, transform .15s; display: inline-flex; }
-.buzz-item.clickable:hover .buzz-go { opacity: 1; color: var(--honey); transform: translateX(2px); }
-.buzz-item .bicon { width: 34px; height: 34px; border-radius: 50%; background: var(--panel);
-  display: flex; align-items: center; justify-content: center; font-size: 16px;
-  border: 1px solid var(--border); flex-shrink: 0; }
-.buzz-item .bt { font-size: 13px; }
+.buzz-av { position: relative; flex-shrink: 0; cursor: pointer; }
+.buzz-kind { position: absolute; right: -5px; bottom: -4px; width: 17px; height: 17px;
+  border-radius: 50%; display: flex; align-items: center; justify-content: center;
+  font-size: 9px; line-height: 1; background: var(--panel2);
+  border: 1.5px solid var(--panel); }
+.buzz-body { flex: 1; min-width: 0; }
+.buzz-item .bt { font-size: 13px; line-height: 1.35; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; }
 .buzz-item .bt b { font-weight: 600; }
 .buzz-item .bt .hl { color: var(--honey); font-weight: 600; }
-.buzz-item .when { font-size: 10.5px; color: var(--dim); }
+.buzz-item .when { font-size: 11px; color: var(--dim); margin-top: 1px; }
+.buzz-time { font-size: 11px; color: var(--dim); white-space: nowrap;
+  font-variant-numeric: tabular-nums; }
+.buzz-go { width: 13px; color: var(--dim); opacity: 0; display: inline-flex;
+  transition: opacity .15s, transform .15s; }
+.buzz-item.clickable:hover .buzz-go { opacity: 1; color: var(--honey); transform: translateX(2px); }
 
 /* ---------- friends ---------- */
 .friends { flex: 1; overflow-y: auto; padding: 18px 22px; max-width: 760px; }
