@@ -59,6 +59,7 @@ export default function Buzz({ refreshKey, onOpenAgent, onOpenPack, onOpenChanne
 
   return (
     <div className="buzz">
+      <div className="buzz-inner">
       <div className="lib-head"><h2>The <span className="serif">Buzz</span></h2></div>
       <div className="lib-sub">What your friends have been up to — fresh drops, stars, new faces.</div>
       <div className="seg" style={{ margin: "8px 0 14px", width: "fit-content" }}>
@@ -93,6 +94,7 @@ export default function Buzz({ refreshKey, onOpenAgent, onOpenPack, onOpenChanne
           </div>
         );
       })}
+      </div>
     </div>
   );
 }
