@@ -158,7 +158,8 @@ a { color: var(--accent); text-decoration: none; }
 }
 
 /* ---------- app shell ---------- */
-.app { display: flex; height: 100vh; height: 100dvh; overflow: hidden; }
+.app { display: flex; flex-direction: column; height: 100vh; height: 100dvh; overflow: hidden; }
+.app-body { display: flex; flex: 1; min-height: 0; }
 
 /* rail — far left, server icons */
 .rail { width: 68px; flex-shrink: 0; background: var(--bg2); display: flex;

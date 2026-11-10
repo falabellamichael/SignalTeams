@@ -894,6 +894,7 @@ export default function App() {
 
   return (
     <div className="app">
+      <div className="app-body">
       <Rail servers={servers} active={server ? server.id : "home"}
         onHome={goHome} onServer={pickServer}
         onNewServer={() => setModal({ kind: "server" })}
@@ -967,13 +968,6 @@ export default function App() {
             }}
           />
         )}
-        <MeBar
-          me={{ ...me, online: true }}
-          voice={voice}
-          onSettings={() => setModal({ kind: "settings" })}
-          onToggleMute={toggleVoiceMute}
-          onToggleDeafen={toggleDeafen}
-        />
       </div>
       {sideOpen && <div className="side-scrim" onClick={() => setSideOpen(false)} />}
       <div className="main">
@@ -1032,6 +1026,15 @@ export default function App() {
         })()}
         {main}
       </div>
+      </div>
+
+      <MeBar
+        me={{ ...me, online: true }}
+        voice={voice}
+        onSettings={() => setModal({ kind: "settings" })}
+        onToggleMute={toggleVoiceMute}
+        onToggleDeafen={toggleDeafen}
+      />
 
       <Suspense fallback={null}>
       {modal?.kind === "agent" && (
