@@ -23,11 +23,21 @@ class WatchWearService : WearableListenerService() {
         handleMessage(this, ev)
 
     companion object {
+        /** Manifest + runtime listeners can BOTH fire for one message —
+         *  identical (node, path, data) inside the window is a redelivery,
+         *  not a second message. Without this every stream token appends twice. */
+        private val recentMsgs = java.util.concurrent.ConcurrentHashMap<String, Long>()
+        private const val DEDUP_MS = 1_500L
+
         /** Shared by the manifest listener and the runtime
          *  MessageClient.addListener in MeshService — Wear OS refuses
          *  manifest delivery to sideloaded apps (trusted-peer gate)
          *  but runtime listeners ride a live binder and work. */
         fun handleMessage(ctx: android.content.Context, ev: MessageEvent) {
+            val now = android.os.SystemClock.elapsedRealtime()
+            val key = "${ev.sourceNodeId}|${ev.path}|${ev.data.contentHashCode()}"
+            if (now - (recentMsgs.put(key, now) ?: Long.MIN_VALUE) < DEDUP_MS) return
+            if (recentMsgs.size > 64) recentMsgs.entries.removeAll { now - it.value > 30_000 }
             android.util.Log.i("WatchWearService",
                 "msg ${ev.path} (${ev.data.size}B) from ${ev.sourceNodeId}")
             ctx.apply {
