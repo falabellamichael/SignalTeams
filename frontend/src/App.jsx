@@ -1,4 +1,4 @@
-import React, { Suspense, lazy, useCallback, useEffect, useRef, useState } from "react";
+import React, { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Ico from "./components/Ico";
 import KnotMark from "./components/KnotMark";
 import { api, getToken, setToken } from "./api";
