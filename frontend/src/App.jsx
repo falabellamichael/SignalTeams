@@ -309,6 +309,18 @@ export default function App() {
     }
   }, [server?.id]);
 
+  // Trailing 3s coalescer for refreshLists on live message events — a
+  // channel burst used to refetch servers+dms+friends+blocks+detail per
+  // message.
+  const listTimer = useRef(null);
+  const refreshListsSoon = useCallback(() => {
+    if (listTimer.current) return;
+    listTimer.current = setTimeout(() => {
+      listTimer.current = null;
+      refreshLists();
+    }, 3000);
+  }, [refreshLists]);
+
   // build channel→server map for badges on all servers (small N, friends-scale)
   const fullServers = useRef({});
   useEffect(() => {
@@ -375,7 +387,10 @@ export default function App() {
             setMentions((mp) => ({ ...mp, [evt.channel_id]: (mp[evt.channel_id] || 0) + 1 }));
         }
         maybeNotify(evt);
-        refreshLists();
+        // refreshLists is 5-6 HTTP calls — the unread/mention badges above
+        // already reflect the message, so only the DM ordering needs the
+        // resync; a trailing debounce collapses bursts into one pull.
+        refreshListsSoon();
       } else if (evt.type === "message_deleted") {
         const ch = channelRef.current;
         if (ch && ch.id === evt.channel_id && ch._onDel) ch._onDel(evt.id);
