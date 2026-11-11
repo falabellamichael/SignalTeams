@@ -71,16 +71,21 @@ object WatchRinger {
         val parts = text.split('', limit = 2)
         if (parts.size == 2)
             post(ctx.applicationContext, parts[1], false,
-                key = parts[0], id = NOTIF_ID + 1 + (parts[0].hashCode() and 0xff))
+                key = parts[0], id = NOTIF_ID + 1 + (parts[0].hashCode() and 0x0f))
         else post(ctx.applicationContext, text, false)
     }
+
+    @Volatile private var channelReady = false
 
     private fun post(ctx: Context, text: String, withStop: Boolean,
                      key: String? = null, id: Int = NOTIF_ID) {
         val nm = ctx.getSystemService(NotificationManager::class.java) ?: return
-        nm.createNotificationChannel(
-            NotificationChannel(CHANNEL, "Watch alerts",
-                NotificationManager.IMPORTANCE_HIGH))
+        if (!channelReady) {
+            channelReady = true
+            nm.createNotificationChannel(
+                NotificationChannel(CHANNEL, "Watch alerts",
+                    NotificationManager.IMPORTANCE_HIGH))
+        }
         val open = PendingIntent.getActivity(ctx, 0,
             Intent(ctx, dev.agenthive.watch.MainActivity::class.java)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
