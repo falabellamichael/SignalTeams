@@ -637,6 +637,18 @@
   `app/schemas.py`, serializers/lookups in `app/helpers.py`, async bot/starboard/
   agent-reply/reminder tasks in `app/services.py`, endpoints by domain in
   `app/routes/{auth,friends,servers,dms,messages,engage,agents,playground,packs,hooks,misc,ws}.py`.
+- **Perf conventions (don't regress)**: `db()` is a per-thread connection
+  POOL — nested `with db()` checks out a different conn (transactions stay
+  independent), so never assume nested blocks share state. List endpoints
+  use `*_json_batch` prefetchers (`agents_json_batch`,
+  `messages_json_batch`) — one GROUP BY pass per relation instead of
+  per-row queries (messages page: 166→11). `can_see_agent`/`channel_json`
+  take an optional `fids` set — hoist `friend_ids` once per request when
+  looping. `helpers._v4()` rewrites `http://localhost`→`127.0.0.1` on
+  outbound calls (Windows urllib stalls ~2s on ::1 fallback — LLM
+  endpoints, grounding and web_fetch already route through it).
+  `hub.send_many` serializes once and delivers via `asyncio.gather` —
+  don't reintroduce per-socket dumps or serial awaits.
 - Incoming webhooks live in `app/routes/hooks.py` — `channel_hooks` rows mint
   `/api/hooks/{token}` URLs (owner-only CRUD via `/api/channels/{cid}/webhooks`
   and `/api/webhooks/{wid}`); posts land as `hook:<id>` bot users with optional
