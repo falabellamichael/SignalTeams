@@ -33,12 +33,13 @@ async def ws_endpoint(ws: WebSocket, token: str = ""):
                 cid = int(evt.get("channel_id", 0))
                 with db() as conn:
                     ch = conn.execute("SELECT * FROM channels WHERE id=?", (cid,)).fetchone()
-                    if ch and uid in channel_member_ids(conn, ch):
-                        members = [m for m in channel_member_ids(conn, ch) if m != uid]
-                        await hub.send_many(members, {
-                            "type": "typing", "channel_id": cid,
-                            "user": {"id": uid, "display_name": u["display_name"]},
-                            "on": bool(evt.get("on"))})
+                    members = channel_member_ids(conn, ch) if ch else []
+                # was channel_member_ids ×2 per keystroke — one pass now
+                if uid in members:
+                    await hub.send_many([m for m in members if m != uid], {
+                        "type": "typing", "channel_id": cid,
+                        "user": {"id": uid, "display_name": u["display_name"]},
+                        "on": bool(evt.get("on"))})
             elif t == "status":
                 status = str(evt.get("status", "online"))[:16]
                 with db() as conn:
