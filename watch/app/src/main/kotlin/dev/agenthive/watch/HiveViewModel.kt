@@ -946,19 +946,19 @@ class HiveViewModel(app: Application) : AndroidViewModel(app) {
         // merge into the next sentence instead of chirping alone.
         fun feedSentences(force: Boolean = false) {
             if (!hive.speaker.enabled) return
-            val tail = reply.substring(spokenUpTo)
-            if (!force && tail.length < 24) return
+            if (!force && reply.length - spokenUpTo < 24) return
             val cut = if (force) reply.length else {
-                val m = SENTENCE_END.findAll(tail).lastOrNull()
-                if (m != null) spokenUpTo + m.range.last + 1
+                // findAll(reply, startIndex) — no per-token tail substring.
+                val m = SENTENCE_END.findAll(reply, spokenUpTo).lastOrNull()
+                if (m != null) m.range.last + 1
                 else if (spokenUpTo == 0) {
                     // First audio shouldn't wait out a long opener's full
                     // sentence — cut at the first clause boundary (comma/
                     // semicolon/dash + space) once a speakable clause exists
                     // so kokoro synth starts a beat sooner. Later chunks
                     // keep sentence boundaries; the prosody gap is natural.
-                    val c = CLAUSE_END.find(tail)
-                    if (c != null && c.range.last + 1 >= 16) spokenUpTo + c.range.last + 1
+                    val c = CLAUSE_END.find(reply)
+                    if (c != null && c.range.last + 1 >= 16) c.range.last + 1
                     else return
                 } else return
             }
@@ -997,7 +997,10 @@ class HiveViewModel(app: Application) : AndroidViewModel(app) {
                             }
                             is HiveApi.StreamEvent.Token -> {
                                 reply += ev.text
-                                feedSentences()
+                                // A boundary only completes when whitespace
+                                // lands — skip the scan for mid-word tokens.
+                                if (ev.text.any { it.isWhitespace() })
+                                    feedSentences()
                                 val now = System.currentTimeMillis()
                                 if (now - lastFlush > 75) {
                                     lastFlush = now; patchLast(text = reply)
