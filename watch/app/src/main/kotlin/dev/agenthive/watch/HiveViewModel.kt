@@ -932,7 +932,10 @@ class HiveViewModel(app: Application) : AndroidViewModel(app) {
         msg: String,
         prior: List<Pair<String, String>>,
     ): Triple<String, String, String?> {
-        var reply = ""
+        // StringBuilder — `reply += token` on a String copies the whole
+        // accumulated reply per token (O(N²) + GC churn on a watch CPU).
+        // CharSequence-compatible so the boundary regexes read it directly.
+        val reply = StringBuilder()
         var meta = ""
         var lastFlush = 0L
         var spokenUpTo = 0
@@ -996,14 +999,14 @@ class HiveViewModel(app: Application) : AndroidViewModel(app) {
                                 patchLast(meta = meta)
                             }
                             is HiveApi.StreamEvent.Token -> {
-                                reply += ev.text
+                                reply.append(ev.text)
                                 // A boundary only completes when whitespace
                                 // lands — skip the scan for mid-word tokens.
                                 if (ev.text.any { it.isWhitespace() })
                                     feedSentences()
                                 val now = System.currentTimeMillis()
                                 if (now - lastFlush > 75) {
-                                    lastFlush = now; patchLast(text = reply)
+                                    lastFlush = now; patchLast(text = reply.toString())
                                 }
                             }
                             is HiveApi.StreamEvent.Thinking ->
@@ -1011,10 +1014,11 @@ class HiveViewModel(app: Application) : AndroidViewModel(app) {
                             is HiveApi.StreamEvent.Tool ->
                                 patchLast(meta = "⚙ ${ev.name}${if (ev.ok) "" else " · failed"}")
                             is HiveApi.StreamEvent.Replace -> {
-                                reply = ev.text
+                                reply.setLength(0)
+                                reply.append(ev.text)
                                 spokenUpTo = 0
                                 feedSentences(force = true)
-                                patchLast(text = reply)
+                                patchLast(text = reply.toString())
                             }
                             is HiveApi.StreamEvent.Error -> failed = ev.message
                             HiveApi.StreamEvent.Done -> { sawDone = true; break }
@@ -1031,7 +1035,7 @@ class HiveViewModel(app: Application) : AndroidViewModel(app) {
         }
         feedSentences(force = true)
         if (reply.isBlank()) hive.speaker.feed(failed ?: "")
-        return Triple(reply, meta, failed)
+        return Triple(reply.toString(), meta, failed)
     }
 
     private fun patchLast(text: String? = null, meta: String? = null, pending: Boolean? = null) {
