@@ -107,9 +107,6 @@ class HiveViewModel(app: Application) : AndroidViewModel(app) {
         return deviceAgent!!
     }
 
-    /** True when the utterance is an in-app task ("play X on spotify") —
-     *  needs a task verb AND an installed app's name. Plain "open X" stays
-     *  with DeviceCommands' instant path. */
     /** Launcher labels cache — queryIntentActivities is a PackageManager
      *  binder round trip and deviceGoal runs on every send. */
     @Volatile private var appLabels: Pair<Long, List<String>>? = null
@@ -141,6 +138,9 @@ class HiveViewModel(app: Application) : AndroidViewModel(app) {
         return false
     }
 
+    /** True when the utterance is an in-app task ("play X on spotify") —
+     *  needs a task verb AND an installed app's name. Plain "open X" stays
+     *  with DeviceCommands' instant path. */
     private fun deviceGoal(msg: String): String? {
         val t = msg.lowercase()
         if (t.matches(RX_OPEN_APP)) return null
