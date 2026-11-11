@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import Ico from "./Ico";
 import { api } from "../api";
 import { sendWS } from "../ws";
@@ -138,11 +138,19 @@ export default function ChatView({ channel, server, onDm, members, me, emojis, r
   }
 
   // scroll near the top → pull the next older page (server paginates by id)
-  async function loadOlder() {
-    if (loadingOlder.current || !hasMore || !msgs.length) return;
+  // Latest-value refs — the message handlers passed to memoized <Message>
+  // must keep stable identities or React.memo never skips. Reading state
+  // through refs keeps the callbacks' dep lists at [channel.id] instead of
+  // re-creating on every arrival.
+  const msgsRef = useRef(msgs); msgsRef.current = msgs;
+  const hasMoreRef = useRef(hasMore); hasMoreRef.current = hasMore;
+
+  const loadOlder = useCallback(async () => {
+    const cur = msgsRef.current;
+    if (loadingOlder.current || !hasMoreRef.current || !cur.length) return;
     loadingOlder.current = true;
     const el = listRef.current, prevH = el?.scrollHeight || 0;
-    const older = await api.messages(channel.id, msgs[0].id).catch(() => []);
+    const older = await api.messages(channel.id, cur[0].id).catch(() => []);
     loadingOlder.current = false;
     if (!older.length) { setHasMore(false); return; }
     justPaged.current = true;
@@ -151,7 +159,7 @@ export default function ChatView({ channel, server, onDm, members, me, emojis, r
     requestAnimationFrame(() => {
       if (el) el.scrollTop += el.scrollHeight - prevH;
     });
-  }
+  }, [channel.id]);
 
   function onListScroll() {
     const el = listRef.current;
@@ -161,10 +169,10 @@ export default function ChatView({ channel, server, onDm, members, me, emojis, r
     if (el.scrollTop < 80) loadOlder();
   }
 
-  async function openThread(m) {
+  const openThread = useCallback(async (m) => {
     const t = await api.thread(m.id).catch(() => null);
     if (t) setThread(t);
-  }
+  }, []);
 
   // per-channel composer drafts — switch away and your half-written message waits
   useEffect(() => {
@@ -237,11 +245,11 @@ export default function ChatView({ channel, server, onDm, members, me, emojis, r
     prevLen.current = msgs.length;
   }, [msgs.length]);
 
-  function scrollToEnd() {
+  const scrollToEnd = useCallback(() => {
     endRef.current?.scrollIntoView({ behavior: "auto" });
-  }
+  }, []);
 
-  function jumpTo(id) {
+  const jumpTo = useCallback((id) => {
     pendingJump.current = id;
     jumpTries.current = 0;
     const el = document.getElementById("msg-" + id);
@@ -250,17 +258,17 @@ export default function ChatView({ channel, server, onDm, members, me, emojis, r
       el.scrollIntoView({ block: "center" });
       el.classList.add("flash");
       setTimeout(() => el.classList.remove("flash"), 1800);
-    } else if (hasMore) {
+    } else if (hasMoreRef.current) {
       loadOlder();                    // hunt backward — each page re-checks pendingJump
     } else {
       pendingJump.current = null;
     }
-  }
+  }, [loadOlder]);
 
   // App-level jump (global search / mention click): focusMsg = {id, ch, n}
   useEffect(() => {
     if (focusMsg && focusMsg.ch === channel.id) jumpTo(focusMsg.id);
-  }, [focusMsg, channel.id]);
+  }, [focusMsg, channel.id, jumpTo]);
 
   // live message events are pushed in by App via this prop registration
   useEffect(() => {
@@ -339,19 +347,19 @@ export default function ChatView({ channel, server, onDm, members, me, emojis, r
     return () => clearInterval(iv);
   }, [typers]);
 
-  async function onPin(m) {
+  const onPin = useCallback(async (m) => {
     await api.pinMessage(m.id).catch(() => {});
-  }
+  }, []);
 
-  async function onReact(m, emoji) {
+  const onReact = useCallback(async (m, emoji) => {
     playCue("pop");
     await api.react(m.id, emoji).catch(() => {});
-  }
+  }, []);
 
-  async function onDelete(m) {
+  const onDelete = useCallback(async (m) => {
     await api.delMessage(m.id).catch(() => {});
     setMsgs((prev) => prev.filter((p) => p.id !== m.id));
-  }
+  }, []);
 
   function onType(e) {
     const v = e.target.value;
@@ -567,7 +575,7 @@ export default function ChatView({ channel, server, onDm, members, me, emojis, r
     }
   }
 
-  function handleWave(targetUser) {
+  const handleWave = useCallback((targetUser) => {
     playCue("pop");
     playCue("send");
     const greeting = targetUser
@@ -578,20 +586,30 @@ export default function ChatView({ channel, server, onDm, members, me, emojis, r
         setMsgs((prev) => prev.some((p) => p.id === m.id) ? prev : [...prev, m]);
       })
       .catch((e) => setSendErr(e.message || "Wave failed"));
-  }
+  }, [channel.id]);
 
-  function onReply(m) {
+  const onReply = useCallback((m) => {
     setReplyTo(m);
     inputRef.current?.focus();
-  }
+  }, []);
 
-  function openMenu(x, y, m, setEditing) {
+  const openMenu = useCallback((x, y, m, setEditing) => {
     setMenu({
       x: Math.min(Math.max(10, x), window.innerWidth - 220),
       y: Math.min(Math.max(10, y), Math.max(10, window.innerHeight - 440)),
       m, setEditing,
     });
-  }
+  }, []);
+
+  // Parent passes fresh arrow props every App render (presence fires
+  // constantly) — without a stable wrapper React.memo on <Message> can
+  // never skip. The ref always holds the latest prop.
+  const parentCb = useRef({});
+  parentCb.current = { onAgentOpen, onPackOpen, onUserOpen, onFwdJump };
+  const stAgentOpen = useCallback((...a) => parentCb.current.onAgentOpen?.(...a), []);
+  const stPackOpen = useCallback((...a) => parentCb.current.onPackOpen?.(...a), []);
+  const stUserOpen = useCallback((...a) => parentCb.current.onUserOpen?.(...a), []);
+  const stFwdJump = useCallback((...a) => parentCb.current.onFwdJump?.(...a), []);
 
   async function uploadFiles(files) {
     for (const f of files || []) {
@@ -924,10 +942,10 @@ export default function ChatView({ channel, server, onDm, members, me, emojis, r
                 <Message m={m} grouped={grouped} me={me} members={members} agents={agents}
                   emojis={emojis} roles={roles} channels={channels}
                   blocked={blocked}
-                  onAgentOpen={onAgentOpen} onPackOpen={onPackOpen}
+                  onAgentOpen={stAgentOpen} onPackOpen={stPackOpen}
                   onDelete={onDelete} onReact={onReact} onPin={onPin}
-                  onImgLoad={scrollToEnd} onReply={onReply} onUserOpen={onUserOpen}
-                  onFwdJump={onFwdJump} onWave={handleWave} editTarget={editTarget}
+                  onImgLoad={scrollToEnd} onReply={onReply} onUserOpen={stUserOpen}
+                  onFwdJump={stFwdJump} onWave={handleWave} editTarget={editTarget}
                   onJump={jumpTo}
                   onThread={openThread} onMenu={openMenu} onLightbox={setLightbox} />
                 {channel.kind === "dm" && m.id === lastOwn?.id && (
