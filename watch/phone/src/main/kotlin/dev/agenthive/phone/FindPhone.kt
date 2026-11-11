@@ -153,13 +153,9 @@ class FindPhoneService : WearableListenerService() {
                 base.isNotBlank()
             if (ok) {
                 ok = runCatching {
-                    val client = OkHttpClient.Builder()
-                        .connectTimeout(3, TimeUnit.SECONDS)
-                        .readTimeout(3, TimeUnit.SECONDS)
-                        .build()
                     val req = Request.Builder()
                         .url(base.trimEnd('/') + "/api/auth/config").build()
-                    client.newCall(req).execute().use { it.isSuccessful }
+                    probeClient.newCall(req).execute().use { it.isSuccessful }
                 }.getOrDefault(false)
             }
             if (!ok) PhoneMeshService.start(this@FindPhoneService)   // kick the keep-alive
@@ -206,11 +202,7 @@ class FindPhoneService : WearableListenerService() {
                     "DELETE" -> if (reqBody.isNotBlank()) rb.delete(reqBody.toRequestBody(jsonType)) else rb.delete()
                     else -> rb.get()
                 }
-                val client = OkHttpClient.Builder()
-                    .connectTimeout(8, TimeUnit.SECONDS)
-                    .readTimeout(20, TimeUnit.SECONDS)
-                    .build()
-                client.newCall(rb.build()).execute().use { resp ->
+                proxyClient.newCall(rb.build()).execute().use { resp ->
                     val code = resp.code
                     val text = resp.body?.string() ?: ""
                     val out = JSONObject().put("id", id).put("code", code).put("body", text)
@@ -241,34 +233,54 @@ class FindPhoneService : WearableListenerService() {
             o.optString("role") to o.optString("content")
         }
         CoroutineScope(Dispatchers.IO).launch {
+            fun send(payload: JSONObject) {
+                Wearable.getMessageClient(this@FindPhoneService).sendMessage(
+                    nodeId, PATH_STREAM_EVENT, payload.toString().toByteArray())
+            }
+            // Tokens stream one-per-binder-call otherwise — a proxied reply
+            // is 50-100 GMS round trips. Coalesce ~150ms of tokens per
+            // message; non-token events (meta, tool, done) still go instantly.
+            val tokenBuf = StringBuilder()
+            var lastFlush = android.os.SystemClock.elapsedRealtime()
+            fun flushTokens() {
+                if (tokenBuf.isEmpty()) return
+                send(JSONObject().put("id", id).put("t", "token")
+                    .put("c", tokenBuf.toString()))
+                tokenBuf.clear()
+            }
             runCatching {
                 app.api.tryStream(aid, msg, hist, model).collect { ev ->
-                    val evJson = JSONObject().put("id", id)
-                    when (ev) {
-                        is dev.agenthive.watch.data.HiveApi.StreamEvent.Meta ->
-                            evJson.put("t", "meta").put("provider", ev.provider).put("model", ev.model)
-                        is dev.agenthive.watch.data.HiveApi.StreamEvent.Token ->
-                            evJson.put("t", "token").put("c", ev.text)
-                        is dev.agenthive.watch.data.HiveApi.StreamEvent.Thinking ->
-                            evJson.put("t", "thinking").put("n", ev.n)
-                        is dev.agenthive.watch.data.HiveApi.StreamEvent.Tool ->
-                            evJson.put("t", "tool").put("name", ev.name).put("ok", ev.ok)
-                        is dev.agenthive.watch.data.HiveApi.StreamEvent.Replace ->
-                            evJson.put("t", "replace").put("c", ev.text)
-                        is dev.agenthive.watch.data.HiveApi.StreamEvent.Error ->
-                            evJson.put("t", "error").put("message", ev.message)
-                        is dev.agenthive.watch.data.HiveApi.StreamEvent.Done ->
-                            evJson.put("t", "done")
+                    if (ev is dev.agenthive.watch.data.HiveApi.StreamEvent.Token) {
+                        tokenBuf.append(ev.text)
+                        val now = android.os.SystemClock.elapsedRealtime()
+                        if (now - lastFlush >= 150) {
+                            flushTokens(); lastFlush = now
+                        }
+                    } else {
+                        flushTokens()
+                        val evJson = JSONObject().put("id", id)
+                        when (ev) {
+                            is dev.agenthive.watch.data.HiveApi.StreamEvent.Meta ->
+                                evJson.put("t", "meta").put("provider", ev.provider).put("model", ev.model)
+                            is dev.agenthive.watch.data.HiveApi.StreamEvent.Thinking ->
+                                evJson.put("t", "thinking").put("n", ev.n)
+                            is dev.agenthive.watch.data.HiveApi.StreamEvent.Tool ->
+                                evJson.put("t", "tool").put("name", ev.name).put("ok", ev.ok)
+                            is dev.agenthive.watch.data.HiveApi.StreamEvent.Replace ->
+                                evJson.put("t", "replace").put("c", ev.text)
+                            is dev.agenthive.watch.data.HiveApi.StreamEvent.Error ->
+                                evJson.put("t", "error").put("message", ev.message)
+                            is dev.agenthive.watch.data.HiveApi.StreamEvent.Done ->
+                                evJson.put("t", "done")
+                            else -> {}
+                        }
+                        send(evJson)
                     }
-                    Wearable.getMessageClient(this@FindPhoneService).sendMessage(
-                        nodeId, PATH_STREAM_EVENT, evJson.toString().toByteArray()
-                    )
                 }
+                flushTokens()
             }.onFailure { e ->
                 val err = JSONObject().put("id", id).put("t", "error").put("message", e.message ?: "stream error")
-                Wearable.getMessageClient(this@FindPhoneService).sendMessage(
-                    nodeId, PATH_STREAM_EVENT, err.toString().toByteArray()
-                )
+                send(err)
             }
         }
     }
@@ -289,6 +301,18 @@ class FindPhoneService : WearableListenerService() {
         const val PATH_PROXY_REPLY = "/hive/proxy/reply"
         const val PATH_STREAM_START = "/hive/proxy/stream/start"
         const val PATH_STREAM_EVENT = "/hive/proxy/stream/event"
+
+        /** Shared clients — a fresh OkHttpClient per proxied call allocated
+         *  its own dispatcher + thread pool and threw the keep-alive pool
+         *  away, on every single watch→phone→hive hop. */
+        private val probeClient = OkHttpClient.Builder()
+            .connectTimeout(3, TimeUnit.SECONDS)
+            .readTimeout(3, TimeUnit.SECONDS)
+            .build()
+        private val proxyClient = OkHttpClient.Builder()
+            .connectTimeout(8, TimeUnit.SECONDS)
+            .readTimeout(20, TimeUnit.SECONDS)
+            .build()
     }
 }
 
