@@ -112,9 +112,14 @@ fun ChatScreen(
             modifier = Modifier.fillMaxSize(),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            // Bezel-safe top capsule inside the upper arc of the circular watch face
+            // Bezel-safe top capsule inside the upper arc of the circular watch face.
+            // Field-level params: a stream patch mints a fresh UiState each 75ms —
+            // passing the whole state recomposed this pill ~13×/s with zero
+            // visual change.
             TopArcPill(
-                state = state,
+                mesh = state.mesh,
+                agent = state.agent,
+                ambient = state.ambient,
                 onAgentClick = { showAgents = true },
                 onMeshClick = { showMesh = true },
             )
@@ -155,9 +160,15 @@ fun ChatScreen(
                 }
             }
 
-            // Bezel-safe bottom floating dock tucked inside the lower arc
+            // Bezel-safe bottom floating dock tucked inside the lower arc —
+            // same field-level treatment so stream patches skip it.
             BottomArcDock(
-                state = state,
+                busy = state.busy,
+                speaking = state.speaking,
+                listening = state.listening,
+                input = state.input,
+                ambient = state.ambient,
+                hasMessages = state.messages.isNotEmpty(),
                 onOpenComposer = { showComposer = true },
                 onMic = {
                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -220,11 +231,13 @@ fun ChatScreen(
 
 @Composable
 private fun TopArcPill(
-    state: UiState,
+    mesh: String,
+    agent: dev.agenthive.watch.data.HiveApi.Agent?,
+    ambient: Boolean,
     onAgentClick: () -> Unit,
     onMeshClick: () -> Unit,
 ) {
-    val (dotColor, meshTag) = when (state.mesh) {
+    val (dotColor, meshTag) = when (mesh) {
         "mesh" -> HiveColors.MeshOn to "MESH"
         "direct" -> HiveColors.MeshDirect to "DIRECT"
         "connecting" -> HiveColors.Cyan to "SYNC"
@@ -247,12 +260,12 @@ private fun TopArcPill(
                 .padding(horizontal = 4.dp, vertical = 1.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            val icon = state.agent?.icon?.ifBlank { "✦" } ?: "✦"
-            if (icon == "✦") HiveMark(12.dp, animate = !state.ambient)
+            val icon = agent?.icon?.ifBlank { "✦" } ?: "✦"
+            if (icon == "✦") HiveMark(12.dp, animate = !ambient)
             else Text(icon, color = HiveColors.Violet, fontSize = 10.sp)
             Spacer(Modifier.width(4.dp))
             Text(
-                state.agent?.name ?: "Agent",
+                agent?.name ?: "Agent",
                 color = HiveColors.Text,
                 fontSize = 10.sp,
                 fontWeight = FontWeight.SemiBold,
@@ -449,13 +462,18 @@ private fun MessageBubble(msg: Msg) {
 
 @Composable
 private fun BottomArcDock(
-    state: UiState,
+    busy: Boolean,
+    speaking: Boolean,
+    listening: Boolean,
+    input: String,
+    ambient: Boolean,
+    hasMessages: Boolean,
     onOpenComposer: () -> Unit,
     onMic: () -> Unit,
     onStop: () -> Unit,
     onSecondary: () -> Unit,
 ) {
-    val stoppable = state.busy || state.speaking || state.listening
+    val stoppable = busy || speaking || listening
     Row(
         modifier = Modifier
             .padding(bottom = 10.dp, top = 2.dp)
@@ -472,7 +490,7 @@ private fun BottomArcDock(
                 .size(28.dp)
                 .clip(CircleShape)
                 .background(HiveColors.PanelHi)
-                .clickable(enabled = !state.busy, onClick = onOpenComposer),
+                .clickable(enabled = !busy, onClick = onOpenComposer),
             contentAlignment = Alignment.Center,
         ) {
             Text("⌨", color = HiveColors.Text, fontSize = 12.sp)
@@ -493,7 +511,7 @@ private fun BottomArcDock(
                     onClick = {
                         when {
                             stoppable -> onStop()
-                            state.input.isNotBlank() -> onOpenComposer()
+                            input.isNotBlank() -> onOpenComposer()
                             else -> onMic()
                         }
                     },
@@ -501,7 +519,7 @@ private fun BottomArcDock(
                 .padding(horizontal = 12.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            if (state.busy) {
+            if (busy) {
                 CircularProgressIndicator(modifier = Modifier.size(12.dp), strokeWidth = 1.5.dp)
                 Spacer(Modifier.width(4.dp))
                 Text("Stop", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
@@ -509,7 +527,7 @@ private fun BottomArcDock(
                 Text("■ Stop",
                     color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
             } else {
-                HiveMark(14.dp, animate = !state.ambient)
+                HiveMark(14.dp, animate = !ambient)
                 Spacer(Modifier.width(5.dp))
                 Text("Ask",
                     color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
@@ -526,7 +544,7 @@ private fun BottomArcDock(
             contentAlignment = Alignment.Center,
         ) {
             Text(
-                if (state.messages.isNotEmpty()) "↺" else "🔗",
+                if (hasMessages) "↺" else "🔗",
                 color = HiveColors.Cyan,
                 fontSize = 11.sp,
             )
