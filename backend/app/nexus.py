@@ -18,6 +18,7 @@ network I/O — route handlers run it via asyncio.to_thread.
 import ctypes
 import json
 import os
+import re
 import sys
 import threading
 import time
@@ -451,12 +452,13 @@ class NexusNode:
         with self.lock:
             if not self.cli:
                 raise RuntimeError("mesh is not connected")
+            token = re.sub(r"\s+", "", str(token))   # codes paste grouped ("5548 5978")
             rc, d, _ = _ln().jstr(_ln().lib.ln_invite_accept,
-                                  self.cli, str(token).strip().encode())
-            if rc != 0 or not d:
-                raise RuntimeError(f"invite accept failed (rc={rc})")
-            if d.get("error") or d.get("success") is False:
-                raise RuntimeError(d.get("error") or "invite rejected")
+                                  self.cli, token.encode())
+            if (d or {}).get("error") or rc != 0 or not d:
+                raise RuntimeError((d or {}).get("error") or f"invite accept failed (rc={rc})")
+            if d.get("success") is False:
+                raise RuntimeError("invite rejected")
             return d
 
     def remove_device(self, node_id):
