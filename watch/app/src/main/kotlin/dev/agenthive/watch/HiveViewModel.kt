@@ -191,7 +191,7 @@ class HiveViewModel(app: Application) : AndroidViewModel(app) {
             val warm = store.meshUrl
             if (warm.startsWith("phone://") || (warm.isNotBlank() && api.probeHive(warm))) {
                 api.baseUrl = warm
-                logLine("bridge already warm — skipping relink")
+                logLine("mesh link verified live — no relink needed")
                 if (store.token.isNotBlank()) {
                     api.token = store.token
                     runCatching { api.me() }.onSuccess {
