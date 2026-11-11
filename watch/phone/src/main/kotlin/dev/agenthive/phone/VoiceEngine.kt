@@ -100,6 +100,13 @@ class VoiceEngine(
         for (pc in peers.values) runCatching { pc.dispose() }
         peers.clear()
         offerSent.clear()
+        // setSpeaker() put the device in MODE_IN_COMMUNICATION — restore,
+        // otherwise post-call audio stays on earpiece routing until some
+        // other app resets it
+        runCatching {
+            audioMgr.isSpeakerphoneOn = false
+            audioMgr.mode = android.media.AudioManager.MODE_NORMAL
+        }
         onRoster()
     }
 
