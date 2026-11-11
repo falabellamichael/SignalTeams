@@ -318,11 +318,14 @@ class NexusNode(private val ctx: Context) {
                 val caps = cm.getNetworkCapabilities(network)
                 if (caps?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true)
                     releaseCellDemand(cm)          // WiFi won — let the modem sleep
-                val ok = cm.bindProcessToNetwork(network)
                 directLatch.countDown()
-                Log.i("NexusNode", "direct net up ${transports(cm, network)} bind=$ok")
+                // Only a network-identity change is worth a re-bind + kick —
+                // onCapabilitiesChanged storms on signal variation otherwise
+                // pay a binder call + a log line every few seconds.
                 if (network != lastUpNet) {
                     lastUpNet = network
+                    val ok = cm.bindProcessToNetwork(network)
+                    Log.i("NexusNode", "direct net up ${transports(cm, network)} bind=$ok")
                     onNetEvent?.invoke()
                 }
             }

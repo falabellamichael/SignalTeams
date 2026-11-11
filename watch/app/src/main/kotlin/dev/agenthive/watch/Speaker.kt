@@ -116,6 +116,10 @@ class Speaker(private val api: HiveApi, private val ctx: Context) {
                         if (say.length < 2) continue
                         speaking.value = true
                         playChunk(say)
+                        // The pump suspends on receive() once the queue drains
+                        // — without this, `speaking` (the UI's stop control)
+                        // stays stuck true after the last utterance ends.
+                        if (queue.isEmpty) speaking.value = false
                     }
                 } finally {
                     speaking.value = false
