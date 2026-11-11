@@ -94,6 +94,7 @@ class _LN:
         L.ln_get_group_devices.argtypes = [VP, b, CP]
         L.ln_get_group_members.argtypes = [VP, b, CP]
         L.ln_remove_group_member.argtypes = [VP, b, b, CP]
+        L.ln_invite_accept.argtypes = [VP, b, CP]
         L.ln_get_node_id.argtypes = [VP]; L.ln_get_node_id.restype = VP
         L.ln_resume.argtypes = [VP]
         # void cb(char* event_json, void* user) — the SDK hands ownership of
@@ -440,6 +441,22 @@ class NexusNode:
                 raise RuntimeError("invite failed — is the mesh session up?")
             if d.get("error"):
                 raise RuntimeError(d["error"])
+            return d
+
+    def accept_invite(self, token):
+        """Join ANOTHER mesh group by redeeming a code/lnk_ token minted
+        elsewhere (e.g. the Lemonade app). Additive — our own group stays and
+        the foreign group's members become reachable peers (and can reach the
+        service we publish)."""
+        with self.lock:
+            if not self.cli:
+                raise RuntimeError("mesh is not connected")
+            rc, d, _ = _ln().jstr(_ln().lib.ln_invite_accept,
+                                  self.cli, str(token).strip().encode())
+            if rc != 0 or not d:
+                raise RuntimeError(f"invite accept failed (rc={rc})")
+            if d.get("error") or d.get("success") is False:
+                raise RuntimeError(d.get("error") or "invite rejected")
             return d
 
     def remove_device(self, node_id):

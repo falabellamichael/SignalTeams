@@ -252,6 +252,7 @@ export const api = {
   nexusEgress: (ip, port) => req("POST", "/api/nexus/egress", { ip, port }),
   nexusEgressClose: (ip, port) => req("DELETE", "/api/nexus/egress", { ip, port }),
   nexusInvite: (ttl_sec, role = "user") => req("POST", "/api/nexus/invite", { ttl_sec, role }),
+  nexusAcceptInvite: (code) => req("POST", "/api/nexus/accept-invite", { code }),
   nexusWatchPair: () => req("POST", "/api/nexus/watch-pair", {}),
   nexusCfg: (p) => req("PUT", "/api/nexus/config", p),
 

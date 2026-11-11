@@ -41,6 +41,8 @@ export function MeshPage({ me }) {
   const [form, setForm] = useState({ server: "", region: "", device_name: "", link_token: "" });
   const [invite, setInvite] = useState(null);
   const [invRole, setInvRole] = useState("user");
+  const [joinCode, setJoinCode] = useState("");
+  const [joinMsg, setJoinMsg] = useState("");
   const [watchPair, setWatchPair] = useState(null);
   const [links, setLinks] = useState({});      // peer tunnel_ip -> opened loopback url
   const [dialPort, setDialPort] = useState({}); // peer ip -> vport to dial (default 8075)
@@ -94,6 +96,16 @@ export function MeshPage({ me }) {
     setBusy("watchpair"); setErr("");
     try { setWatchPair(await api.nexusWatchPair()); }
     catch (e) { setErr(e.message); }
+    setBusy("");
+  }
+
+  async function acceptInvite() {
+    setBusy("join"); setErr(""); setJoinMsg("");
+    try {
+      const r = await api.nexusAcceptInvite(joinCode.trim());
+      setJoinMsg(r.group_id ? `joined group ${short(r.group_id, 10)}` : "joined — peers on that mesh can reach this hive now");
+      setJoinCode(""); refresh();
+    } catch (e) { setErr(e.message); }
     setBusy("");
   }
 
@@ -241,6 +253,31 @@ export function MeshPage({ me }) {
                     <Ico n="copy" s={12} /> code</button>
                 </div>
               )}
+            </div>
+          )}
+
+          {/* ---------- join another mesh ---------- */}
+          {isAdmin && (
+            <div className="nx-card">
+              <div className="nx-title"><Ico n="link" s={13} /> Join another mesh</div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
+                <div style={{ fontSize: 12, color: "var(--dim)", flex: 1 }}>
+                  Paste a code minted elsewhere (e.g. the Lemonade app's "Connect
+                  another device") — this hive joins that group too, and peers
+                  there can reach it.
+                </div>
+                <div style={{ display: "flex", gap: 6, flex: "none" }}>
+                  <input value={joinCode} onChange={(e) => setJoinCode(e.target.value)}
+                    placeholder="1234 5678" inputMode="numeric"
+                    style={{ width: 92, background: "var(--panel2)", border: "1px solid var(--border)",
+                             borderRadius: 8, color: "var(--fg)", padding: "6px 8px", fontSize: 12,
+                             fontFamily: "ui-monospace,Consolas,monospace" }} />
+                  <button disabled={!!busy || !joinCode.trim()} onClick={acceptInvite}>
+                    <Ico n="link" s={13} /> {busy === "join" ? "…" : "Join"}
+                  </button>
+                </div>
+              </div>
+              {joinMsg && <div style={{ fontSize: 11.5, color: "var(--ok, #3fb950)", marginTop: 8 }}>{joinMsg}</div>}
             </div>
           )}
 

@@ -42,6 +42,10 @@ class InviteReq(BaseModel):
     role: str = "user"           # site role the invitee lands as: user | mod | admin
 
 
+class AcceptInviteReq(BaseModel):
+    code: str
+
+
 class CfgReq(BaseModel):
     enabled: bool | None = None
     domain: str | None = None
@@ -168,6 +172,20 @@ async def nexus_invite(req: InviteReq, user=Depends(require_admin)):
         })
     inv["role"] = role
     return inv
+
+
+@router.post("/api/nexus/accept-invite")
+async def nexus_accept_invite(req: AcceptInviteReq, user=Depends(require_admin)):
+    """Join ANOTHER mesh group — e.g. an invite minted in the Lemonade app.
+
+    Additive: our own group stays; the foreign group's members become
+    reachable peers (and reach the service we publish — that's how a watch
+    that only knows the Lemonade mesh still finds this hive)."""
+    try:
+        d = await asyncio.to_thread(nexus.NODE.accept_invite, req.code)
+    except RuntimeError as e:
+        raise HTTPException(502, str(e))
+    return {"ok": True, **(d if isinstance(d, dict) else {"result": d})}
 
 
 # ---------------------------------------------------------------------------
