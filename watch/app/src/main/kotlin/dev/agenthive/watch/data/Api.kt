@@ -316,12 +316,23 @@ class HiveApi(var ctx: android.content.Context? = null) {
             .getOrDefault("")
 
     /** POST /api/llm/tts — mp3 bytes, or null when the endpoint has no TTS
-     *  model (404) / synthesis fails. Callers fall back to text. */
+     *  model (404) / synthesis fails. Callers fall back to text.
+     *  In service mode ([svcTtsModel] set) the bound endpoint is an
+     *  OpenAI-compatible server — /v1/audio/speech takes {model, input}. */
+    /** Service-mode TTS model; "off" = bound service advertises none —
+     *  skip the 404 round-trip per sentence and fall back on-device. */
+    @Volatile var svcTtsModel: String = ""
+
     suspend fun ttsBytes(text: String): ByteArray? =
         kotlinx.coroutines.withContext(Dispatchers.IO) {
+            if (svcTtsModel == "off") return@withContext null
             runCatching {
-                val body = JSONObject().put("text", text.take(4000))
-                val req = request("/api/llm/tts", "POST", body)
+                val body = if (svcTtsModel.isNotBlank())
+                    JSONObject().put("model", svcTtsModel)
+                        .put("input", text.take(4000))
+                else JSONObject().put("text", text.take(4000))
+                val path = if (svcTtsModel.isNotBlank()) "/v1/audio/speech" else "/api/llm/tts"
+                val req = request(path, "POST", body)
                 slowClient.newCall(req).execute().use { r ->
                     if (!r.isSuccessful) return@use null
                     r.body?.bytes()
@@ -725,6 +736,136 @@ class HiveApi(var ctx: android.content.Context? = null) {
                 emitAll(proxy.proxyStream(agentId, message, history, model))
                 return@flow
             }
+            emit(StreamEvent.Error(e.message ?: "stream error"))
+        }
+    }.flowOn(Dispatchers.IO)
+
+    // ---- OpenAI-compatible mesh services (Lemonade etc.) -------------------
+    // A node publishing /v1 on the mesh is connectable directly — mesh
+    // membership is the credential, so these calls send no Authorization.
+
+    /** GET $base/v1/models — unauthed; returns the raw data array or null. */
+    suspend fun probeService(base: String): JSONArray? =
+        kotlinx.coroutines.withContext(Dispatchers.IO) {
+            runCatching {
+                val req = Request.Builder()
+                    .url("${base.trimEnd('/')}/v1/models").build()
+                probeClient.newCall(req).execute().use { r ->
+                    val body = r.body?.string() ?: ""
+                    if (!r.isSuccessful) {
+                        android.util.Log.d("HiveApi", "probeService $base status=${r.code}")
+                        return@withContext null
+                    }
+                    runCatching { JSONObject(body).optJSONArray("data") }
+                        .getOrNull()
+                }
+            }.onFailure {
+                android.util.Log.d("HiveApi", "probeService $base failed: ${it.message}")
+            }.getOrNull()
+        }
+
+    /** Chat-capable models on the bound service, mapped to picker rows —
+     *  the model id rides in `model` so send() can pass it to openaiStream. */
+    suspend fun openaiModels(): List<Agent> = kotlinx.coroutines.withContext(Dispatchers.IO) {
+        val arr = probeService(baseUrl) ?: JSONArray()
+        svcTtsModel = ""
+        val skip = setOf("embedding", "reranking", "image", "audio", "asr",
+            "tts", "transcription", "embeddings")
+        val idSkip = Regex("flux|sd-|stable|diffus|whisper|moonshine|embed|rerank|bge|clip|vae",
+            RegexOption.IGNORE_CASE)
+        val out = ArrayList<Agent>()
+        var firstChat = -1
+        var firstNexus = -1
+        for (i in 0 until arr.length()) {
+            val m = arr.optJSONObject(i) ?: continue
+            val id = m.optString("id")
+            if (id.isBlank()) continue
+            val labels = m.optJSONArray("labels")
+            val lab = (0 until (labels?.length() ?: 0))
+                .map { labels!!.optString(it).lowercase() }.toSet()
+            // A synthesizer the service advertises — svc-mode TTS path.
+            if (lab.any { it == "tts" || it == "audio" } ||
+                id.contains("kokoro", true) || id.contains("tts", true)) {
+                if (svcTtsModel.isBlank()) svcTtsModel = id
+            }
+            if (lab.isNotEmpty() && lab.all { it in skip }) continue
+            // Upstream mislabels nexus.* rows 'chat' wholesale (kokoro,
+            // Flux, SD all claim chat) — for mesh ids the NAME is the truth.
+            if (idSkip.containsMatchIn(id) &&
+                (id.startsWith("nexus.") || lab.none { it == "chat" || it == "llm" }))
+                continue
+            val chatish = lab.any { it == "chat" || it == "llm" } || id.startsWith("nexus.")
+            // nexus.* = remote mesh-hosted models — compute lives on another
+            // node's hardware, the reason this path exists. Always first.
+            if (id.startsWith("nexus.") && firstNexus < 0) firstNexus = out.size
+            else if (chatish && firstChat < 0) firstChat = out.size
+            val short = id.substringAfterLast('/')
+                .removePrefix("nexus.").substringBeforeLast('.')
+            out.add(Agent(
+                id = out.size + 1,
+                name = short,
+                icon = "◈",
+                tagline = "mesh service",
+                model = id,
+            ))
+        }
+        // Mesh-hosted first, else any chat-capable — the picker default
+        // lands on a model that answers over the mesh.
+        val promote = if (firstNexus >= 0) firstNexus else firstChat
+        if (promote > 0) out.add(0, out.removeAt(promote))
+        out
+    }
+
+    /** POST /v1/chat/completions (SSE) — folded into the same StreamEvent
+     *  flow the hive path emits so collectStream needs no fork. */
+    fun openaiStream(
+        model: String,
+        message: String,
+        history: List<Pair<String, String>>,
+    ): Flow<StreamEvent> = flow {
+        emit(StreamEvent.Meta("lemonade", model))
+        val msgs = JSONArray()
+        history.takeLast(20).forEach { (r, c) ->
+            msgs.put(JSONObject().put("role", r).put("content", c))
+        }
+        msgs.put(JSONObject().put("role", "user").put("content", message))
+        val body = JSONObject()
+            .put("model", model)
+            .put("messages", msgs)
+            .put("stream", true)
+        val req = request("/v1/chat/completions", "POST", body)
+        try {
+            client.newCall(req).execute().use { r ->
+                if (!r.isSuccessful) {
+                    val t = r.body?.string() ?: ""
+                    val msg = runCatching { JSONObject(t).optString("error") }
+                        .map { it.toString() }.getOrDefault(t.ifBlank { "HTTP ${r.code}" })
+                    emit(StreamEvent.Error(msg.take(160)))
+                    return@use
+                }
+                val source = r.body?.source() ?: return@use
+                var thinking = 0
+                while (!source.exhausted()) {
+                    val line = source.readUtf8Line() ?: break
+                    if (!line.startsWith("data:")) continue
+                    val data = line.removePrefix("data:").trim()
+                    if (data == "[DONE]") break
+                    val ev = runCatching { JSONObject(data) }.getOrNull() ?: continue
+                    val delta = ev.optJSONArray("choices")
+                        ?.optJSONObject(0)?.optJSONObject("delta") ?: continue
+                    val content = delta.optString("content")
+                    if (content.isNotEmpty() && content != "null") {
+                        emit(StreamEvent.Token(content))
+                    }
+                    val reasoning = delta.optString("reasoning_content")
+                        .ifEmpty { delta.optString("reasoning") }
+                    if (reasoning.isNotEmpty() && reasoning != "null") {
+                        emit(StreamEvent.Thinking(++thinking))
+                    }
+                }
+                emit(StreamEvent.Done)
+            }
+        } catch (e: Exception) {
             emit(StreamEvent.Error(e.message ?: "stream error"))
         }
     }.flowOn(Dispatchers.IO)

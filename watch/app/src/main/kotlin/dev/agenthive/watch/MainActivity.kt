@@ -202,8 +202,13 @@ class MainActivity : ComponentActivity() {
         val pwd = i?.getStringExtra("pass")
         val code = i?.getStringExtra("code")
         val ask = i?.getStringExtra("ask")
+        // "svc" — bind to a raw AI service on the mesh (Lemonade et al.);
+        // also the phone-companion / automation "connect to this node" hook.
+        val svc = i?.getStringExtra("svc")
         if (!code.isNullOrBlank()) {
             vm.linkWithCode(code)
+        } else if (!svc.isNullOrBlank()) {
+            vm.linkServiceIp(svc)
         } else if (!srv.isNullOrBlank() && !usr.isNullOrBlank() && !pwd.isNullOrBlank()) {
             vm.connectWith(srv, usr, pwd)
         }

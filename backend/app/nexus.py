@@ -431,6 +431,29 @@ class NexusNode:
                 _ln().lib.ln_mesh_close_egress(
                     self.cli, str(ip).split("/")[0].encode(), int(port))
 
+    def expose_service(self, vport, target):
+        """Publish an extra mesh service — vport → a local tcp: target.
+        Used to share an AI endpoint (e.g. Lemonade's :13305) so group
+        members can reach it through this node without their own join.
+        target "mesh:ip:port" chains services: we open our own egress to a
+        peer's published service, then re-publish it — the peer's mesh-side
+        auth (membership) applies to us, not to our group's callers."""
+        with self.lock:
+            if not self.cli or not _ln().lib.ln_mesh_is_active(self.cli):
+                raise RuntimeError("mesh is not connected")
+            target = str(target)
+            if target.startswith("mesh:"):
+                ip, _, port = target[5:].partition(":")
+                lp = self.egress_open(ip, int(port or 0))
+                target = f"tcp:127.0.0.1:{lp}"
+            t = target.encode()
+            if not (t.startswith(b"tcp:") or t.startswith(b"udp:")):
+                raise RuntimeError("target must be tcp:/udp: host:port or mesh:ip:port")
+            rc = _ln().lib.ln_mesh_expose_service(self.cli, int(vport), t)
+            if rc != 0:
+                raise RuntimeError(f"expose vport {vport} -> {target} failed (rc={rc})")
+            return {"vport": int(vport), "target": target}
+
     def invite(self, ttl_sec=86400):
         """Mint a device link token — a friend joins our group with it."""
         with self.lock:

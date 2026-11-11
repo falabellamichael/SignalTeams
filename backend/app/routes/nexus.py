@@ -139,6 +139,22 @@ def nexus_egress_close(req: EgressReq, user=Depends(require_admin)):
     return {"ok": True}
 
 
+class ExposeReq(BaseModel):
+    vport: int
+    target: str            # tcp:host:port — e.g. tcp:127.0.0.1:13305 (Lemonade)
+
+
+@router.post("/api/nexus/expose")
+async def nexus_expose(req: ExposeReq, user=Depends(require_admin)):
+    """Publish an extra mesh service: vport → local TCP target. Lets group
+    members reach a shared AI endpoint (Lemonade :13305) through this node."""
+    try:
+        return await asyncio.to_thread(
+            nexus.NODE.expose_service, req.vport, req.target)
+    except RuntimeError as e:
+        raise HTTPException(502, str(e))
+
+
 @router.post("/api/nexus/watch-join")
 async def nexus_watch_join(user=Depends(current_user)):
     """Join parameters for the Wear OS watch app (any logged-in user).

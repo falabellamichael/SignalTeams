@@ -71,6 +71,7 @@ data class UiState(
     val hives: List<MeshLinker.MeshHive> = emptyList(), // mesh-found hives (switcher)
     val hiveScanning: Boolean = false,
     val hiveName: String = "",        // active hive's display name
+    val svcMode: Boolean = false,     // bound endpoint is a raw AI service (Lemonade /v1), not a hive
     val linkTarget: String = "",      // nodeId picked for code-linking, "" = auto
     /** Proactive glanceable line from /api/assistant/next — becomes a
      *  prompt chip when non-blank ("Meeting in 35m" → tap asks about it). */
@@ -240,6 +241,10 @@ class HiveViewModel(app: Application) : AndroidViewModel(app) {
             for (attempt in 1..2) {
                 try {
                     meshUp("")
+                    svcHiveFromStore()?.let { h ->
+                        linkService(h)               // svc marker — no claim
+                        return@launch
+                    }
                     discoverHive { logLine(it) }
                         ?: throw Exception("hive peer unreachable")
                     if (store.token.isNotBlank()) {
@@ -410,6 +415,10 @@ class HiveViewModel(app: Application) : AndroidViewModel(app) {
                     it.copy(statusLine = "linking ${h.name}…", error = "",
                             linkTarget = h.nodeId)
                 }
+                if (h.kind == "service") {
+                    linkService(h)               // raw AI endpoint — no claim
+                    return@launch
+                }
                 bridgeTo(h)
                 if (h.nodeId in store.boundHiveIds()) {
                     claimSession("")              // bound → codeless reconnect
@@ -445,6 +454,109 @@ class HiveViewModel(app: Application) : AndroidViewModel(app) {
                 hiveTunnelIp = h.ip, hiveNodeId = h.nodeId,
                 hiveVport = MeshLinker.HIVE_VPORT, egressPort = lp),
                 hiveName = h.name)
+        }
+    }
+
+    /** Rebuild the bound service target from the store (boot reconnect) —
+     *  null unless the persisted hiveNodeId carries the svc: marker. */
+    private fun svcHiveFromStore(): MeshLinker.MeshHive? {
+        if (!store.hiveNodeId.startsWith("svc:")) return null
+        if (store.meshTargetIp.isBlank() || store.meshTargetPort <= 0) return null
+        return MeshLinker.MeshHive(
+            nodeId = store.hiveNodeId, ip = store.meshTargetIp,
+            name = store.hiveName.ifBlank { store.meshTargetIp },
+            lp = 0, member = true, bound = true,
+            kind = "service", svcPort = store.meshTargetPort)
+    }
+
+    /**
+     * Bind to a raw AI service (Lemonade et al.) instead of a hive: no
+     * /api/watch/session — the mesh membership itself is the credential.
+     * Models enumerate as picker rows and asks stream over /v1/chat/completions.
+     */
+    private suspend fun linkService(h: MeshLinker.MeshHive) {
+        // Cold dataplane: the first egress right after a join races UDP
+        // hole-punching — retry like discover() does before declaring dead.
+        var lp: Int? = null
+        for (i in 0..2) {
+            lp = nexus.openEgress(h.ip, h.svcPort, force = i > 0)
+            if (lp != null &&
+                api.probeService("http://127.0.0.1:$lp") != null) break
+            delay(1500)
+        }
+        if (lp == null) throw Exception("can't bridge to ${h.name}")
+        api.baseUrl = "http://127.0.0.1:$lp"
+        api.token = ""
+        val models = api.openaiModels()
+        if (models.isEmpty()) throw Exception("${h.name} serves no chat models")
+        store.meshUrl = api.baseUrl
+        store.meshTargetIp = h.ip
+        store.meshTargetPort = h.svcPort
+        store.hiveNodeId = h.nodeId      // "svc:…" — the svc-mode marker
+        store.egressPort = lp
+        store.hiveName = h.name
+        store.paired = true
+        store.markBound(h.nodeId)
+        val chosen = models.firstOrNull { it.id == store.agentId }
+            ?: models.first()
+        store.agentId = chosen.id
+        store.username = store.username.ifBlank { "nexus" }
+        _ui.update {
+            it.copy(
+                agents = models, agent = chosen, svcMode = true,
+                phase = Phase.READY, unlinked = false, mesh = "mesh",
+                statusLine = "", error = "", linkTarget = "",
+                hiveName = h.name,
+                meshSnap = it.meshSnap.copy(
+                    hiveTunnelIp = h.ip, hiveNodeId = h.nodeId,
+                    hiveVport = h.svcPort, egressPort = lp))
+        }
+        if (api.svcTtsModel.isBlank()) api.svcTtsModel = "off"
+        store.meshEnabled = true
+        hive.speaker.enabled = true   // svc TTS when advertised, on-device otherwise
+        contextStartMeshService()
+        startMeshPoll()
+        logLine("linked ${h.name} — ${models.size} models")
+    }
+
+    /** Intent/test hook — `svc=<ip[:port]>` binds a raw AI service directly
+     *  (the same target the console's service rows produce). Joins the mesh
+     *  first when it isn't already up. */
+    fun linkServiceIp(spec: String) {
+        val ip = spec.substringBefore(':').trim()
+        val portHint = spec.substringAfter(':', "").trim().toIntOrNull()
+        if (ip.isBlank()) return
+        val prev = sessionJob
+        prev?.cancel()
+        sessionJob = viewModelScope.launch {
+            prev?.join()
+            holdLinkWake()
+            try {
+                _ui.update { it.copy(phase = Phase.LINKING,
+                    statusLine = "connecting $ip…", error = "") }
+                if (nexus.state != NexusState.RUNNING) meshUp("")
+                val ports = if (portHint != null) intArrayOf(portHint)
+                    else MeshLinker.SERVICE_VPORTS
+                var linked = false
+                for (p in ports) {
+                    val h = MeshLinker.MeshHive("svc:$ip", ip,
+                        "$ip · lemonade", 0, member = true, bound = true,
+                        kind = "service", svcPort = p)
+                    if (runCatching { linkService(h) }.isSuccess) {
+                        linked = true; break
+                    }
+                }
+                if (!linked) throw Exception("no AI service answering on $ip")
+            } catch (e: Exception) {
+                Log.w("HiveVM", "linkServiceIp $spec: ${e.message}")
+                logLine(e.message ?: "service link failed")
+                _ui.update { it.copy(
+                    phase = if (nexus.state == NexusState.RUNNING)
+                        Phase.READY else Phase.SETUP,
+                    unlinked = nexus.state == NexusState.RUNNING,
+                    error = e.message ?: "service link failed",
+                    statusLine = "") }
+            } finally { releaseLinkWake() }
         }
     }
 
@@ -782,7 +894,7 @@ class HiveViewModel(app: Application) : AndroidViewModel(app) {
         _ui.update {
             it.copy(phase = Phase.READY, unlinked = false, mesh = "mesh",
                     statusLine = "", error = "", hiveName = store.hiveName,
-                    linkTarget = "")
+                    linkTarget = "", svcMode = false)
         }
         loadAgents()
         store.meshEnabled = true
@@ -812,7 +924,7 @@ class HiveViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private suspend fun loadAgents() {
-        val list = api.agents()
+        val list = if (_ui.value.svcMode) api.openaiModels() else api.agents()
         val chosen = list.firstOrNull { it.id == store.agentId }
             ?: list.firstOrNull()
         store.agentId = chosen?.id ?: 0
@@ -832,7 +944,7 @@ class HiveViewModel(app: Application) : AndroidViewModel(app) {
         meshPoll?.cancel()
         scanJob?.cancel()
         store.clear()
-        api.token = ""; api.baseUrl = ""
+        api.token = ""; api.baseUrl = ""; api.svcTtsModel = ""
         viewModelScope.launch { nexus.stop() }   // mutex-guarded teardown
         runCatching {
             val ctx = getApplication<Application>()
@@ -918,7 +1030,8 @@ class HiveViewModel(app: Application) : AndroidViewModel(app) {
             viewModelScope.launch {
                 val deadline = System.currentTimeMillis() + 20_000
                 while (_ui.value.agent == null && System.currentTimeMillis() < deadline) {
-                    if (api.token.isNotBlank()) runCatching { loadAgents() }
+                    if (api.token.isNotBlank() || _ui.value.svcMode)
+                        runCatching { loadAgents() }
                     if (_ui.value.agent != null) break
                     delay(800)
                 }
@@ -927,7 +1040,7 @@ class HiveViewModel(app: Application) : AndroidViewModel(app) {
             }
             return
         }
-        if (api.token.isBlank()) {
+        if (api.token.isBlank() && !s.svcMode) {
             Log.w("HiveVM", "send: no token base=${api.baseUrl}")
             _ui.update { it.copy(error = "link a hive from the mesh console (🔗) to chat") }
             return
@@ -982,6 +1095,12 @@ class HiveViewModel(app: Application) : AndroidViewModel(app) {
      * port. Probe the live bridge and re-open it against the known hive target
      * when it has died. Returns true when api.baseUrl reaches the hive.
      */
+    /** The bound endpoint's health check — AgentHive probe for hives,
+     *  /v1/models for raw services. */
+    private suspend fun probeBound(): Boolean =
+        if (_ui.value.svcMode) api.probeService(api.baseUrl) != null
+        else api.probeHive()
+
     private suspend fun ensureMeshEgress(force: Boolean = false): Boolean {
         // The keep-alive re-proves the bridge every 30s — an ask seconds
         // behind that verdict skips the redundant RTT; the failure path
@@ -989,7 +1108,7 @@ class HiveViewModel(app: Application) : AndroidViewModel(app) {
         if (!force && System.currentTimeMillis() - api.lastProbeOk < 10_000)
             return true
         val ip = store.meshTargetIp
-        if (api.probeHive()) return true
+        if (probeBound()) return true
         // Dead bridge: race the re-bridge against a phone probe — whichever
         // answers first wins, instead of ~8s serial probes each way.
         val phoneLive = viewModelScope.async(kotlinx.coroutines.Dispatchers.IO) {
@@ -1006,7 +1125,7 @@ class HiveViewModel(app: Application) : AndroidViewModel(app) {
                     store.egressPort = lp
                     Log.i("HiveVM", "egress re-opened ${ip}:$port -> lp=$lp")
                     _ui.update { it.copy(meshSnap = it.meshSnap.copy(egressPort = lp)) }
-                    if (api.probeHive()) {
+                    if (probeBound()) {
                         phoneLive.cancel()
                         return true
                     }
@@ -1109,7 +1228,20 @@ class HiveViewModel(app: Application) : AndroidViewModel(app) {
                 val ch = kotlinx.coroutines.channels.Channel<HiveApi.StreamEvent>(
                     kotlinx.coroutines.channels.Channel.UNLIMITED)
                 val feed = launch {
-                    api.tryStream(agentId, msg, prior).collect { ch.send(it) }
+                    // svc mode: the bound endpoint is a raw OpenAI service —
+                    // the model id rides in the picked agent's `model` field.
+                    if (_ui.value.svcMode) {
+                        val model = _ui.value.agent?.model.orEmpty()
+                        if (model.isBlank()) {
+                            ch.send(HiveApi.StreamEvent.Error("no model selected"))
+                        } else {
+                            api.openaiStream(model, msg, prior)
+                                .collect { ch.send(it) }
+                        }
+                    } else {
+                        api.tryStream(agentId, msg, prior)
+                            .collect { ch.send(it) }
+                    }
                     ch.close()
                 }
                 var sawDone = false

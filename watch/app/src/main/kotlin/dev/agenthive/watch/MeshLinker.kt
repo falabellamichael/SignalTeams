@@ -19,14 +19,22 @@ object MeshLinker {
 
     const val HIVE_VPORT = 8075
 
+    /** Candidate service ports for OpenAI-compatible nodes (Lemonade and
+     *  kin publish /v1 on the tunnel IP at their configured API port). */
+    val SERVICE_VPORTS = intArrayOf(13305, 8000)
+
     private data class Cand(
         val nodeId: String,
         val ip: String,
         val admin: Boolean,
         val member: Boolean,
+        val host: String = "",
     )
 
-    /** A group member that answered the AgentHive probe — a switchable hive. */
+    /** A group member that answered the AgentHive probe — a switchable hive.
+     *  kind="service" entries are raw OpenAI-compatible AI endpoints: no
+     *  session claim, asks go straight to /v1/chat/completions. Their
+     *  nodeId is "svc:"-prefixed so bound markers never collide with hives. */
     data class MeshHive(
         val nodeId: String,
         val ip: String,
@@ -34,6 +42,8 @@ object MeshLinker {
         val lp: Int,          // live local egress bridge to it (127.0.0.1:lp)
         val member: Boolean,
         val bound: Boolean,   // this watch already claimed a session on it
+        val kind: String = "hive",
+        val svcPort: Int = 0, // tunnel-side service port (kind=service only)
     )
 
     /** Enumerate group devices + dataplane peers into [cands] (keyed by node
@@ -55,6 +65,8 @@ object MeshLinker {
                     admin = d.optBoolean("admin"),
                     member = d.optBoolean("member") ||
                             d.optString("group_role") == "member",
+                    host = d.optString("hostname",
+                        d.optString("device_name")),
                 )
             }
         }
@@ -66,7 +78,11 @@ object MeshLinker {
                 if (ip.isBlank() || ip == selfIp) continue
                 val nid = p.optString("node_id")
                 val key = nid.ifBlank { ip }
-                if (!cands.containsKey(key)) cands[key] = Cand(nid, ip, false, false)
+                val host = p.optString("hostname")
+                if (cands.containsKey(key)) {
+                    if (host.isNotBlank() && cands[key]!!.host.isBlank())
+                        cands[key] = cands[key]!!.copy(host = host)
+                } else cands[key] = Cand(nid, ip, false, false, host)
             }
         }
         return devN to peerN
@@ -114,6 +130,25 @@ object MeshLinker {
                             return@launch
                         }
                         nexus.closeEgress(c.ip, HIVE_VPORT)
+                        // Not a hive — maybe a raw AI service (Lemonade et
+                        // al publish /v1 on the tunnel IP). Mesh membership
+                        // is the credential; the probe needs no key.
+                        for (sp in SERVICE_VPORTS) {
+                            val slp = nexus.openEgress(c.ip, sp) ?: continue
+                            val models = app.api.probeService(
+                                "http://127.0.0.1:$slp")
+                            if (models != null && models.length() > 0) {
+                                val host = c.host.takeIf { it.isNotBlank() }
+                                    ?: c.ip
+                                log("found $host · lemonade — ${c.ip}")
+                                found.add(MeshHive("svc:${c.nodeId}", c.ip,
+                                    "$host · lemonade", slp, c.member,
+                                    "svc:${c.nodeId}" in bound,
+                                    kind = "service", svcPort = sp))
+                                return@launch
+                            }
+                            nexus.closeEgress(c.ip, sp)
+                        }
                         delay(500)
                     }
                 }
@@ -152,6 +187,30 @@ object MeshLinker {
                               store.meshTargetIp, 0)
             }
             log("no network path — WiFi/LTE down, phone unreachable")
+            return null
+        }
+
+        // svc binding — the target is a raw AI service, not a claimable
+        // hive: verify its /v1 surface on the stored target and keep the
+        // binding; never let the hive scan steal it.
+        if (store.hiveNodeId.startsWith("svc:")) {
+            val svcIp = store.meshTargetIp
+            val svcPort = store.meshTargetPort
+            if (svcIp.isNotBlank() && svcPort > 0) {
+                repeat(3) {
+                    val lp = nexus.openEgress(svcIp, svcPort, force = it > 0)
+                    if (lp != null &&
+                        api.probeService("http://127.0.0.1:$lp") != null) {
+                        api.baseUrl = "http://127.0.0.1:$lp"
+                        api.token = ""
+                        store.meshUrl = api.baseUrl
+                        store.egressPort = lp
+                        onHive(svcIp, svcPort, lp, store.hiveNodeId)
+                        return Triple(store.hiveNodeId, svcIp, lp)
+                    }
+                    delay(1200)
+                }
+            }
             return null
         }
 
