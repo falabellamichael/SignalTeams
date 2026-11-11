@@ -692,22 +692,34 @@ class NexusNode(private val ctx: Context) {
             Log.i("NexusNode", "auth_ed25519 rc=$rc authed=${d?.optBoolean("authenticated")} err=${d?.optString("error")}")
         }
 
-        // 5. join — retry across candidates on no-response
+        // 5. join — retry across candidates on no-response. A provided link
+        //    token is honored first, but tokens are single-use: if the join
+        //    refuses it, fall back to a bare member rejoin — a node already
+        //    admitted to the group joins on identity alone, so a dead code
+        //    can never take a working node down.
         Log.i("NexusNode", "joining network (account=${c.account}, token=${linkToken.take(4)}…)…")
         var joined: JSONObject? = null
         var lastJoin = "join failed"
-        repeat(3) {
-            if (joined != null) return@repeat
-            val out = PointerByReference()
-            val rc = api.ln_join_network(client, c.account, "", out)
-            val d = jsonOf(out)
-            Log.i("NexusNode", "join rc=$rc success=${d?.optBoolean("success")} err=${d?.optString("error")}")
-            if (rc == 0 && d?.optBoolean("success") == true) {
-                joined = d
-            } else {
-                lastJoin = (d?.optString("error") ?: "join rc=$rc")
-                Thread.sleep(2000)
+        fun tryJoin(times: Int): Boolean {
+            repeat(times) {
+                if (joined != null) return@repeat
+                val out = PointerByReference()
+                val rc = api.ln_join_network(client, c.account, "", out)
+                val d = jsonOf(out)
+                Log.i("NexusNode", "join rc=$rc success=${d?.optBoolean("success")} err=${d?.optString("error")}")
+                if (rc == 0 && d?.optBoolean("success") == true) {
+                    joined = d
+                } else {
+                    lastJoin = (d?.optString("error") ?: "join rc=$rc")
+                    Thread.sleep(2000)
+                }
             }
+            return joined != null
+        }
+        if (!tryJoin(3) && linkToken.isNotBlank()) {
+            Log.w("NexusNode", "token join refused — retrying member rejoin without it")
+            runCatching { api.ln_set_link_token(client, null) }
+            tryJoin(3)
         }
         if (joined == null) throw NexusException(lastJoin)
 

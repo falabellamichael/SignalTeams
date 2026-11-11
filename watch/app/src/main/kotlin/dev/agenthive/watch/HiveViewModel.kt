@@ -553,11 +553,26 @@ class HiveViewModel(app: Application) : AndroidViewModel(app) {
      */
     private suspend fun meshUp(linkToken: String): NexusInfo {
         _ui.update { it.copy(mesh = "connecting", meshInfo = "joining Nexus mesh…") }
-        val ni = nexus.connect(
-            deviceName = "${store.username.ifBlank { "nexus" }}-watch",
-            linkToken = linkToken,
-            genesisPubkey = "",
-        )
+        val ni = runCatching {
+            nexus.connect(
+                deviceName = "${store.username.ifBlank { "nexus" }}-watch",
+                linkToken = linkToken,
+                genesisPubkey = "",
+            )
+        }.getOrElse { first ->
+            // every join path refused — the token may still redeem as an
+            // invite grant (invite_accept takes the same codes), after which
+            // the bare member rejoin lands.
+            if (linkToken.isBlank()) throw first
+            val acc = runCatching { nexus.acceptInvite(linkToken) }
+            Log.i("HiveVM", "acceptInvite('$linkToken') after join fail -> ${acc.getOrNull()} err=${acc.exceptionOrNull()?.message}")
+            if (acc.isFailure) throw first
+            nexus.connect(
+                deviceName = "${store.username.ifBlank { "nexus" }}-watch",
+                linkToken = "",
+                genesisPubkey = "",
+            )
+        }
         Log.i("HiveVM", "meshUp connect done nodeId=${ni.nodeId} tunnel=${ni.tunnelIp}")
         if (linkToken.isNotBlank()) {
             val acc = runCatching { nexus.acceptInvite(linkToken) }
