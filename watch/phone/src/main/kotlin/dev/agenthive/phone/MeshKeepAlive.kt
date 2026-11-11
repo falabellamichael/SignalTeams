@@ -113,7 +113,13 @@ class PhoneMeshService : Service() {
         } finally { linking = false }
     }
 
+    /** Same ongoing notification re-posted every 30-90s is pure SystemUI
+     *  churn — only repost when the text actually changes (watch parity). */
+    @Volatile private var lastNotified = ""
+
     private fun notify(text: String) {
+        if (text == lastNotified) return
+        lastNotified = text
         val open = PendingIntent.getActivity(
             this, 0, Intent(this, MainActivity::class.java),
             PendingIntent.FLAG_IMMUTABLE)

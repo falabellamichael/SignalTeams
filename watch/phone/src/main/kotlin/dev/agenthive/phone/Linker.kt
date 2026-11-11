@@ -84,7 +84,15 @@ object Linker {
                 delay(400)
             }
             if (lp != null && api.probeHive("http://127.0.0.1:$lp")) return knownIp to lp
-            if (lp != null) nexus.closeEgress(knownIp, port)
+            // A dead cached listener evicts on close — one fresh re-bridge
+            // beats the full group scan when only the transport reset.
+            if (lp != null) {
+                nexus.closeEgress(knownIp, port)
+                val lp2 = nexus.openEgress(knownIp, port)
+                if (lp2 != null && api.probeHive("http://127.0.0.1:$lp2"))
+                    return knownIp to lp2
+                if (lp2 != null) nexus.closeEgress(knownIp, port)
+            }
         }
 
         val cands = LinkedHashMap<String, Cand>()
