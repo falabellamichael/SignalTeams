@@ -17,23 +17,40 @@ def my_dms(user=Depends(current_user)):
         rows = conn.execute(
             "SELECT c.* FROM channels c JOIN channel_members m ON m.channel_id=c.id "
             "WHERE c.kind='dm' AND m.user_id=? ORDER BY c.id DESC", (user["id"],)).fetchall()
+        if not rows:
+            return []
+        cids = [ch["id"] for ch in rows]
+        marks = ",".join("?" * len(cids))
+        # was 3 queries per DM (members + last message + reads) — refreshLists
+        # and the phone's refreshHome hit this on every resync. One IN-pass
+        # for members+reads, one grouped pass for last messages.
+        membs, reads = {}, {}
+        for r in conn.execute(
+                "SELECT m.channel_id AS cid, m.user_id AS uid, m.last_read AS lr, u.* "
+                "FROM channel_members m JOIN users u ON u.id=m.user_id "
+                f"WHERE m.channel_id IN ({marks}) AND u.id != ?", (*cids, user["id"])):
+            membs.setdefault(r["cid"], []).append(public_user(r))
+        for r in conn.execute(
+                "SELECT channel_id AS cid, user_id AS uid, last_read AS lr "
+                f"FROM channel_members WHERE channel_id IN ({marks})", cids):
+            reads.setdefault(r["cid"], {})[r["uid"]] = r["lr"]
+        lasts = {}
+        for r in conn.execute(
+                "SELECT m.channel_id AS cid, m.id, m.content, m.created_at "
+                "FROM messages m JOIN (SELECT channel_id, MAX(id) AS mid FROM messages "
+                f"WHERE channel_id IN ({marks}) GROUP BY channel_id) t "
+                "ON t.mid=m.id", cids):
+            lasts[r["cid"]] = {"id": r["id"], "content": r["content"],
+                               "created_at": r["created_at"]}
         out = []
         for ch in rows:
-            memb = [public_user(u) for u in conn.execute(
-                "SELECT u.* FROM users u JOIN channel_members m ON m.user_id=u.id "
-                "WHERE m.channel_id=? AND u.id != ?", (ch["id"], user["id"])).fetchall()]
-            last = conn.execute(
-                "SELECT id, content, created_at FROM messages WHERE channel_id=? ORDER BY id DESC LIMIT 1",
-                (ch["id"],)).fetchone()
-            d = {"id": ch["id"], "kind": "dm",
-                 "name": ch["name"] if ch["name"] != "dm" else "",
-                 "other": memb[0] if len(memb) == 1 else None,
-                 "members": memb,
-                 "last": dict(last) if last else None,
-                 "reads": {r["user_id"]: r["last_read"] for r in conn.execute(
-                     "SELECT user_id, last_read FROM channel_members WHERE channel_id=?",
-                     (ch["id"],)).fetchall()}}
-            out.append(d)
+            memb = membs.get(ch["id"], [])
+            out.append({"id": ch["id"], "kind": "dm",
+                        "name": ch["name"] if ch["name"] != "dm" else "",
+                        "other": memb[0] if len(memb) == 1 else None,
+                        "members": memb,
+                        "last": lasts.get(ch["id"]),
+                        "reads": reads.get(ch["id"], {})})
         # newest activity first — DM list bumps on incoming messages
         out.sort(key=lambda d: (d["last"] or {}).get("id") or 0, reverse=True)
         return out
