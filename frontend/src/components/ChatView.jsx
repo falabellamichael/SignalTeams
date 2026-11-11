@@ -53,6 +53,7 @@ export default function ChatView({ channel, server, onDm, members, me, emojis, r
   const listRef = useRef(null);
   const inputRef = useRef(null);
   const typingSent = useRef(0);
+  const typingOff = useRef(null);
   const pendingJump = useRef(null);   // msg id to scroll+flash once rendered
   const jumpTries = useRef(0);        // pages pulled while hunting a pendingJump target
   const scrollMem = useRef({});       // channel.id -> scrollTop when we left it
@@ -384,7 +385,11 @@ export default function ChatView({ channel, server, onDm, members, me, emojis, r
     if (Date.now() - typingSent.current > 2500) {
       typingSent.current = Date.now();
       sendWS({ type: "typing", channel_id: channel.id, on: true });
-      setTimeout(() => sendWS({ type: "typing", channel_id: channel.id, on: false }), 4000);
+      // cancel the pending off — continued typing used to emit an
+      // off→on flicker every ~4s (2 extra events + viewer-side blink)
+      clearTimeout(typingOff.current);
+      typingOff.current = setTimeout(
+        () => sendWS({ type: "typing", channel_id: channel.id, on: false }), 4000);
     }
   }
 
