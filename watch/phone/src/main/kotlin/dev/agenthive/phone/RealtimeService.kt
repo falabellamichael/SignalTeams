@@ -64,13 +64,14 @@ class RealtimeService : Service() {
                     author.optString("display_name",
                         author.optString("username", "message")),
                     content.ifBlank { "sent an attachment" },
-                    pinged)
+                    pinged,
+                    evt.optInt("channel_id"))
             }
-            "buzz" -> notify("AgentHive", "you have new activity", true)
+            "buzz" -> notify("AgentHive", "you have new activity", true, -1)
         }
     }
 
-    private fun notify(title: String, text: String, mention: Boolean) {
+    private fun notify(title: String, text: String, mention: Boolean, cid: Int) {
         val nm = getSystemService(Context.NOTIFICATION_SERVICE)
             as NotificationManager
         ensureChannels(nm)
@@ -89,10 +90,18 @@ class RealtimeService : Service() {
             .setPriority(if (mention) NotificationCompat.PRIORITY_HIGH
                          else NotificationCompat.PRIORITY_DEFAULT)
             .build()
-        nm.notify((System.currentTimeMillis() % 100000).toInt(), n)
+        // per-channel id: each conversation gets ONE shade entry that
+        // updates in place — a message burst used to stack a new
+        // notification per message (timestamp-keyed ids)
+        val notifId = if (cid > 0) NOTIF_BASE + cid else NOTIF_BUZZ
+        nm.notify(notifId, n)
     }
 
+    @Volatile private var channelsReady = false
+
     private fun ensureChannels(nm: NotificationManager) {
+        if (channelsReady) return
+        channelsReady = true
         nm.createNotificationChannel(NotificationChannel(
             CH_MESSAGES, "Messages", NotificationManager.IMPORTANCE_DEFAULT))
         nm.createNotificationChannel(NotificationChannel(
@@ -125,6 +134,8 @@ class RealtimeService : Service() {
         private const val CH_MENTIONS = "mentions"
         private const val CH_SERVICE = "realtime"
         private const val NOTIF_ID = 42
+        private const val NOTIF_BASE = 10_000
+        private const val NOTIF_BUZZ = 1
         const val ACTION_STOP = "dev.agenthive.phone.STOP_REALTIME"
 
         fun start(ctx: Context, meId: Int, meName: String) {
