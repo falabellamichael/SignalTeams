@@ -656,21 +656,38 @@ def global_search(q: str = "", user=Depends(current_user)):
             "AND m.thread_root IS NULL AND %s ORDER BY m.id DESC LIMIT 30"
             % (",".join("?" * len(cids)), " AND ".join(clauses)),
             (*cids, *params)).fetchall()
-        out = []
-        for m in rows:
-            ch = conn.execute("SELECT * FROM channels WHERE id=?", (m["channel_id"],)).fetchone()
-            if ch["server_id"]:
-                where = conn.execute("SELECT name FROM servers WHERE id=?",
-                                     (ch["server_id"],)).fetchone()["name"] + " #" + ch["name"]
+        if not rows:
+            return []
+        # was a channel query + a server/DM-name query + full message_json
+        # per hit (~10 queries each). Batch all three lookups and the
+        # serializer — a full search page is now ~10 queries total.
+        hit_cids = list({m["channel_id"] for m in rows})
+        chmap = {r["id"]: r for r in conn.execute(
+            "SELECT * FROM channels WHERE id IN (%s)"
+            % ",".join("?" * len(hit_cids)), hit_cids)}
+        sname = {r["id"]: r["name"] for r in conn.execute(
+            "SELECT id, name FROM servers WHERE id IN (%s)"
+            % ",".join("?" * len({c["server_id"] for c in chmap.values() if c["server_id"]})),
+            list({c["server_id"] for c in chmap.values() if c["server_id"]}))} \
+            if any(c["server_id"] for c in chmap.values()) else {}
+        dm_cids = [c["id"] for c in chmap.values() if not c["server_id"]]
+        dmnames = {}
+        if dm_cids:
+            for r in conn.execute(
+                    "SELECT cm.channel_id AS cid, u.display_name AS dn "
+                    "FROM channel_members cm JOIN users u ON u.id=cm.user_id "
+                    "WHERE cm.channel_id IN (%s) AND cm.user_id!=?"
+                    % ",".join("?" * len(dm_cids)), (*dm_cids, user["id"])):
+                dmnames.setdefault(r["cid"], r["dn"])
+        wheres = {}
+        for c in chmap.values():
+            if c["server_id"]:
+                wheres[c["id"]] = sname.get(c["server_id"], "?") + " #" + c["name"]
             else:
-                other = conn.execute(
-                    "SELECT u.display_name FROM channel_members cm "
-                    "JOIN users u ON u.id=cm.user_id "
-                    "WHERE cm.channel_id=? AND cm.user_id!=?",
-                    (ch["id"], user["id"])).fetchone()
-                where = "@" + (other["display_name"] if other else "DM")
-            d = message_json(conn, m, user["id"])
-            d["server_id"] = ch["server_id"]
-            d["where"] = where
+                wheres[c["id"]] = "@" + (dmnames.get(c["id"]) or "DM")
+        out = []
+        for m, d in zip(rows, messages_json_batch(conn, rows, user["id"])):
+            d["server_id"] = chmap[m["channel_id"]]["server_id"]
+            d["where"] = wheres[m["channel_id"]]
             out.append(d)
         return out
