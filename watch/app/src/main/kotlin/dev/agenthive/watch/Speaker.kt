@@ -44,6 +44,14 @@ class Speaker(private val api: HiveApi, private val ctx: Context) {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val queue = Channel<String>(Channel.UNLIMITED)
+    /** Synthesized audio ready to play — the synth stage runs ahead of
+     *  playback so the next sentence's mp3 downloads over the mesh WHILE
+     *  the current one plays; without it each sentence paid a full
+     *  backend-TTS round trip of dead air. */
+    private data class Said(val say: String, val bytes: ByteArray?)
+    private val audio = Channel<Said>(4)
+    /** Chunks enqueued but not yet played — drives the speaking flag. */
+    private val pending = java.util.concurrent.atomic.AtomicInteger(0)
     private var pump: Job? = null
     private val pumpLock = Any()
 
@@ -61,6 +69,8 @@ class Speaker(private val api: HiveApi, private val ctx: Context) {
 
     fun stop() {
         while (queue.tryReceive().isSuccess) {}
+        while (audio.tryReceive().isSuccess) {}
+        pending.set(0)
         pump?.cancel()
         runCatching { player?.takeIf { it.isPlaying }?.stop() }
         runCatching { player?.release() }
@@ -104,40 +114,46 @@ class Speaker(private val api: HiveApi, private val ctx: Context) {
     fun feed(text: String) {
         if (!enabled) return
         if (speakable(text).length < 2) return
+        pending.incrementAndGet()
         queue.trySend(text)
         synchronized(pumpLock) {
             if (pump?.isActive == true) return
             pump = scope.launch {
-                try {
+                // Stage 1 — synthesis: drains the text queue one sentence
+                // ahead of playback. The fetch is timeboxed so a slow mesh
+                // path can't stall the whole speech queue.
+                launch {
                     for (chunk in queue) {
-                        if (!isActive) break
-                        if (!enabled) continue
                         val say = speakable(chunk)
-                        if (say.length < 2) continue
-                        speaking.value = true
-                        playChunk(say)
-                        // The pump suspends on receive() once the queue drains
-                        // — without this, `speaking` (the UI's stop control)
-                        // stays stuck true after the last utterance ends.
-                        if (queue.isEmpty) speaking.value = false
+                        if (say.length >= 2) {
+                            val bytes = kotlinx.coroutines.withTimeoutOrNull(12_000) {
+                                runCatching { api.ttsBytes(say) }.getOrNull()
+                            }
+                            audio.send(Said(say, bytes))
+                        } else pending.decrementAndGet()
+                    }
+                }
+                // Stage 2 — playback: backend mp3 when synthesis produced
+                // one, the on-device engine otherwise.
+                try {
+                    for (a in audio) {
+                        if (!isActive) break
+                        if (enabled) {
+                            speaking.value = true
+                            if (a.bytes != null) playMp3(a.bytes)
+                            else ensureTts()?.let { speakOnDevice(it, a.say) }
+                        }
+                        pending.decrementAndGet()
+                        // The player suspends on receive() once everything
+                        // drains — without this `speaking` (the stop control)
+                        // stays stuck true after the last utterance.
+                        if (pending.get() <= 0) speaking.value = false
                     }
                 } finally {
                     speaking.value = false
                 }
             }
         }
-    }
-
-    /** One queued chunk: backend synthesis when the endpoint has a TTS model,
-     *  the on-device engine otherwise. The fetch is timeboxed — a slow mesh
-     *  path must not stall the whole speech queue for 90s. */
-    private suspend fun playChunk(say: String) {
-        val bytes = kotlinx.coroutines.withTimeoutOrNull(12_000) {
-            api.ttsBytes(say)
-        }
-        if (bytes != null) { playMp3(bytes); return }
-        val engine = ensureTts() ?: return
-        speakOnDevice(engine, say)
     }
 
     private suspend fun playMp3(bytes: ByteArray) {

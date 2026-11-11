@@ -761,7 +761,7 @@ class NexusNode(private val ctx: Context) {
     private fun teardown(releaseDemand: Boolean = false) {
         runCatching { cli?.let { NexusLib.load().ln_destroy(it) } }
         runCatching { ident?.let { NexusLib.load().ln_identity_destroy(it) } }
-        cli = null; ident = null; info = NexusInfo()
+        cli = null; ident = null; info = NexusInfo(); suspended = false
         if (releaseDemand) {
             val cm = connectivityManager()
             wifiDemand?.let { runCatching { cm?.unregisterNetworkCallback(it) } }
@@ -772,15 +772,26 @@ class NexusNode(private val ctx: Context) {
         }
     }
 
+    /** True only after suspendMesh() ran — ln_resume on a never-suspended
+     *  client still does a full transport reset (new UDP socket, every
+     *  loopback egress listener closed). meshPoll's "not up → resume"
+     *  used to fire on a flapping tunnel_up and kill every bridge it had
+     *  just opened, forever. */
+    @Volatile var suspended = false; private set
+
     suspend fun resume() = withContext(Dispatchers.IO) {
+        if (!suspended) return@withContext
         mutex.withLock {
             cli?.let { runCatching { NexusLib.load().ln_resume(it) } }
+            suspended = false
         }
     }
 
     suspend fun suspendMesh() = withContext(Dispatchers.IO) {
+        if (suspended) return@withContext
         mutex.withLock {
             cli?.let { runCatching { NexusLib.load().ln_suspend(it) } }
+            suspended = true
         }
     }
 
