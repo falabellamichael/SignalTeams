@@ -21,7 +21,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 abstract class WatchAppFunctionServiceBase : AppFunctionService() {
 
     /**
-     * Asks the AgentHive assistant a question and returns the reply.
+     * Asks the Nexus Watch assistant a question and returns the reply.
      * The query travels over the Nexus mesh to the user's hive cluster,
      * which answers with the configured agent and model.
      * @param query the natural-language question or instruction
@@ -30,7 +30,7 @@ abstract class WatchAppFunctionServiceBase : AppFunctionService() {
     suspend fun askHive(query: String): String {
         val store = Store(this)
         if (store.token.isBlank())
-            return "The watch isn't linked to a hive yet — open AgentHive and pair it."
+            return "The watch isn't linked to a hive yet — open Nexus Watch and pair it."
         val api = HiveApi()
         api.token = store.token
         // mesh egress first; a dead loopback falls back to the direct URL

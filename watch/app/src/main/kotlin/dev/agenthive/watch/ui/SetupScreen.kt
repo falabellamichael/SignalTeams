@@ -64,7 +64,7 @@ fun SetupScreen(
             GeminiOrb(size = 38.dp, active = busy, animate = !state.ambient)
             Spacer(Modifier.height(4.dp))
             Text(
-                "Hive Watch",
+                "Nexus Watch",
                 color = HiveColors.Text,
                 fontSize = 15.sp,
                 fontWeight = FontWeight.Bold,

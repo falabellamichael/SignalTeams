@@ -15,7 +15,7 @@ import android.view.accessibility.AccessibilityNodeInfo
  * inside other apps like Gemini does: global navigation (home/back/recents/
  * notifications/quick settings/power), reading the screen, typing into
  * fields, and tapping things. Requires a one-time grant in
- * Settings → Accessibility → AgentHive; every caller checks [isEnabled]
+ * Settings → Accessibility → Nexus Watch; every caller checks [isEnabled]
  * first and degrades to a spoken hint.
  */
 class HiveA11y : AccessibilityService() {

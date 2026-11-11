@@ -123,17 +123,17 @@ fun LoginScreen(state: UiState, vm: AppViewModel) {
                 .border(1.5.dp, DcHoney.copy(alpha = 0.5f), CircleShape),
             contentAlignment = Alignment.Center,
         ) {
-            Text("🐝", fontSize = 28.sp)
+            Text("✦", color = DcHoney, fontSize = 26.sp, fontWeight = FontWeight.Bold)
         }
         Spacer(Modifier.height(10.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("Signal", color = DcText, fontSize = 26.sp, fontWeight = FontWeight.Bold)
+            Text("Nexus", color = DcText, fontSize = 26.sp, fontWeight = FontWeight.Bold)
             Spacer(Modifier.width(2.dp))
-            Text("Teams", color = DcHoney, fontSize = 26.sp,
+            Text("Watch", color = DcHoney, fontSize = 26.sp,
                  fontWeight = FontWeight.Bold, fontStyle = FontStyle.Italic)
         }
         Text(
-            "where your crew's agents live.",
+            "your hive, on your wrist.",
             color = DcSub, fontSize = 13.sp, fontStyle = FontStyle.Italic,
             modifier = Modifier.padding(top = 4.dp, bottom = 22.dp),
         )

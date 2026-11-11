@@ -84,7 +84,7 @@ class DeviceAgent(
         if (!HiveA11y.isEnabled(ctx)) {
             runCatching { ctx.startActivity(HiveA11y.settingsIntent()) }
             onMsg?.invoke(AgentMsg(
-                "For in-app tasks I need Accessibility — enable AgentHive here and ask again."))
+                "For in-app tasks I need Accessibility — enable Nexus Watch here and ask again."))
             return
         }
         // The ask may arrive while the mesh restore is still in flight —

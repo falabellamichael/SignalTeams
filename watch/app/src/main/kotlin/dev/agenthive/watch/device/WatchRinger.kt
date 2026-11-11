@@ -92,7 +92,7 @@ object WatchRinger {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val b = NotificationCompat.Builder(ctx, CHANNEL)
             .setSmallIcon(android.R.drawable.ic_dialog_info)
-            .setContentTitle("AgentHive")
+            .setContentTitle("Nexus Watch")
             .setContentText(text)
             .setCategory(NotificationCompat.CATEGORY_ALARM)
             .setPriority(NotificationCompat.PRIORITY_MAX)

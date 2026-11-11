@@ -61,7 +61,7 @@ object HealthWorkout {
     private fun noGrant(ctx: Context): String {
         runCatching { ctx.startActivity(HealthProbe.grantIntent(ctx)) }
         return "I need Activity recognition and Body sensors — grant them " +
-            "for AgentHive here, then ask again."
+            "for Nexus Watch here, then ask again."
     }
 
     suspend fun start(ctx: Context, type: ExerciseType, name: String): String {

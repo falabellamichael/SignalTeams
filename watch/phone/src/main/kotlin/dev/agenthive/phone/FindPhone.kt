@@ -529,13 +529,13 @@ object PhoneRinger {
         val nm = ctx.getSystemService(NotificationManager::class.java) ?: return
         nm.createNotificationChannel(
             NotificationChannel(CHANNEL, "Find phone", NotificationManager.IMPORTANCE_HIGH)
-                .apply { description = "Alarm triggered from your AgentHive watch" })
+                .apply { description = "Alarm triggered from your Nexus Watch" })
         val stopPi = PendingIntent.getBroadcast(
             ctx, 0, Intent(FindStopReceiver.ACTION_STOP).setPackage(ctx.packageName),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         nm.notify(NOTIF_ID, NotificationCompat.Builder(ctx, CHANNEL)
             .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
-            .setContentTitle("AgentHive is ringing this phone")
+            .setContentTitle("Nexus Watch is ringing this phone")
             .setContentText("Requested from your watch")
             .setCategory(NotificationCompat.CATEGORY_ALARM)
             .setPriority(NotificationCompat.PRIORITY_MAX)

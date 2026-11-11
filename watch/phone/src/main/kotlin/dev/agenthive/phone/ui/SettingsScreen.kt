@@ -1154,7 +1154,7 @@ private fun WatchPage(state: UiState, vm: AppViewModel, onBack: () -> Unit) {
             FieldLabel("Alerts")
             PrimaryBtn("Send test alert") {
                 send("alert delivered") {
-                    WatchBridge.notifyWatch(ctx, "Test alert from AgentHive")
+                    WatchBridge.notifyWatch(ctx, "Test alert from Nexus Watch")
                 }
             }
             Text(

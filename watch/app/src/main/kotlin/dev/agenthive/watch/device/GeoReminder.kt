@@ -41,7 +41,7 @@ object GeoReminder {
             "?q=${java.net.URLEncoder.encode(place, "UTF-8")}" +
             "&format=json&limit=1&accept-language=en"
         val req = Request.Builder().url(url)
-            .header("User-Agent", "AgentHive-Watch/1.0 (contact: dev@agenthive.dev)")
+            .header("User-Agent", "NexusWatch/1.0 (contact: dev@agenthive.dev)")
             .build()
         val body = runCatching {
             client.newCall(req).execute().use { it.body?.string() }
@@ -84,7 +84,7 @@ object GeoReminder {
             PackageManager.PERMISSION_GRANTED
         if (!fine) return "I need location access for that."
         if (!bg) return "I need 'always' location so the reminder fires later — " +
-            "grant location 'Allow all the time' for AgentHive."
+            "grant location 'Allow all the time' for Nexus Watch."
         val fence = Geofence.Builder()
             .setRequestId(text.hashCode().toString())
             .setCircularRegion(lat, lon, radiusM)

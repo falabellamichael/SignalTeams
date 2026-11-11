@@ -20,7 +20,7 @@ import androidx.compose.ui.unit.Dp
 import dev.agenthive.watch.R
 
 /**
- * The AgentHive trefoil — always in motion, like Devin's thinking mark.
+ * The Nexus Watch trefoil — always in motion, like Devin's thinking mark.
  * rememberInfiniteTransition runs for the composable's whole lifetime:
  * the mark never stops animating unless the caller removes it.
  */
@@ -30,7 +30,7 @@ fun HiveMark(size: Dp, modifier: Modifier = Modifier, tint: ColorFilter? = null,
     if (!animate) {
         Image(
             painter = painterResource(R.drawable.hive_mark),
-            contentDescription = "AgentHive",
+            contentDescription = "Nexus Watch",
             colorFilter = tint,
             modifier = modifier.size(size),
         )
@@ -54,7 +54,7 @@ fun HiveMark(size: Dp, modifier: Modifier = Modifier, tint: ColorFilter? = null,
     )
     Image(
         painter = painterResource(R.drawable.hive_mark),
-        contentDescription = "AgentHive",
+        contentDescription = "Nexus Watch",
         colorFilter = tint,
         modifier = modifier
             .size(size)

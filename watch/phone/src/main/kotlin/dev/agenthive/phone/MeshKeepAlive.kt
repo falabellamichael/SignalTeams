@@ -128,7 +128,7 @@ class PhoneMeshService : Service() {
             this, 0, Intent(this, MainActivity::class.java),
             PendingIntent.FLAG_IMMUTABLE)
         val n = Notification.Builder(this, CHANNEL)
-            .setContentTitle("Hive mesh")
+            .setContentTitle("Nexus mesh")
             .setContentText(text)
             .setSmallIcon(android.R.drawable.stat_notify_chat)
             .setContentIntent(open)

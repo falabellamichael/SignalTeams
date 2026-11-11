@@ -144,7 +144,7 @@ data class NexusCfg(
     val domain: String = "lemonade-nexus.io",
     val region: String = "us-west",
     val server: String = "",          // explicit host[:port], skips DNS discovery
-    val deviceName: String = "agenthive-watch",
+    val deviceName: String = "nexus-watch",
     val account: String = "agenthive",
 )
 

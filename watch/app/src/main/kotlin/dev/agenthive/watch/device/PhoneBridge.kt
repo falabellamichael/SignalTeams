@@ -276,7 +276,7 @@ object PhoneBridge {
             pending.remove(replyPath)
             if (raw == null) markDead() else markAlive()
             return (raw ?: "") to
-                if (raw == null) "The phone didn't answer — is AgentHive running on it?"
+                if (raw == null) "The phone didn't answer — is Nexus Watch running on it?"
                 else ""
         }
     }

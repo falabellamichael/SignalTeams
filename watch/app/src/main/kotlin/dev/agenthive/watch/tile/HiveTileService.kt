@@ -42,7 +42,7 @@ class HiveTileService : TileService() {
     private fun buildTile(dev: DeviceParametersBuilders.DeviceParameters): Tile {
         val store = Store(applicationContext)
         val status = when {
-            !store.paired -> "Not paired — open AgentHive to link your hive"
+            !store.paired -> "Not paired — open Nexus Watch to link your hive"
             else -> "● Hive linked" +
                 store.displayName.takeIf { it.isNotBlank() }
                     ?.let { " as $it" }.orEmpty()

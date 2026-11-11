@@ -11,7 +11,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "dev.agenthive.phone"
+        applicationId = "dev.nexuswatch.phone"
         minSdk = 30
         targetSdk = 36
         versionCode = 1

@@ -172,7 +172,7 @@ object DeviceCommands {
         if (!HiveNotifService.isEnabled(ctx)) {
             runCatching { ctx.startActivity(HiveNotifService.settingsIntent()) }
             return CmdReply(
-                "I need notification access to control media — granted? enable AgentHive here, then ask again.",
+                "I need notification access to control media — granted? enable Nexus Watch here, then ask again.",
                 ok = false)
         }
         val done = when (verb) {
@@ -196,7 +196,7 @@ object DeviceCommands {
         if (!HiveA11y.isEnabled(ctx)) {
             runCatching { ctx.startActivity(HiveA11y.settingsIntent()) }
             return CmdReply(
-                "For that I need Accessibility — enable AgentHive here and ask again.",
+                "For that I need Accessibility — enable Nexus Watch here and ask again.",
                 ok = false)
         }
         return if (HiveA11y.global(action)) CmdReply(okText)
@@ -652,7 +652,7 @@ object DeviceCommands {
                     val bpm = HealthProbe.heartRate(ctx)
                     if (bpm == null) {
                         runCatching { ctx.startActivity(HealthProbe.grantIntent(ctx)) }
-                        "Couldn't get a reading — grant Body sensors for AgentHive, and keep the watch snug."
+                        "Couldn't get a reading — grant Body sensors for Nexus Watch, and keep the watch snug."
                     } else "Your heart rate is ${bpm.toInt()} beats per minute."
                 })
             }
@@ -670,7 +670,7 @@ object DeviceCommands {
                     val s = HealthProbe.steps(ctx)
                     if (s == null) {
                         runCatching { ctx.startActivity(HealthProbe.grantIntent(ctx)) }
-                        "Couldn't read the step sensor — grant Body sensors for AgentHive."
+                        "Couldn't read the step sensor — grant Body sensors for Nexus Watch."
                     } else "Step counter reads $s steps since the watch last restarted."
                 })
             }
@@ -714,7 +714,7 @@ object DeviceCommands {
             .find(t)?.takeIf { !t.endsWith(" on my phone") &&
                              !t.endsWith(" on the phone") }?.let {
                 if (!HiveNotifService.isEnabled(ctx))
-                    return CmdReply("I need notification access to see media — enable AgentHive in Special app access.", ok = false)
+                    return CmdReply("I need notification access to see media — enable Nexus Watch in Special app access.", ok = false)
                 val np = HiveNotifService.nowPlaying(ctx)
                 return CmdReply(np ?: "Nothing is playing right now.")
             }
@@ -724,7 +724,7 @@ object DeviceCommands {
             .find(t)?.let { m ->
                 if (!HiveNotifService.isEnabled(ctx)) {
                     runCatching { ctx.startActivity(HiveNotifService.settingsIntent()) }
-                    return CmdReply("I need notification access — enable AgentHive here.", ok = false)
+                    return CmdReply("I need notification access — enable Nexus Watch here.", ok = false)
                 }
                 return CmdReply(HiveNotifService.replyToLatest(
                     ctx, m.groupValues[1].trim().removeSurrounding("\"")))
@@ -735,7 +735,7 @@ object DeviceCommands {
             .find(t)?.let {
                 if (!HiveNotifService.isEnabled(ctx)) {
                     runCatching { ctx.startActivity(HiveNotifService.settingsIntent()) }
-                    return CmdReply("I need notification access — enable AgentHive here, then ask again.", ok = false)
+                    return CmdReply("I need notification access — enable Nexus Watch here, then ask again.", ok = false)
                 }
                 val items = HiveNotifService.latest(ctx)
                 return CmdReply(if (items.isEmpty()) "No notifications right now."
@@ -747,7 +747,7 @@ object DeviceCommands {
             .find(t)?.let {
                 if (!HiveA11y.isEnabled(ctx)) {
                     runCatching { ctx.startActivity(HiveA11y.settingsIntent()) }
-                    return CmdReply("I need Accessibility to see your screen — enable AgentHive here.", ok = false)
+                    return CmdReply("I need Accessibility to see your screen — enable Nexus Watch here.", ok = false)
                 }
                 val lines = HiveA11y.visibleText().filter { it.isNotBlank() }.take(14)
                 return CmdReply(if (lines.isEmpty()) "I can't read the screen right now."
@@ -988,7 +988,7 @@ object DeviceCommands {
         RX71
             .find(t)?.let {
                 if (!HiveNotifService.isEnabled(ctx))
-                    return CmdReply("I need notification access to clear those — enable AgentHive.", ok = false)
+                    return CmdReply("I need notification access to clear those — enable Nexus Watch.", ok = false)
                 val n = HiveNotifService.clearAll()
                 return CmdReply(if (n > 0) "Cleared $n notifications." else "Nothing to clear.")
             }
@@ -1148,7 +1148,7 @@ object DeviceCommands {
                 if (!HiveA11y.isEnabled(ctx)) {
                     runCatching { ctx.startActivity(HiveA11y.settingsIntent()) }
                     return CmdReply(
-                        "I need Accessibility to tap things — enable AgentHive here.",
+                        "I need Accessibility to tap things — enable Nexus Watch here.",
                         ok = false)
                 }
                 val q = m.groupValues[1]

@@ -30,7 +30,7 @@ object CalendarProbe {
     fun upcoming(ctx: Context, tomorrow: Boolean): String {
         if (!granted(ctx)) {
             ctx.startActivity(grantIntent(ctx))
-            return "I need Calendar access — grant it for AgentHive here, then ask again."
+            return "I need Calendar access — grant it for Nexus Watch here, then ask again."
         }
         val start = Calendar.getInstance().apply {
             if (tomorrow) add(Calendar.DAY_OF_YEAR, 1)

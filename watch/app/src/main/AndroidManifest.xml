@@ -60,7 +60,7 @@
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:supportsRtl="true"
-        android:theme="@style/Theme.AgentHive.Watch">
+        android:theme="@style/Theme.Nexus.Watch">
 
         <meta-data
             android:name="com.google.android.wearable.standalone"
@@ -71,7 +71,7 @@
             android:exported="true"
             android:launchMode="singleTask"
             android:taskAffinity=""
-            android:theme="@style/Theme.AgentHive.Watch">
+            android:theme="@style/Theme.Nexus.Watch">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
@@ -93,12 +93,12 @@
         <activity
             android:name="dev.agenthive.watch.device.TorchActivity"
             android:exported="true"
-            android:theme="@style/Theme.AgentHive.Watch" />
+            android:theme="@style/Theme.Nexus.Watch" />
         <!-- tile-tap trampoline: runs the "action" extra, shows result, exits -->
         <activity
             android:name="dev.agenthive.watch.device.QuickActionActivity"
             android:exported="true"
-            android:theme="@style/Theme.AgentHive.Watch" />
+            android:theme="@style/Theme.Nexus.Watch" />
 
         <service
             android:name="dev.agenthive.watch.assist.HiveVoiceInteractionService"

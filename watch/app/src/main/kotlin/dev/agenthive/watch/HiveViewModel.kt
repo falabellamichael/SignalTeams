@@ -554,7 +554,7 @@ class HiveViewModel(app: Application) : AndroidViewModel(app) {
     private suspend fun meshUp(linkToken: String): NexusInfo {
         _ui.update { it.copy(mesh = "connecting", meshInfo = "joining Nexus mesh…") }
         val ni = nexus.connect(
-            deviceName = "${store.username.ifBlank { "hive" }}-watch",
+            deviceName = "${store.username.ifBlank { "nexus" }}-watch",
             linkToken = linkToken,
             genesisPubkey = "",
         )

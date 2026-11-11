@@ -51,7 +51,7 @@ object GpsProbe {
             "?lat=${loc.latitude}&lon=${loc.longitude}&format=json&zoom=16"
         val body = runCatching {
             client.newCall(Request.Builder().url(url)
-                .header("User-Agent", "AgentHiveWatch/1.0").build())
+                .header("User-Agent", "NexusWatch/1.0").build())
                 .execute().use { it.body?.string() }
         }.getOrNull() ?: return "Couldn't reach the map service."
         val j = runCatching { JSONObject(body) }.getOrNull()

@@ -20,7 +20,7 @@ class HiveQsService : TileService() {
     override fun onStartListening() {
         qsTile?.apply {
             label = "Find phone"
-            subtitle = "AgentHive"
+            subtitle = "Nexus Watch"
             state = Tile.STATE_INACTIVE
             updateTile()
         }
@@ -37,7 +37,7 @@ class HiveQsService : TileService() {
             PhoneBridge.findPhone(applicationContext)
             qsTile?.apply {
                 state = Tile.STATE_INACTIVE
-                subtitle = "AgentHive"
+                subtitle = "Nexus Watch"
                 updateTile()
             }
         }

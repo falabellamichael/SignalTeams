@@ -39,7 +39,7 @@ object Linker {
                      log: (String) -> Unit = {}): Linked {
         // 1. bring the phone's mesh node up (invite lands us in the hive's group)
         log("joining Nexus mesh…")
-        val ni = nexus.connect(deviceName = "agenthive-phone", linkToken = code, server = server)
+        val ni = nexus.connect(deviceName = "nexuswatch-phone", linkToken = code, server = server)
         if (code.isNotBlank()) runCatching { nexus.acceptInvite(code) }
         store.meshEnabled = true
         log("mesh up — ${ni.tunnelIp.substringBefore("/").ifBlank { ni.nodeId }}")

@@ -87,7 +87,7 @@ abstract class HiveAppFunctionServiceBase : AppFunctionService() {
     @AppFunctionDeclaration(isDescribedByKDoc = true)
     fun readNotifications(): String {
         if (!PhoneNotifService.isEnabled(this))
-            return "Notification access isn't granted to AgentHive."
+            return "Notification access isn't granted to Nexus Watch."
         val lines = PhoneNotifService.latest(this, 5)
         return if (lines.isEmpty()) "No notifications right now."
             else lines.mapIndexed { i, l -> "#${i + 1}: $l" }
@@ -106,7 +106,7 @@ abstract class HiveAppFunctionServiceBase : AppFunctionService() {
     fun actOnNotification(key: String, verb: String,
                           text: String?): String {
         if (!PhoneNotifService.isEnabled(this))
-            return "Notification access isn't granted to AgentHive."
+            return "Notification access isn't granted to Nexus Watch."
         return PhoneNotifService.act(this,
             "$verb$key" + (text?.let { "$it" } ?: ""))
     }
@@ -126,7 +126,7 @@ abstract class HiveAppFunctionServiceBase : AppFunctionService() {
     @AppFunctionDeclaration(isDescribedByKDoc = true)
     fun controlMedia(verb: String): String {
         if (!PhoneNotifService.isEnabled(this))
-            return "Notification access isn't granted to AgentHive."
+            return "Notification access isn't granted to Nexus Watch."
         return if (PhoneNotifService.transport(this, verb.lowercase()))
             "Media: ${verb.lowercase()}."
         else "Nothing is playing to control."
@@ -252,7 +252,7 @@ abstract class HiveAppFunctionServiceBase : AppFunctionService() {
     }
 
     /**
-     * Saves a note to the user's AgentHive memory — "remember that the
+     * Saves a note to the user's Nexus Watch memory — "remember that the
      * wifi password is X".
      * @param text the fact or note to remember
      */
@@ -278,7 +278,7 @@ abstract class HiveAppFunctionServiceBase : AppFunctionService() {
     }
 
     /**
-     * Asks the AgentHive assistant a question and returns the reply,
+     * Asks the Nexus Watch assistant a question and returns the reply,
      * routed through the user's hive cluster.
      * @param query the natural-language question or instruction
      */
@@ -286,7 +286,7 @@ abstract class HiveAppFunctionServiceBase : AppFunctionService() {
     suspend fun askHive(query: String): String {
         val store = dev.agenthive.watch.data.Store(this)
         if (store.token.isBlank())
-            return "Not linked to a hive — open AgentHive and sign in."
+            return "Not linked to a hive — open Nexus Watch and sign in."
         val api = dev.agenthive.watch.data.HiveApi()
         api.token = store.token
         val bases = listOf(store.meshUrl, store.serverUrl)

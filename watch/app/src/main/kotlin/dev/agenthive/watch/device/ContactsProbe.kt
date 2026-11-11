@@ -29,7 +29,7 @@ object ContactsProbe {
     fun lookup(ctx: Context, spoken: String): Pair<Hit?, String?> {
         if (!granted(ctx)) {
             ctx.startActivity(grantIntent(ctx))
-            return null to "I need Contacts access — grant it for AgentHive here, then ask again."
+            return null to "I need Contacts access — grant it for Nexus Watch here, then ask again."
         }
         val q = spoken.trim().lowercase().removePrefix("to ").trim()
         if (q.isBlank()) return null to null

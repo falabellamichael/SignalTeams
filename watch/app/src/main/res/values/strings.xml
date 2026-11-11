@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Hive</string>
+    <string name="app_name">Nexus Watch</string>
     <string name="a11y_desc">Lets the assistant navigate the watch for you — home, back, recents, notifications, quick settings, power menu, and tapping things on screen.</string>
 </resources>

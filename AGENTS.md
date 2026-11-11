@@ -85,6 +85,11 @@
   Re-point a watch by updating `uid` + deleting its `sessions` row; next
   `watch_session` reconnect mints a token for the new uid (secret stays).
   Plugins follow the bound uid via `connected_plugins`, NOT the device.
+  Wearable app ids: watch = `dev.nexuswatch.watch`, phone = `dev.nexuswatch.phone`
+  (rebrand 2026-11: previously BOTH shared `dev.agenthive.phone` — a collision).
+  Kotlin namespaces stay `dev.agenthive.{watch,phone}` — JNI bindings are
+  prebuilt against them; appfunctions `functionId`s and `agenthive.*`
+  device-state keys are wire protocol, not branding.
   **Watch stays linked**: `BootReceiver` → `MeshService` (FGS, dataSync) owns
   the mesh for the watch's uptime — `ensureLinked` rejoins+rediscovers via the
   shared `nexus/MeshLinker` headless path, `warmEgress` keeps the loopback

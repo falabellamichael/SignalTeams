@@ -242,7 +242,7 @@ class MeshService : Service() {
                     scope.launch {
                         runCatching {
                             app.nexus.connect(
-                                deviceName = "${app.store.username.ifBlank { "hive" }}-watch",
+                                deviceName = "${app.store.username.ifBlank { "nexus" }}-watch",
                                 linkToken = "", genesisPubkey = "",
                             )
                             if (MeshLinker.discover(app, log = { m ->
@@ -281,7 +281,7 @@ class MeshService : Service() {
                 }
                 try {
                     app.nexus.connect(
-                        deviceName = "${app.store.username.ifBlank { "hive" }}-watch",
+                        deviceName = "${app.store.username.ifBlank { "nexus" }}-watch",
                         linkToken = "", genesisPubkey = "",
                     )
                     if (MeshLinker.discover(app, log = { m ->
@@ -305,7 +305,7 @@ class MeshService : Service() {
                         Log.i("MeshService", "link pass $attempt — join")
                     }
                     app.nexus.connect(
-                        deviceName = "${app.store.username.ifBlank { "hive" }}-watch",
+                        deviceName = "${app.store.username.ifBlank { "nexus" }}-watch",
                         linkToken = "", genesisPubkey = "",
                     )
                     if (MeshLinker.discover(app, log = { m ->
@@ -386,7 +386,7 @@ class MeshService : Service() {
             PendingIntent.FLAG_IMMUTABLE
         )
         val notif = Notification.Builder(this, CHANNEL)
-            .setContentTitle("Hive mesh")
+            .setContentTitle("Nexus mesh")
             .setContentText(text)
             .setSmallIcon(android.R.drawable.stat_sys_data_bluetooth)
             .setContentIntent(open)

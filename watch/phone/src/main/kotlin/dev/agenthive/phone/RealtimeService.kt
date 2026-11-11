@@ -67,7 +67,7 @@ class RealtimeService : Service() {
                     pinged,
                     evt.optInt("channel_id"))
             }
-            "buzz" -> notify("AgentHive", "you have new activity", true, -1)
+            "buzz" -> notify("Nexus Watch", "you have new activity", true, -1)
         }
     }
 
@@ -118,7 +118,7 @@ class RealtimeService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         return NotificationCompat.Builder(this, CH_SERVICE)
             .setSmallIcon(android.R.drawable.stat_notify_chat)
-            .setContentTitle("AgentHive connected")
+            .setContentTitle("Nexus Watch connected")
             .setContentIntent(open)
             .setOngoing(true)
             .build()

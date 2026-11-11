@@ -811,14 +811,14 @@ private fun DmPanel(state: UiState, vm: AppViewModel) {
             Column(Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        "Signal",
+                        "Nexus",
                         color = DcText,
                         fontSize = 17.sp,
                         fontWeight = FontWeight.Bold,
                     )
                     Spacer(Modifier.width(2.dp))
                     Text(
-                        "Teams",
+                        "Watch",
                         color = DcHoney,
                         fontSize = 17.sp,
                         fontWeight = FontWeight.Bold,
@@ -826,7 +826,7 @@ private fun DmPanel(state: UiState, vm: AppViewModel) {
                     )
                 }
                 Text(
-                    "your crew's agents",
+                    "your hive, on your wrist",
                     color = DcSub,
                     fontSize = 11.sp,
                 )
