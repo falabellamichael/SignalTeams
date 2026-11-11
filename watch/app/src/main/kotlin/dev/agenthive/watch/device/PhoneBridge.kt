@@ -2,6 +2,7 @@ package dev.agenthive.watch.device
 
 import android.content.Context
 import android.content.Intent
+import android.util.Log
 import com.google.android.gms.tasks.Task
 import com.google.android.gms.wearable.MessageEvent
 import com.google.android.gms.wearable.Node
@@ -35,6 +36,9 @@ class WatchWearService : WearableListenerService() {
          *  manifest delivery to sideloaded apps (trusted-peer gate)
          *  but runtime listeners ride a live binder and work. */
         fun handleMessage(ctx: android.content.Context, ev: MessageEvent) {
+            // Any inbound Wear message proves the link is alive — lift the
+            // dead-channel cooldown so the next send doesn't fast-fail.
+            PhoneBridge.markAlive()
             val now = android.os.SystemClock.elapsedRealtime()
             val key = "${ev.sourceNodeId}|${ev.path}|${ev.data.contentHashCode()}"
             if (now - (recentMsgs.put(key, now) ?: Long.MIN_VALUE) < DEDUP_MS) return
@@ -165,27 +169,60 @@ object PhoneBridge {
             addOnFailureListener { cont.resume(null) }
         }
 
-    private suspend fun connectedNodes(ctx: Context): List<Node> =
-        withContext(Dispatchers.IO) {
+    /** GMS node scans are a binder round trip each — during a proxy stream
+     *  that's per-chunk traffic. 30s cache; any send failure or dead-mark
+     *  drops it so a re-tethered phone is seen immediately. */
+    @Volatile private var nodeCache: Pair<Long, List<Node>>? = null
+
+    private suspend fun connectedNodes(ctx: Context): List<Node> {
+        nodeCache?.let { (t, nodes) ->
+            if (android.os.SystemClock.elapsedRealtime() - t < 30_000) return nodes
+        }
+        val nodes = withContext(Dispatchers.IO) {
             withTimeoutOrNull(4_000) {
                 Wearable.getNodeClient(ctx).connectedNodes.awaitResult()
             } ?: emptyList()
         }
+        nodeCache = android.os.SystemClock.elapsedRealtime() to nodes
+        return nodes
+    }
+
+    /**
+     * Dead-channel cooldown: a verifiably dead Wear link (no nodes, or a
+     * message that went unanswered) used to cost every caller the full
+     * 4-15s await stack — per probe, per restore, per ask. For 60s after a
+     * failure verdict, callers fast-fail instead. Any successful reply
+     * clears it, so a re-tethered phone is picked up within a minute.
+     */
+    @Volatile private var wearDeadUntil = 0L
+    private fun wearDead() = android.os.SystemClock.elapsedRealtime() < wearDeadUntil
+    private fun markDead() {
+        wearDeadUntil = android.os.SystemClock.elapsedRealtime() + 60_000
+        nodeCache = null
+        Log.i("PhoneBridge", "wear channel marked dead — 60s cooldown")
+    }
+    /** Any inbound Wear message proves the link — lifts the cooldown. */
+    fun markAlive() { wearDeadUntil = 0L }
 
     /** Send `path` (+payload) to the paired phone; "" on success, else error text. */
     private suspend fun send(ctx: Context, path: String,
                              data: ByteArray = ByteArray(0)): String {
+        if (wearDead()) return "Phone unreachable (Wear link down)"
         val nodes = connectedNodes(ctx)
         // prefer the Bluetooth-nearby node (the paired phone in range)
         val node = nodes.firstOrNull { it.isNearby } ?: nodes.firstOrNull()
-            ?: return "No Wear-paired device found — is the phone paired to this watch?"
+        if (node == null) {
+            markDead()
+            return "No Wear-paired device found — is the phone paired to this watch?"
+        }
         val ok = withContext(Dispatchers.IO) {
             withTimeoutOrNull(4_000) {
                 Wearable.getMessageClient(ctx)
                     .sendMessage(node.id, path, data).awaitResult()
             }
         }
-        return if (ok != null) "" else "Couldn't reach ${node.displayName}."
+        return if (ok != null) ""
+               else { markDead(); "Couldn't reach ${node.displayName}." }
     }
 
     suspend fun findPhone(ctx: Context): String {
@@ -217,6 +254,7 @@ object PhoneBridge {
             if (err.isNotEmpty()) { pending.remove(replyPath); return "" to err }
             val raw = withTimeoutOrNull(6_000) { d.await() }
             pending.remove(replyPath)
+            if (raw == null) markDead() else markAlive()
             return (raw ?: "") to
                 if (raw == null) "The phone didn't answer — is AgentHive running on it?"
                 else ""
@@ -319,7 +357,8 @@ object PhoneBridge {
             val err = send(ctx, PATH_PROXY_REQ, req.toString().toByteArray())
             if (err.isNotEmpty()) return 503 to "Phone bridge send failed: $err"
             val resp = withTimeoutOrNull(timeoutMs) { d.await() }
-                ?: return 504 to "Phone bridge timeout waiting for $path"
+                ?: run { markDead(); return 504 to "Phone bridge timeout waiting for $path" }
+            markAlive()
             val code = resp.optInt("code", 500)
             val text = resp.optString("body", "")
             return code to text
@@ -335,6 +374,10 @@ object PhoneBridge {
         history: List<Pair<String, String>>,
         model: String? = null,
     ): kotlinx.coroutines.flow.Flow<dev.agenthive.watch.data.HiveApi.StreamEvent> = kotlinx.coroutines.flow.flow {
+        if (wearDead()) {
+            emit(dev.agenthive.watch.data.HiveApi.StreamEvent.Error("Phone unreachable (Wear link down)"))
+            return@flow
+        }
         val id = java.util.UUID.randomUUID().toString()
         val ch = kotlinx.coroutines.channels.Channel<dev.agenthive.watch.data.HiveApi.StreamEvent>(kotlinx.coroutines.channels.Channel.UNLIMITED)
         streamChannels[id] = ch
