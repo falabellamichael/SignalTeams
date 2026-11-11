@@ -12,8 +12,9 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
-import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.getValue
 import android.view.WindowManager
 import androidx.core.content.ContextCompat
@@ -88,29 +89,46 @@ class MainActivity : ComponentActivity() {
             // Keep the screen awake while a link is in flight — Wear dozes
             // fast, and a sleeping screen froze restores mid-join. Ambient
             // overrides it: the partial linkWake keeps the CPU for the join,
-            // a pinned full-brightness panel doesn't need to.
-            SideEffect {
-                if (state.phase == Phase.LINKING && !state.ambient) {
+            // a pinned full-brightness panel doesn't need to. Keyed so stream
+            // patches (~13/s) don't re-write window flags every frame.
+            val keepOn = state.phase == Phase.LINKING && !state.ambient
+            LaunchedEffect(keepOn) {
+                if (keepOn) {
                     window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
                 } else {
                     window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
                 }
             }
+            // Bound callable references (vm::x) mint a new function object
+            // each recomposition — every stream patch would churn all ten
+            // props. remember{} pins them for the activity's lifetime.
+            val onCode = remember { vm::setInviteCode }
+            val onLinkCode = remember { vm::linkWithCode }
+            val onLinkHive = remember { vm::linkHive }
+            val onInput = remember { vm::setInput }
+            val onSend = remember { vm::send }
+            val onMic = remember { ::startVoice }
+            val onStop = remember { ::stopAll }
+            val onPickAgent = remember { vm::pickAgent }
+            val onRefreshAgents = remember { vm::refreshAgents }
+            val onRelinkMesh = remember { vm::relinkMesh }
+            val onClearChat = remember { vm::clearChat }
+            val onDisconnect = remember { vm::disconnect }
             HiveTheme {
                 HiveScreen(
                     state = state,
-                    onCode = vm::setInviteCode,
-                    onLinkCode = vm::linkWithCode,
-                    onLinkHive = vm::linkHive,
-                    onInput = vm::setInput,
-                    onSend = vm::send,
-                    onMic = ::startVoice,
-                    onStop = ::stopAll,
-                    onPickAgent = vm::pickAgent,
-                    onRefreshAgents = vm::refreshAgents,
-                    onRelinkMesh = vm::relinkMesh,
-                    onClearChat = vm::clearChat,
-                    onDisconnect = vm::disconnect,
+                    onCode = onCode,
+                    onLinkCode = onLinkCode,
+                    onLinkHive = onLinkHive,
+                    onInput = onInput,
+                    onSend = onSend,
+                    onMic = onMic,
+                    onStop = onStop,
+                    onPickAgent = onPickAgent,
+                    onRefreshAgents = onRefreshAgents,
+                    onRelinkMesh = onRelinkMesh,
+                    onClearChat = onClearChat,
+                    onDisconnect = onDisconnect,
                 )
             }
         }
