@@ -373,6 +373,135 @@ def message_json(conn, m, viewer_id=None):
     return d
 
 
+def messages_json_batch(conn, rows, viewer_id=None):
+    """message_json for a whole page. A 50-message fetch used to pay ~5-10
+    queries per row (author, thread count, last reply, reply-to, reactions,
+    agent card — agent_json alone is 8 queries) — ~300+ per page. This does
+    one prefetch pass per relation instead: ~8 queries total."""
+    if not rows:
+        return []
+    mids = [m["id"] for m in rows]
+    ph = ",".join("?" * len(mids))
+    users, packs, agents_by = {}, {}, {}
+
+    def _user(uid_):
+        if uid_ not in users:
+            r = conn.execute("SELECT * FROM users WHERE id=?", (uid_,)).fetchone()
+            users[uid_] = public_user(r) if r else None
+        return users[uid_]
+
+    def _agent_card(aid, uid_):
+        key = (aid, uid_)
+        if key not in agents_by:
+            a = conn.execute("SELECT * FROM agents WHERE id=?", (aid,)).fetchone()
+            agents_by[key] = agent_json(conn, a, uid_) if a else None
+        return agents_by[key]
+
+    def _pack(pid, uid_):
+        key = (pid, uid_)
+        if key not in packs:
+            p = conn.execute("SELECT * FROM agent_packs WHERE id=?", (pid,)).fetchone()
+            packs[key] = pack_json(conn, p, uid_) if p else None
+        return packs[key]
+
+    hook_ids = {m["webhook_id"] for m in rows
+                if "webhook_id" in m.keys() and m["webhook_id"]}
+    hooks = {r["id"]: r["name"] for r in conn.execute(
+        f"SELECT id, name FROM channel_hooks WHERE id IN ({','.join('?'*len(hook_ids))})",
+        list(hook_ids)).fetchall()} if hook_ids else {}
+
+    tcount, last_ids = {}, {}
+    for r in conn.execute(
+            f"SELECT thread_root, COUNT(*) c, MAX(id) li FROM messages "
+            f"WHERE thread_root IN ({ph}) GROUP BY thread_root", mids).fetchall():
+        tcount[r["thread_root"]] = r["c"]
+        last_ids[r["thread_root"]] = r["li"]
+    sub_ids = set(last_ids.values())
+    sub_ids |= {m["reply_to"] for m in rows if m["reply_to"]}
+    sub_ids |= {m["fwd_of"] for m in rows if "fwd_of" in m.keys() and m["fwd_of"]}
+    sub = {r["id"]: r for r in conn.execute(
+        f"SELECT * FROM messages WHERE id IN ({','.join('?'*len(sub_ids))})",
+        list(sub_ids)).fetchall()} if sub_ids else {}
+    ch_ids = {sub[fid]["channel_id"] for fid in
+              (m["fwd_of"] for m in rows if "fwd_of" in m.keys() and m["fwd_of"])
+              if fid in sub}
+    fch = {r["id"]: r for r in conn.execute(
+        f"SELECT * FROM channels WHERE id IN ({','.join('?'*len(ch_ids))})",
+        list(ch_ids)).fetchall()} if ch_ids else {}
+
+    rx_by = {}
+    for r in conn.execute(
+            f"SELECT r.message_id mid, r.emoji, r.user_id, u.display_name "
+            f"FROM message_reactions r JOIN users u ON u.id=r.user_id "
+            f"WHERE r.message_id IN ({ph}) ORDER BY r.created_at", mids).fetchall():
+        rx_by.setdefault(r["mid"], []).append(r)
+
+    out = []
+    for m in rows:
+        d = row_to_dict(m)
+        uid_ = viewer_id or m["author_id"]
+        d["author"] = _user(m["author_id"])
+        if "webhook_id" in m.keys() and m["webhook_id"]:
+            d["hook"] = hooks.get(m["webhook_id"]) or "webhook"
+            if "author_name" in m.keys() and m["author_name"]:
+                d["author"] = {**(d["author"] or {}),
+                               "display_name": m["author_name"]}
+        if m["agent_id"]:
+            d["agent"] = _agent_card(m["agent_id"], uid_)
+        if m["pack_id"]:
+            d["pack"] = _pack(m["pack_id"], uid_)
+        d["thread_count"] = tcount.get(m["id"], 0)
+        if d["thread_count"]:
+            lr = sub.get(last_ids.get(m["id"]))
+            if lr:
+                d["last_reply"] = {"id": lr["id"], "created_at": lr["created_at"],
+                                   "content": (lr["content"] or "")[:80],
+                                   "author": _user(lr["author_id"])}
+        if m["reply_to"]:
+            r = sub.get(m["reply_to"])
+            d["reply"] = ({"id": r["id"], "content": r["content"][:140],
+                           "author": _user(r["author_id"])} if r else
+                          {"id": m["reply_to"], "content": "", "author": None})
+        grouped = {}
+        for r in rx_by.get(m["id"], []):
+            g = grouped.setdefault(r["emoji"], {"emoji": r["emoji"], "count": 0,
+                                                "mine": False, "users": []})
+            g["count"] += 1
+            g["users"].append(r["display_name"])
+            if r["user_id"] == uid_:
+                g["mine"] = True
+        d["reactions"] = list(grouped.values())
+        if "fwd_of" in m.keys() and m["fwd_of"]:
+            o = sub.get(m["fwd_of"])
+            if o:
+                oc = fch.get(o["channel_id"])
+                d["fwd"] = {"msg_id": o["id"], "channel_id": o["channel_id"],
+                            "channel": oc["name"] if oc else "?",
+                            "server_id": oc["server_id"] if oc else None,
+                            "dm": oc["kind"] == "dm" if oc else False,
+                            "author": _user(o["author_id"])}
+            else:
+                d["fwd"] = {"msg_id": m["fwd_of"], "channel": "deleted",
+                            "author": None}
+        if m["embed"]:
+            try:
+                d["embed"] = json.loads(m["embed"])
+            except Exception:
+                d["embed"] = None
+        if "poll" in m.keys() and m["poll"]:
+            try:
+                d["poll"] = json.loads(m["poll"])
+            except Exception:
+                d["poll"] = None
+        if "tags" in m.keys():
+            try:
+                d["tags"] = json.loads(m["tags"] or "[]")
+            except Exception:
+                d["tags"] = []
+        out.append(d)
+    return out
+
+
 def _meta_content(html, key):
     """content= value of the <meta> tag whose property/name matches `key`."""
     for tag in re.findall(r"<meta\s[^>]*>", html, re.I):

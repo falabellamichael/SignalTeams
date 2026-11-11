@@ -9,7 +9,7 @@ from ..auth import current_user
 from ..db import db, emit_buzz, now
 from ..hub import hub
 
-from ..helpers import STAR_EMOJI, URL_RE, _automod_check, _parse_search, _server_llm, _user_llm, audit, can_see_agent, can_see_pack, can_use_agent, channel_member_ids, is_blocked, message_json, public_user, reactions_json, unfurl
+from ..helpers import STAR_EMOJI, URL_RE, _automod_check, _parse_search, _server_llm, _user_llm, audit, can_see_agent, can_see_pack, can_use_agent, channel_member_ids, is_blocked, message_json, messages_json_batch, public_user, reactions_json, unfurl
 from ..schemas import AiIn, EditIn, MessageIn, ReactIn
 from ..services import (_agent_cool, _summarize_task, agent_reply,
                         note_message_for_recap, starboard_check)
@@ -35,8 +35,8 @@ def get_messages(cid: int, before: int = Query(0), limit: int = Query(50, le=100
                 args.append(before)
             q += " ORDER BY act DESC LIMIT ?"
             args.append(limit)
-            return [message_json(conn, m, user["id"])
-                    for m in conn.execute(q, args).fetchall()]
+            return messages_json_batch(
+                conn, conn.execute(q, args).fetchall(), user["id"])
         q = "SELECT * FROM messages WHERE channel_id=? AND thread_root IS NULL"
         args = [cid]
         if before:
@@ -45,7 +45,7 @@ def get_messages(cid: int, before: int = Query(0), limit: int = Query(50, le=100
         q += " ORDER BY id DESC LIMIT ?"
         args.append(limit)
         rows = conn.execute(q, args).fetchall()
-        return [message_json(conn, m, user["id"]) for m in reversed(rows)]
+        return messages_json_batch(conn, list(reversed(rows)), user["id"])
 
 
 @router.post("/api/channels/{cid}/read")
@@ -554,7 +554,7 @@ def get_pins(cid: int, user=Depends(current_user)):
         rows = conn.execute(
             "SELECT * FROM messages WHERE channel_id=? AND pinned=1 ORDER BY id DESC",
             (cid,)).fetchall()
-        return [message_json(conn, m, user["id"]) for m in rows]
+        return messages_json_batch(conn, rows, user["id"])
 
 
 @router.post("/api/messages/{mid}/save")
@@ -611,7 +611,7 @@ def search_messages(cid: int, q: str = "", user=Depends(current_user)):
             + ("AND " + " AND ".join(clauses) if clauses else "")
             + " ORDER BY m.id DESC LIMIT 30",
             (cid, *params)).fetchall()
-        return [message_json(conn, m, user["id"]) for m in rows]
+        return messages_json_batch(conn, rows, user["id"])
 
 
 @router.get("/api/messages/{mid}/thread")
@@ -625,8 +625,8 @@ def get_thread(mid: int, user=Depends(current_user)):
             raise HTTPException(404, "No such message")
         replies = conn.execute(
             "SELECT * FROM messages WHERE thread_root=? ORDER BY id", (mid,)).fetchall()
-        return {"root": message_json(conn, m, user["id"]),
-                "replies": [message_json(conn, r, user["id"]) for r in replies]}
+        all_ = messages_json_batch(conn, [m] + list(replies), user["id"])
+        return {"root": all_[0], "replies": all_[1:]}
 
 
 @router.get("/api/search")
