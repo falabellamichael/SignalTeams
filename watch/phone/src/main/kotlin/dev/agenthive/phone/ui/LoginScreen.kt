@@ -103,7 +103,7 @@ fun LoginScreen(state: UiState, vm: AppViewModel) {
     var invRole by remember { mutableStateOf<String?>(null) }
     var invBad by remember { mutableStateOf(false) }
 
-    val connected = state.serverUrl.isNotBlank()
+    val connected = state.serverUrl.isNotBlank() || state.paired
     val supaOn = state.authCfg?.optBoolean("supabase") == true
 
     // pull the hive's auth providers once we're connected

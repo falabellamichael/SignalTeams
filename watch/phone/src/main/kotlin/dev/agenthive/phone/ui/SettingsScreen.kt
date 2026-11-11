@@ -960,7 +960,7 @@ private fun MeshPage(state: UiState, vm: AppViewModel,
                     Text(
                         listOf(
                             nx.optString("domain"),
-                            nx.optString("service", nx.optString("addr")),
+                            nx.optString("tunnel_ip"),
                             nx.optString("node_id").take(12),
                         ).filter { it.isNotBlank() }.joinToString(" · "),
                         color = DcSub, fontSize = 11.sp, maxLines = 1,
@@ -979,13 +979,13 @@ private fun MeshPage(state: UiState, vm: AppViewModel,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Box(Modifier.size(10.dp).clip(CircleShape).background(
-                        if (p.optBoolean("online", true)) DcGreen else DcMuted))
+                        if (p.optBoolean("is_online")) DcGreen else DcMuted))
                     Spacer(Modifier.width(10.dp))
                     Column(Modifier.weight(1f)) {
-                        Text(p.optString("name", p.optString("node_id", "peer")),
+                        Text(p.optString("hostname", p.optString("node_id", "peer")),
                              color = DcText, fontSize = 13.sp, maxLines = 1,
                              overflow = TextOverflow.Ellipsis)
-                        Text(p.optString("ip", p.optString("addr", "")),
+                        Text(p.optString("tunnel_ip", p.optString("endpoint", "")),
                              color = DcMuted, fontSize = 11.sp)
                     }
                     Text(p.optString("path", ""), color = DcMuted,
@@ -1032,7 +1032,7 @@ private fun MeshPage(state: UiState, vm: AppViewModel,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Column(Modifier.weight(1f)) {
-                        Text(d.optString("name", d.optString("node_id", "device")),
+                        Text(d.optString("device_name", d.optString("node_id", "device")),
                              color = DcText, fontSize = 13.sp, maxLines = 1,
                              overflow = TextOverflow.Ellipsis)
                         Text(d.optString("node_id", ""),

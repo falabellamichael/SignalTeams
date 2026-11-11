@@ -33,6 +33,7 @@ data class UiState(
     val meUsername: String = "",
     val meId: Int = 0,
     val serverUrl: String = "",
+    val paired: Boolean = false,
     val meshUp: Boolean = false,
     val members: JSONArray = JSONArray(),
     val roles: JSONArray = JSONArray(),        // server_roles of selected server
@@ -110,7 +111,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     private val api get() = appInst.api
     private val nexus get() = appInst.nexus
 
-    private val _ui = MutableStateFlow(UiState())
+    private val _ui = MutableStateFlow(UiState(paired = store.paired))
     val ui: StateFlow<UiState> = _ui.asStateFlow()
 
     private var pollJob: Job? = null
@@ -444,7 +445,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     /** "Switch hive" — forget the pairing target so a fresh code can be entered. */
     fun forgetHive() {
         store.token = ""; store.serverUrl = ""; store.paired = false
-        _ui.update { it.copy(authCfg = null, error = "", status = "") }
+        _ui.update { it.copy(authCfg = null, error = "", status = "",
+                             paired = false, serverUrl = "", meshUp = false) }
     }
 
     // -- mesh (transport only) --------------------------------------------------
@@ -481,7 +483,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     private suspend fun onMeshUp(meshUrl: String, silent: Boolean) {
         store.serverUrl = meshUrl
         runCatching { PhoneMeshService.start(getApplication()) }
-        _ui.update { it.copy(serverUrl = meshUrl, meshUp = true) }
+        _ui.update { it.copy(serverUrl = meshUrl, paired = true, meshUp = true) }
         if (store.token.isNotBlank()) {
             api.baseUrl = meshUrl; api.token = store.token
             if (runCatching { api.me(); true }.getOrDefault(false)) { enterHome(); return }
@@ -1276,7 +1278,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         voice?.dispose(); voice = null
         wsClient?.close(); wsClient = null
         store.token = ""; store.serverUrl = ""
-        _ui.value = UiState(route = Route.LOGIN)
+        _ui.value = UiState(route = Route.LOGIN, paired = store.paired)
     }
 
     fun clearError() { _ui.update { it.copy(error = "") } }
