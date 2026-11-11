@@ -37,6 +37,7 @@ class MeshService : Service() {
     @Volatile private var linking = false
     @Volatile private var linkStart = 0L
     private var loopJob: kotlinx.coroutines.Job? = null
+    private var watchJob: kotlinx.coroutines.Job? = null
     private var mgr: NotificationManager? = null
 
     /** True when the user can actually interact — PowerManager can stay
@@ -91,13 +92,16 @@ class MeshService : Service() {
         if (loopJob?.isActive == true) return START_STICKY   // one warm loop
         // watchdog: a hung ln_* call holds linking=true forever AND blocks
         // reset() on the same mutex — the only escape is a fresh process.
-        scope.launch {
-            while (isActive) {
-                delay(60_000)
-                if (linking && linkStart > 0 &&
-                    android.os.SystemClock.elapsedRealtime() - linkStart > 360_000) {
-                    Log.e("MeshService", "link hung >6min — killing process for a clean rejoin")
-                    android.os.Process.killProcess(android.os.Process.myPid())
+        // Guarded like loopJob — re-delivered start intents stacked one each.
+        if (watchJob?.isActive != true) {
+            watchJob = scope.launch {
+                while (isActive) {
+                    delay(60_000)
+                    if (linking && linkStart > 0 &&
+                        android.os.SystemClock.elapsedRealtime() - linkStart > 360_000) {
+                        Log.e("MeshService", "link hung >6min — killing process for a clean rejoin")
+                        android.os.Process.killProcess(android.os.Process.myPid())
+                    }
                 }
             }
         }

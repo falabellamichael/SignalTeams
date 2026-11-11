@@ -34,6 +34,7 @@ class PhoneMeshService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     @Volatile private var linking = false
     private var loopJob: kotlinx.coroutines.Job? = null
+    private var watchJob: kotlinx.coroutines.Job? = null
     private var mgr: NotificationManager? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -52,14 +53,17 @@ class PhoneMeshService : Service() {
         if (loopJob?.isActive == true) return START_STICKY
         // watchdog: a hung ln_* call holds linking=true forever and also
         // blocks reset() (same mutex) — the only escape is a fresh process.
-        // START_STICKY restarts the service into a clean node.
-        scope.launch {
-            while (isActive) {
-                delay(60_000)
-                if (linking && linkStart > 0 &&
-                    SystemClock.elapsedRealtime() - linkStart > 360_000) {
-                    Log.e("PhoneMesh", "link hung >6min — killing process for a clean rejoin")
-                    android.os.Process.killProcess(android.os.Process.myPid())
+        // START_STICKY restarts the service into a clean node. Guarded like
+        // loopJob — onStartCommand re-entry used to stack one watchdog each.
+        if (watchJob?.isActive != true) {
+            watchJob = scope.launch {
+                while (isActive) {
+                    delay(60_000)
+                    if (linking && linkStart > 0 &&
+                        SystemClock.elapsedRealtime() - linkStart > 360_000) {
+                        Log.e("PhoneMesh", "link hung >6min — killing process for a clean rejoin")
+                        android.os.Process.killProcess(android.os.Process.myPid())
+                    }
                 }
             }
         }
