@@ -31,6 +31,10 @@ class WsClient(
     @Volatile private var ws: WebSocket? = null
     @Volatile private var authed = false
     @Volatile private var wsUrl: String = ""
+    // onClosed AND onFailure can both schedule a retry; if they wake together
+    // we'd newWebSocket twice — two live sockets + duplicate events. `dialing`
+    // makes the connect attempt atomic.
+    @Volatile private var dialing = false
     private var attempt = 0
 
     fun connect(httpBase: String, token: String) {
@@ -43,29 +47,38 @@ class WsClient(
     }
 
     private fun dial() {
-        if (!authed) return
-        val req = Request.Builder().url(wsUrl).build()
-        client.newWebSocket(req, object : WebSocketListener() {
-            override fun onOpen(webSocket: WebSocket, response: Response) {
-                ws = webSocket
-                attempt = 0
-                onEvent(JSONObject().put("type", "ws:open"))
-            }
-            override fun onMessage(webSocket: WebSocket, text: String) {
-                runCatching { JSONObject(text) }.getOrNull()?.let(onEvent)
-            }
-            override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
-                ws = null
-                retry()
-            }
-            override fun onFailure(
-                webSocket: WebSocket, t: Throwable, response: Response?,
-            ) {
-                Log.w("WsClient", "ws failure: ${t.message}")
-                ws = null
-                retry()
-            }
-        })
+        if (!authed || dialing || ws != null) return
+        dialing = true
+        try {
+            val req = Request.Builder().url(wsUrl).build()
+            client.newWebSocket(req, object : WebSocketListener() {
+                override fun onOpen(webSocket: WebSocket, response: Response) {
+                    dialing = false
+                    ws = webSocket
+                    attempt = 0
+                    onEvent(JSONObject().put("type", "ws:open"))
+                }
+                override fun onMessage(webSocket: WebSocket, text: String) {
+                    runCatching { JSONObject(text) }.getOrNull()?.let(onEvent)
+                }
+                override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+                    dialing = false
+                    ws = null
+                    retry()
+                }
+                override fun onFailure(
+                    webSocket: WebSocket, t: Throwable, response: Response?,
+                ) {
+                    dialing = false
+                    Log.w("WsClient", "ws failure: ${t.message}")
+                    ws = null
+                    retry()
+                }
+            })
+        } catch (e: Exception) {
+            dialing = false
+            throw e
+        }
     }
 
     private fun retry() {
