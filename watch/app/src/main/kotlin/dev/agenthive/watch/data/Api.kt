@@ -98,6 +98,10 @@ class HiveApi(var ctx: android.content.Context? = null) {
     @Volatile var token: String = ""
     @Volatile var proxyHandler: ApiProxyHandler? = null
 
+    /** Wall time of the last successful hive probe — lets callers trust a
+     *  bridge the keep-alive just verified instead of re-paying the RTT. */
+    @Volatile var lastProbeOk: Long = 0L
+
     private fun url(path: String) = if (baseUrl.startsWith("phone://")) "http://127.0.0.1$path" else baseUrl.trimEnd('/') + path
 
     private fun request(path: String, method: String = "GET", body: JSONObject? = null): Request {
@@ -611,7 +615,9 @@ class HiveApi(var ctx: android.content.Context? = null) {
         val base = (baseOverride ?: baseUrl).trimEnd('/')
         val proxy = proxyHandler
         if (base.startsWith("phone://")) {
-            return@withContext proxy?.probeMesh() ?: false
+            val ok = proxy?.probeMesh() ?: false
+            if (ok) lastProbeOk = System.currentTimeMillis()
+            return@withContext ok
         }
         val directOk = runCatching {
             val req = Request.Builder().url("$base/api/auth/config").build()
@@ -624,10 +630,13 @@ class HiveApi(var ctx: android.content.Context? = null) {
         }.onFailure {
             android.util.Log.d("HiveApi", "probeHive $base failed: ${it.message}")
         }.getOrDefault(false)
+        if (directOk) lastProbeOk = System.currentTimeMillis()
 
         if (!directOk && baseOverride == null && proxy != null) {
             if (proxy.hasCompanion()) {
-                return@withContext proxy.probeMesh()
+                val ok = proxy.probeMesh()
+                if (ok) lastProbeOk = System.currentTimeMillis()
+                return@withContext ok
             }
         }
         directOk

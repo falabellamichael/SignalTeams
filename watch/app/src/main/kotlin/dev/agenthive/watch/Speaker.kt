@@ -7,8 +7,14 @@ import android.speech.tts.UtteranceProgressListener
 import android.util.Log
 import dev.agenthive.watch.data.HiveApi
 import java.io.File
-import java.util.Locale
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.resume
 
@@ -18,6 +24,11 @@ import kotlin.coroutines.resume
  * falling back to the on-device TextToSpeech engine (com.google.android.tts
  * ships on every Wear watch) so replies still speak when the mesh is down —
  * the same offline-voice path the built-in assistant uses.
+ *
+ * Chunks queue onto a serialized pump: the stream feeds complete sentences as
+ * they land (Gemini-style early voice — first audio while the tail is still
+ * generating), and playback order is preserved across the backend-TTS and
+ * on-device-engine paths alike.
  */
 class Speaker(private val api: HiveApi, private val ctx: Context) {
 
@@ -30,6 +41,11 @@ class Speaker(private val api: HiveApi, private val ctx: Context) {
 
     /** True while synthesized audio is actually playing — the dock shows Stop. */
     val speaking = MutableStateFlow(false)
+
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val queue = Channel<String>(Channel.UNLIMITED)
+    private var pump: Job? = null
+    private val pumpLock = Any()
 
     /** Human-speakable text: strip markdown/tool scaffolding, cap length. */
     private fun speakable(raw: String): String {
@@ -44,6 +60,8 @@ class Speaker(private val api: HiveApi, private val ctx: Context) {
     }
 
     fun stop() {
+        while (queue.tryReceive().isSuccess) {}
+        pump?.cancel()
         runCatching { player?.takeIf { it.isPlaying }?.stop() }
         runCatching { player?.release() }
         player = null
@@ -60,17 +78,6 @@ class Speaker(private val api: HiveApi, private val ctx: Context) {
                     ttsReady = true
                     if (status == TextToSpeech.SUCCESS) {
                         tts?.setSpeechRate(1.05f)
-                        tts?.setOnUtteranceProgressListener(
-                            object : UtteranceProgressListener() {
-                                override fun onStart(id: String?) {}
-                                override fun onDone(id: String?) {
-                                    speaking.value = false
-                                }
-                                @Deprecated("deprecated")
-                                override fun onError(id: String?) {
-                                    speaking.value = false
-                                }
-                            })
                     } else {
                         Log.w("HiveSpeaker", "on-device TTS init failed: $status")
                         tts = null
@@ -84,34 +91,92 @@ class Speaker(private val api: HiveApi, private val ctx: Context) {
         }
     }
 
-    suspend fun speak(text: String) {
+    /** One-shot utterance that interrupts whatever is queued/playing — for
+     *  notifications and device replies, not the streaming feed. */
+    fun speak(text: String) {
         if (!enabled) return
-        val say = speakable(text)
-        if (say.length < 2) return
-        val bytes = api.ttsBytes(say)
-        if (bytes != null) {
-            try {
-                stop()
-                val f = File.createTempFile("hive_tts", ".mp3")
-                f.writeBytes(bytes)
-                player = MediaPlayer().apply {
-                    setDataSource(f.absolutePath)
-                    prepare()
-                    setOnCompletionListener { speaking.value = false }
-                    start()
+        stop()
+        feed(text)
+    }
+
+    /** Queue a chunk for spoken playback — complete sentences fed in while
+     *  the reply streams; ordering is preserved by the pump. */
+    fun feed(text: String) {
+        if (!enabled) return
+        if (speakable(text).length < 2) return
+        queue.trySend(text)
+        synchronized(pumpLock) {
+            if (pump?.isActive == true) return
+            pump = scope.launch {
+                try {
+                    for (chunk in queue) {
+                        if (!isActive) break
+                        if (!enabled) continue
+                        val say = speakable(chunk)
+                        if (say.length < 2) continue
+                        speaking.value = true
+                        playChunk(say)
+                    }
+                } finally {
+                    speaking.value = false
                 }
-                speaking.value = true
-                f.delete()
-                return
-            } catch (e: Exception) {
-                Log.w("HiveSpeaker", "playback failed: ${e.message}")
             }
         }
-        // backend TTS unavailable (mesh down / no model) → on-device engine
+    }
+
+    /** One queued chunk: backend synthesis when the endpoint has a TTS model,
+     *  the on-device engine otherwise. */
+    private suspend fun playChunk(say: String) {
+        api.ttsBytes(say)?.let { playMp3(it); return }
         val engine = ensureTts() ?: return
-        stop()
-        val err = engine.speak(say, TextToSpeech.QUEUE_FLUSH, null, "hive")
-        if (err == TextToSpeech.SUCCESS) speaking.value = true
-        else Log.w("HiveSpeaker", "on-device speak failed: $err")
+        speakOnDevice(engine, say)
+    }
+
+    private suspend fun playMp3(bytes: ByteArray) {
+        val f = File.createTempFile("hive_tts", ".mp3")
+        f.writeBytes(bytes)
+        suspendCancellableCoroutine<Unit> { cont ->
+            val mp = MediaPlayer()
+            player = mp
+            fun finish() {
+                if (player === mp) player = null
+                runCatching { mp.release() }
+                runCatching { f.delete() }
+                if (cont.isActive) cont.resume(Unit)
+            }
+            mp.setOnCompletionListener { finish() }
+            mp.setOnErrorListener { _, _, _ -> finish(); true }
+            runCatching {
+                mp.setDataSource(f.absolutePath)
+                mp.prepare()
+                mp.start()
+            }.onFailure {
+                Log.w("HiveSpeaker", "playback failed: ${it.message}")
+                finish()
+            }
+            cont.invokeOnCancellation {
+                runCatching { mp.stop() }
+                finish()
+            }
+        }
+    }
+
+    private suspend fun speakOnDevice(engine: TextToSpeech, say: String) {
+        suspendCancellableCoroutine<Unit> { cont ->
+            val id = "hive-${System.nanoTime()}"
+            engine.setOnUtteranceProgressListener(
+                object : UtteranceProgressListener() {
+                    override fun onStart(u: String?) {}
+                    override fun onDone(u: String?) {
+                        if (u == id && cont.isActive) cont.resume(Unit)
+                    }
+                    @Deprecated("deprecated")
+                    override fun onError(u: String?) {
+                        if (u == id && cont.isActive) cont.resume(Unit)
+                    }
+                })
+            engine.speak(say, TextToSpeech.QUEUE_FLUSH, null, id)
+            cont.invokeOnCancellation { engine.stop() }
+        }
     }
 }

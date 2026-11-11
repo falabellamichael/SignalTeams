@@ -9,6 +9,8 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
+import android.os.PowerManager
+import android.os.SystemClock
 import android.util.Log
 import dev.agenthive.watch.MeshLinker
 import dev.agenthive.watch.nexus.NexusState
@@ -17,8 +19,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * Foreground service that OWNS the mesh link for the watch's uptime — started
@@ -34,6 +38,20 @@ class MeshService : Service() {
     @Volatile private var linkStart = 0L
     private var loopJob: kotlinx.coroutines.Job? = null
     private var mgr: NotificationManager? = null
+
+    /** True when the user can actually interact — PowerManager can stay
+     *  "interactive" on a Wear always-on display, so a dozing panel counts
+     *  as off for cadence purposes. */
+    private fun interactive(): Boolean {
+        val pm = getSystemService(PowerManager::class.java) ?: return true
+        if (!pm.isInteractive) return false
+        val st = runCatching {
+            (getSystemService(android.hardware.display.DisplayManager::class.java)
+                ?.getDisplay(android.view.Display.DEFAULT_DISPLAY))?.state
+        }.getOrNull()
+        return st != android.view.Display.STATE_DOZE &&
+            st != android.view.Display.STATE_DOZE_SUSPEND
+    }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -74,25 +92,74 @@ class MeshService : Service() {
         }
         loopJob = scope.launch {
             val app = application as HiveApp
+            var lastActive = SystemClock.elapsedRealtime()
+            var deepIdle = false
             while (isActive) {
                 if (!app.store.meshEnabled && !app.store.paired) {
                     stopSelf(); break          // never linked — nothing to keep alive
                 }
+                val interactive = interactive()
+                if (interactive) lastActive = SystemClock.elapsedRealtime()
+
+                if (deepIdle) {
+                    if (interactive) {
+                        deepIdle = false
+                        Log.i("MeshService", "wrist raised — resuming dataplane")
+                        runCatching { app.nexus.resume() }
+                    } else {
+                        // Dataplane suspended — the WG keepalives are off and
+                        // the radio actually idles. A kick (wrist raise, net
+                        // change, Wear message) wakes instantly; otherwise a
+                        // 15min maintenance wake re-handshakes once so the
+                        // tunnel, peer presence and the complication stay
+                        // warm — then straight back to sleep.
+                        val kicked = withTimeoutOrNull(DEEP_IDLE_CHECK_MS) {
+                            app.meshKick.first(); true
+                        } ?: false
+                        if (!kicked) {
+                            runCatching { app.nexus.resume() }
+                            try {
+                                linkOnce(app)
+                            } catch (e: Exception) {
+                                Log.w("MeshService", "maintenance pass: ${e.message}")
+                            }
+                            if (app.nexus.state == NexusState.RUNNING)
+                                runCatching { app.nexus.suspendMesh() }
+                        }
+                        continue
+                    }
+                }
+
+                if (!interactive &&
+                    SystemClock.elapsedRealtime() - lastActive > DEEP_IDLE_MS &&
+                    app.nexus.state == NexusState.RUNNING) {
+                    deepIdle = true
+                    Log.i("MeshService", "deep idle — suspending dataplane")
+                    runCatching { app.nexus.suspendMesh() }
+                    notify("Mesh sleeping — wakes when you do")
+                    continue
+                }
+
                 try {
                     linkOnce(app)
                 } catch (e: Exception) {
                     Log.w("MeshService", "cycle failed: ${e.message}")
                 }
-                // No IP path = nothing a 30s poll can accomplish — park on the
-                // network latch instead. The callback wakes us the instant
-                // WiFi/LTE appears; the timeout is a slow re-check of the
-                // phone proxy, not a busy poll.
-                if (!app.nexus.directNetworkUp() &&
-                    app.api.baseUrl != "phone://proxy") {
-                    app.nexus.awaitDirect(120_000)
-                } else {
-                    delay(30_000)
+                // One wait, every case: meshKick fires on network arrivals,
+                // screen-on and app foregrounding — the loop sleeps until a
+                // kick or the cap. Pathless gets a slow 2min re-check of the
+                // phone proxy; a healthy link polls at 30s while interactive
+                // and stretches to 2.5min on the always-on display, where a
+                // stale bridge can wait for the wrist to raise anyway.
+                val pathless = !app.nexus.directNetworkUp() &&
+                    app.api.baseUrl != "phone://proxy"
+                val inter = interactive()
+                val waitMs = when {
+                    pathless -> 120_000L
+                    !inter -> 150_000L
+                    else -> 30_000L
                 }
+                withTimeoutOrNull(waitMs) { app.meshKick.first() }
             }
         }
         return START_STICKY
@@ -127,8 +194,41 @@ class MeshService : Service() {
             val direct = app.nexus.directNetworkUp()
             if (!direct && hasPhone) {
                 // No IP path of our own — the phone proxy is the only route.
-                // The Wear channel can take a second to answer; probe a few
-                // times before burning minutes on joins that can't work anyway.
+                // First probe answers in ~1s when the Wear link is alive;
+                // only on a miss do we pay the retry loop.
+                if (dev.agenthive.watch.device.PhoneBridge.probePhoneMesh(this)) {
+                    app.nexus.companionProxyViable = true
+                    app.store.meshEnabled = true
+                    app.api.baseUrl = "phone://proxy"
+                    app.store.meshUrl = "phone://proxy"
+                    notify("Linked to Hive via Phone (Bluetooth)")
+                    refreshSuggestion(app)
+                    return
+                }
+                // BT may be dead but a live LTE plan can still save this —
+                // kick the modem window CONCURRENTLY with the remaining Wear
+                // retries instead of behind ~20s of them. Fire-and-forget:
+                // a proxy win below still answers immediately; a join win
+                // upgrades the path on the next pass.
+                if (!app.nexus.inCellCooldown() &&
+                    app.nexus.state != NexusState.CONNECTING) {
+                    scope.launch {
+                        runCatching {
+                            app.nexus.connect(
+                                deviceName = "${app.store.username.ifBlank { "hive" }}-watch",
+                                linkToken = "", genesisPubkey = "",
+                            )
+                            if (MeshLinker.discover(app, log = { m ->
+                                    Log.i("MeshService", m) }) != null) {
+                                app.store.meshEnabled = true
+                                notify("Encrypted link to your hive is up")
+                                refreshSuggestion(app)
+                            }
+                        }.onFailure {
+                            Log.w("MeshService", "bg join: ${it.message}")
+                        }
+                    }
+                }
                 val phoneUp = phoneMeshUp()
                 app.nexus.companionProxyViable = phoneUp
                 if (phoneUp) {
@@ -247,7 +347,13 @@ class MeshService : Service() {
         }
     }
 
+    /** Last posted notification text — re-posting an identical ongoing
+     *  notification every pass is pure SystemUI churn. */
+    private var lastNotified = ""
+
     private fun notify(text: String) {
+        if (text == lastNotified) return
+        lastNotified = text
         val open = PendingIntent.getActivity(
             this, 0, Intent(this, MainActivity::class.java),
             PendingIntent.FLAG_IMMUTABLE
@@ -281,5 +387,10 @@ class MeshService : Service() {
 
         /** Last proactive-suggestion refresh — ~10min cadence. */
         @Volatile private var lastSuggest = 0L
+
+        /** No user interaction for this long → suspend the dataplane. */
+        private const val DEEP_IDLE_MS = 8 * 60_000L
+        /** Deep-idle maintenance wake — one link pass, then re-suspend. */
+        private const val DEEP_IDLE_CHECK_MS = 15 * 60_000L
     }
 }

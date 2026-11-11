@@ -19,6 +19,13 @@ class HiveApp : Application() {
      *  back to the watch face clears the VM and would kill a running task). */
     val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
+    /** Wakes the keep-alive NOW — network arrivals, screen-on and app
+     *  foregrounding all emit. One buffered slot: a kick during a pass
+     *  just means the next wait returns immediately. */
+    val meshKick = kotlinx.coroutines.flow.MutableSharedFlow<Unit>(
+        extraBufferCapacity = 1)
+    fun kickMesh() { meshKick.tryEmit(Unit) }
+
     override fun onCreate() {
         super.onCreate()
         store = Store(this)
@@ -42,6 +49,7 @@ class HiveApp : Application() {
                     }
                 }.getOrDefault(false)
             }
+            onNetEvent = { kickMesh() }
         }
         speaker = Speaker(api, this)
     }

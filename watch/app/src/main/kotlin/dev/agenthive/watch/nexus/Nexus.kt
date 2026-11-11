@@ -227,6 +227,9 @@ class NexusNode(private val ctx: Context) {
     /** Optional UI status tap — reports what the link path is blocked on. */
     @Volatile var onStatus: ((String) -> Unit)? = null
     @Volatile var hasCompanionCheck: (() -> Boolean)? = null
+    /** Topology change tap — fired when a direct net arrives or the last one
+     *  is lost; the keep-alive parks on it instead of polling. */
+    @Volatile var onNetEvent: (() -> Unit)? = null
 
     private var cli: Pointer? = null
     private var ident: Pointer? = null
@@ -310,6 +313,7 @@ class NexusNode(private val ctx: Context) {
                     val ok = cm.bindProcessToNetwork(rem)
                     Log.i("NexusNode", "re-seated process to ${transports(cm, rem)} ok=$ok")
                 }
+                onNetEvent?.invoke()
             }
             private fun offer(network: Network) {
                 if (!isDirect(cm, network)) return
@@ -319,6 +323,7 @@ class NexusNode(private val ctx: Context) {
                 val ok = cm.bindProcessToNetwork(network)
                 directLatch.countDown()
                 Log.i("NexusNode", "direct net up ${transports(cm, network)} bind=$ok")
+                onNetEvent?.invoke()
             }
         }
         if (wifiDemand == null) {
@@ -334,7 +339,10 @@ class NexusNode(private val ctx: Context) {
                 Log.w("NexusNode", "requestNetwork wifi failed: ${e.message}")
             }
         }
-        if (cellDemand == null) registerCellDemand(cm)
+        // LTE demand only while NO direct net is up — WiFi's offer() releases
+        // it, but nothing re-fires that release on a later re-registration,
+        // so every keep-alive pass would re-arm a futile modem demand.
+        if (cellDemand == null && directNet(cm) == null) registerCellDemand(cm)
     }
 
     /** Ask the OS for cellular — skipped during cooldown so a dead radio rests. */

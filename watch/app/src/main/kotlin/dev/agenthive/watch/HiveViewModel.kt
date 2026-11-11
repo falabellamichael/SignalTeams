@@ -14,6 +14,7 @@ import dev.agenthive.watch.nexus.NexusInfo
 import dev.agenthive.watch.nexus.NexusNode
 import dev.agenthive.watch.nexus.NexusState
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -768,7 +769,7 @@ class HiveViewModel(app: Application) : AndroidViewModel(app) {
             )
             if (failed == null) store.lastReply = finalText
             _ui.update { it.copy(busy = false) }
-            hive.speaker.speak(reply.ifBlank { failed ?: "" })
+            // audio was fed per-sentence during the stream — nothing left to speak
         }
     }
 
@@ -796,29 +797,46 @@ class HiveViewModel(app: Application) : AndroidViewModel(app) {
      * port. Probe the live bridge and re-open it against the known hive target
      * when it has died. Returns true when api.baseUrl reaches the hive.
      */
-    private suspend fun ensureMeshEgress(): Boolean {
+    private suspend fun ensureMeshEgress(force: Boolean = false): Boolean {
+        // The keep-alive re-proves the bridge every 30s — an ask seconds
+        // behind that verdict skips the redundant RTT; the failure path
+        // below still force-probes when a stream actually dies.
+        if (!force && System.currentTimeMillis() - api.lastProbeOk < 10_000)
+            return true
         val ip = store.meshTargetIp
         if (api.probeHive()) return true
-        if (ip.isNotBlank()) {
-            val port = store.meshTargetPort.takeIf { it > 0 } ?: HIVE_VPORT
-            nexus.openEgress(ip, port)?.let { lp ->
-                api.baseUrl = "http://127.0.0.1:$lp"
-                store.meshUrl = api.baseUrl
-                store.egressPort = lp
-                Log.i("HiveVM", "egress re-opened ${ip}:$port -> lp=$lp")
-                _ui.update { it.copy(meshSnap = it.meshSnap.copy(egressPort = lp)) }
-                if (api.probeHive()) return true
+        // Dead bridge: race the re-bridge against a phone probe — whichever
+        // answers first wins, instead of ~8s serial probes each way.
+        val phoneLive = viewModelScope.async(kotlinx.coroutines.Dispatchers.IO) {
+            dev.agenthive.watch.device.PhoneBridge.probePhoneMesh(getApplication())
+        }
+        try {
+            if (ip.isNotBlank()) {
+                val port = store.meshTargetPort.takeIf { it > 0 } ?: HIVE_VPORT
+                nexus.openEgress(ip, port)?.let { lp ->
+                    api.baseUrl = "http://127.0.0.1:$lp"
+                    store.meshUrl = api.baseUrl
+                    store.egressPort = lp
+                    Log.i("HiveVM", "egress re-opened ${ip}:$port -> lp=$lp")
+                    _ui.update { it.copy(meshSnap = it.meshSnap.copy(egressPort = lp)) }
+                    if (api.probeHive()) {
+                        phoneLive.cancel()
+                        return true
+                    }
+                }
             }
+            // own tunnel is dead — ride the phone's mesh over the Wear channel.
+            // MeshService restores direct on a later pass once our tunnel heals.
+            if (phoneLive.await()) {
+                api.baseUrl = "phone://proxy"
+                store.meshUrl = "phone://proxy"
+                Log.i("HiveVM", "egress dead — falling back to phone proxy")
+                return true
+            }
+            return false
+        } finally {
+            phoneLive.cancel()
         }
-        // own tunnel is dead — ride the phone's mesh over the Wear channel.
-        // MeshService restores direct on a later pass once our tunnel heals.
-        if (dev.agenthive.watch.device.PhoneBridge.probePhoneMesh(getApplication())) {
-            api.baseUrl = "phone://proxy"
-            store.meshUrl = "phone://proxy"
-            Log.i("HiveVM", "egress dead — falling back to phone proxy")
-            return true
-        }
-        return false
     }
 
     private suspend fun streamOnce(
@@ -834,7 +852,9 @@ class HiveViewModel(app: Application) : AndroidViewModel(app) {
         // A dead bridge surfaces as a connect/stream error — reopen once and retry.
         val connectErr = res.third?.contains("onnect", ignoreCase = true) == true
         val streamErr = res.third != null
-        if ((viaMesh && connectErr || viaProxy && streamErr) && ensureMeshEgress()) {
+        if ((viaMesh && connectErr || viaProxy && streamErr) && ensureMeshEgress(force = true)) {
+            // the retry supersedes whatever the dead stream fed to the speaker
+            hive.speaker.stop()
             res = collectStream(agentId, msg, prior)
         }
         return res
@@ -848,9 +868,26 @@ class HiveViewModel(app: Application) : AndroidViewModel(app) {
         var reply = ""
         var meta = ""
         var lastFlush = 0L
+        var spokenUpTo = 0
         var failed: String? = null
         val viaMesh = api.baseUrl.startsWith("http://127.0.0.1:")
         val routeBadge = if (viaMesh || _ui.value.mesh == "mesh") "mesh" else "direct"
+        // Feed the speaker one complete sentence at a time — first audio
+        // starts while the tail is still streaming (early-voice latency).
+        // A terminator only counts once followed by whitespace/newline, so
+        // abbreviations at the buffer edge don't cut early; tiny fragments
+        // merge into the next sentence instead of chirping alone.
+        fun feedSentences(force: Boolean = false) {
+            if (!hive.speaker.enabled) return
+            val tail = reply.substring(spokenUpTo)
+            if (!force && tail.length < 24) return
+            val cut = if (force) reply.length else {
+                val m = SENTENCE_END.findAll(tail).lastOrNull() ?: return
+                spokenUpTo + m.range.last + 1
+            }
+            hive.speaker.feed(reply.substring(spokenUpTo, cut))
+            spokenUpTo = cut
+        }
         try {
             api.tryStream(agentId, msg, prior).collect { ev ->
                 when (ev) {
@@ -860,6 +897,7 @@ class HiveViewModel(app: Application) : AndroidViewModel(app) {
                     }
                     is HiveApi.StreamEvent.Token -> {
                         reply += ev.text
+                        feedSentences()
                         val now = System.currentTimeMillis()
                         if (now - lastFlush > 75) { lastFlush = now; patchLast(text = reply) }
                     }
@@ -869,6 +907,8 @@ class HiveViewModel(app: Application) : AndroidViewModel(app) {
                         patchLast(meta = "⚙ ${ev.name}${if (ev.ok) "" else " · failed"}")
                     is HiveApi.StreamEvent.Replace -> {
                         reply = ev.text
+                        spokenUpTo = 0
+                        feedSentences(force = true)
                         patchLast(text = reply)
                     }
                     is HiveApi.StreamEvent.Error -> failed = ev.message
@@ -880,6 +920,8 @@ class HiveViewModel(app: Application) : AndroidViewModel(app) {
         } catch (e: Exception) {
             failed = e.message ?: "stream failed"
         }
+        feedSentences(force = true)
+        if (reply.isBlank()) hive.speaker.feed(failed ?: "")
         return Triple(reply, meta, failed)
     }
 
@@ -912,7 +954,10 @@ class HiveViewModel(app: Application) : AndroidViewModel(app) {
         meshPoll?.cancel()
         meshPoll = viewModelScope.launch {
             while (isActive) {
-                delay(10_000)
+                // Ambient shows a static card — no need to keep the FFI
+                // mutex hot; interactive cadence is halved too — the badge
+                // doesn't need 10s freshness.
+                delay(if (_ui.value.ambient) 60_000 else 20_000)
                 if (nexus.state != NexusState.RUNNING) {
                     if (store.meshUrl.startsWith("phone://") || api.baseUrl.startsWith("phone://")) {
                         _ui.update {
@@ -968,5 +1013,9 @@ class HiveViewModel(app: Application) : AndroidViewModel(app) {
     companion object {
         /** Hive's published service port — the backend default (PORT). */
         const val HIVE_VPORT = 8075
+
+        /** Complete-sentence boundary for the streaming TTS feed: terminator
+         *  + optional closing quote/bracket + whitespace, or a line break. */
+        private val SENTENCE_END = Regex("[.!?]+[\"'”’)\\]]*\\s+|\\n+")
     }
 }

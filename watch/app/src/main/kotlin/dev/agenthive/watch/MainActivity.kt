@@ -39,7 +39,12 @@ class MainActivity : ComponentActivity() {
             override fun onEnterAmbient(
                 ambientDetails: AmbientLifecycleObserver.AmbientDetails) =
                 vm.setAmbient(true)
-            override fun onExitAmbient() = vm.setAmbient(false)
+            override fun onExitAmbient() {
+                vm.setAmbient(false)
+                // Kick the keep-alive — a bridge that died during doze gets
+                // re-verified now, so the first ask doesn't pay discovery.
+                (application as HiveApp).kickMesh()
+            }
             override fun onUpdateAmbient() {}
         })
 
@@ -114,10 +119,12 @@ class MainActivity : ComponentActivity() {
         lifecycle.addObserver(LifecycleEventObserver { _, event ->
             val app = application as HiveApp
             when (event) {
-                Lifecycle.Event.ON_START ->
+                Lifecycle.Event.ON_START -> {
                     if (app.nexus.state == NexusState.RUNNING) {
                         lifecycleScope.launch { app.nexus.resume() }
                     }
+                    app.kickMesh()   // wake-verify the bridge while the user looks
+                }
                 Lifecycle.Event.ON_STOP ->
                     // a doze mid-link must not suspend the dataplane under us;
                     // while MeshService owns the link it stays up full-time so
