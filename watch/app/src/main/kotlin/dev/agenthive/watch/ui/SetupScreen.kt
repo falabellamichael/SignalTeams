@@ -142,7 +142,7 @@ fun SetupScreen(
                     contentAlignment = Alignment.Center,
                 ) {
                     Text(
-                        if (state.inviteCode.isBlank()) "✦ Join Mesh" else "✦ Link to Hive",
+                        if (state.inviteCode.isBlank()) "✦ Join Mesh" else "✦ Link to your hive",
                         color = Color.White,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Bold,

@@ -228,7 +228,7 @@ class MeshService : Service() {
                     app.store.meshEnabled = true
                     app.api.baseUrl = "phone://proxy"
                     app.store.meshUrl = "phone://proxy"
-                    notify("Linked to Hive via Phone (Bluetooth)")
+                    notify("Linked via phone (Bluetooth)")
                     refreshSuggestion(app)
                     return
                 }
@@ -262,7 +262,7 @@ class MeshService : Service() {
                     app.store.meshEnabled = true
                     app.api.baseUrl = "phone://proxy"
                     app.store.meshUrl = "phone://proxy"
-                    notify("Linked to Hive via Phone (Bluetooth)")
+                    notify("Linked via phone (Bluetooth)")
                     refreshSuggestion(app)
                     return
                 }
@@ -328,7 +328,7 @@ class MeshService : Service() {
                             app.store.meshEnabled = true
                             app.api.baseUrl = "phone://proxy"
                             app.store.meshUrl = "phone://proxy"
-                            notify("Linked to Hive via Phone (Bluetooth)")
+                            notify("Linked via phone (Bluetooth)")
                             refreshSuggestion(app)
                             return
                         }
@@ -340,7 +340,7 @@ class MeshService : Service() {
                 app.store.meshEnabled = true
                 app.api.baseUrl = "phone://proxy"
                 app.store.meshUrl = "phone://proxy"
-                notify("Linked to Hive via Phone (Bluetooth)")
+                notify("Linked via phone (Bluetooth)")
                 refreshSuggestion(app)
                 return
             }
