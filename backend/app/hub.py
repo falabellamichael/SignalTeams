@@ -1,4 +1,5 @@
 """Realtime hub: tracks websocket connections, presence, and broadcasts."""
+import asyncio
 import json
 from collections import defaultdict
 
@@ -86,18 +87,25 @@ class Hub:
         return sorted(self.sockets.keys())
 
     async def send(self, user_id: int, event: dict):
+        await self._send_raw(user_id, json.dumps(event))
+
+    async def _send_raw(self, user_id: int, payload: str):
         dead = []
         for ws in list(self.sockets.get(user_id, ())):
             try:
-                await ws.send_text(json.dumps(event))
+                await ws.send_text(payload)
             except Exception:
                 dead.append(ws)
         for ws in dead:
             self.sockets[user_id].discard(ws)
 
     async def send_many(self, user_ids, event: dict):
-        for uid in set(user_ids):
-            await self.send(uid, event)
+        # one serialization for every recipient, and gather so a stalled
+        # socket can't head-of-line-block everyone behind it
+        payload = json.dumps(event)
+        await asyncio.gather(
+            *(self._send_raw(uid, payload) for uid in set(user_ids)),
+            return_exceptions=True)
 
     async def broadcast(self, event: dict):
         await self.send_many(list(self.sockets.keys()), event)
