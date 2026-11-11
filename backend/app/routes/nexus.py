@@ -269,9 +269,16 @@ def _watch_user(uid: int) -> dict:
 
 
 def _node_in_group(node_id: str) -> bool:
-    """Is this node a member device of a group our hive administers/joins?"""
+    """Is this node a member/peer on any group our hive administers or joined?
+
+    Member nodes of a foreign group may not enumerate as 'devices' for a
+    plain member like us — but a live mesh peer that can open a tunnel to us
+    shares a group by definition."""
     for d in nexus.NODE.devices():
         if d.get("node_id") == node_id and not d.get("is_self"):
+            return True
+    for p in nexus.NODE.peers():
+        if p.get("node_id") == node_id:
             return True
     return False
 

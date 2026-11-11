@@ -116,6 +116,17 @@ def _oai_base(url: str) -> str:
     return u
 
 
+def _oai_body(model: str, msgs, temp: float, stream: bool) -> dict:
+    """Shared OpenAI-compatible request body. `nexus.*` models route through
+    Lemonade's mesh router, which rejects any token cap (max_tokens AND
+    max_completion_tokens 500 on a null-type error) — omit it for them."""
+    body = {"model": model, "messages": msgs, "temperature": temp,
+            "max_tokens": 2048, "stream": stream}
+    if model.startswith("nexus."):
+        body.pop("max_tokens")
+    return body
+
+
 def _anth_base(url: str) -> str:
     u = (url or "https://api.anthropic.com").strip().rstrip("/")
     if u.endswith("/v1/messages"):
@@ -310,9 +321,8 @@ def _custom_chat(endpoint, model, msgs, temp, provider=None):
         txt = "".join(b.get("text", "") for b in blocks if isinstance(b, dict)).strip()
         return txt or _wh_text(d), label, use
     try:
-        d = _post(f"{_oai_base(endpoint['url'])}/chat/completions", {
-            "model": use, "messages": msgs, "temperature": temp,
-            "max_tokens": 2048, "stream": False}, TIMEOUT, endpoint.get("key"), extra)
+        d = _post(f"{_oai_base(endpoint['url'])}/chat/completions",
+                  _oai_body(use, msgs, temp, False), TIMEOUT, endpoint.get("key"), extra)
     except Exception:
         em = (endpoint.get("model") or "").strip()
         avail = ([em] if em and em.lower() not in _PLACEHOLDER_MODELS else []) + custom_models(endpoint)
@@ -320,9 +330,8 @@ def _custom_chat(endpoint, model, msgs, temp, provider=None):
         if not alt:
             raise
         use = alt
-        d = _post(f"{_oai_base(endpoint['url'])}/chat/completions", {
-            "model": use, "messages": msgs, "temperature": temp,
-            "max_tokens": 2048, "stream": False}, TIMEOUT, endpoint.get("key"), extra)
+        d = _post(f"{_oai_base(endpoint['url'])}/chat/completions",
+                  _oai_body(use, msgs, temp, False), TIMEOUT, endpoint.get("key"), extra)
     return _oai_text(d), label, use
 
 
@@ -508,8 +517,7 @@ def chat_stream(system_prompt, history, message, model=None, provider=None, temp
                 hdrs["Authorization"] = f"Bearer {endpoint['key']}"
             req = urllib.request.Request(
                 _v4(f"{_oai_base(endpoint['url'])}/chat/completions"),
-                data=json.dumps({"model": use, "messages": _oai_msgs(), "temperature": temp,
-                                 "max_tokens": 2048, "stream": True}).encode(),
+                data=json.dumps(_oai_body(use, _oai_msgs(), temp, True)).encode(),
                 headers=hdrs,
                 method="POST")
             emitted = False
