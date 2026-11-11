@@ -187,6 +187,17 @@
   scroll reveals Search+Library tiles. Wear Spotify DOES have search (tap 🔍 on home) but
   Wear apps are minimal — the model is told to ask with names it actually
   saw rather than cycle launch/back.
+  **Headless watch QA via intent extras** (no UI driving needed):
+  `am start -n dev.agenthive.phone/dev.agenthive.watch.MainActivity --es code <8-digit>`
+  runs the real `linkWithCode` (invite → mesh join → discover → egress →
+  `/api/watch/session` claim); `--es server/u/p` runs `connectWith`;
+  `--es ask "<q>"` calls `vm.send`. Codes come from
+  `POST /api/nexus/watch-pair` (admin token) — a `/api/nexus/invite` code
+  redeems mesh membership but the session claim 403s on it. The Wear
+  emulator (`Wear_OS_XL_Round`, x86_64) runs the real Nexus .so — full
+  pair+ask E2E works over its tunnel; `adb shell input keyevent
+  KEYCODE_SLEEP` puts it into STATE_DOZE to exercise ambient/deep-idle.
+  Fire `--es ask` only after READY — earlier it logs `send: no agent`.
   **Reverse-engineered assistant surface** (live `dumpsys package` of
   `com.google.android.wearable.assistant` + `com.samsung.android.bixby.agent`
   on the Galaxy Watch): Google's Wear assistant = `EdorasVoiceInteractionService`

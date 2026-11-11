@@ -74,6 +74,17 @@ class MeshService : Service() {
                     "wear listener registered: ${t.isSuccessful}" +
                     (t.exception?.let { " (${it.message})" } ?: ""))
             }
+        // A screen wake while deep-idle doesn't foreground the app — no
+        // ON_START, no net event — so the park wait would ride out its 15min
+        // cap. SCREEN_ON kicks it instead: wrist raised → mesh resumes.
+        registerReceiver(screenRx,
+            android.content.IntentFilter(android.content.Intent.ACTION_SCREEN_ON))
+    }
+
+    private val screenRx = object : android.content.BroadcastReceiver() {
+        override fun onReceive(c: android.content.Context, i: android.content.Intent) {
+            (application as? HiveApp)?.kickMesh()
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -379,6 +390,7 @@ class MeshService : Service() {
 
     override fun onDestroy() {
         running = false
+        runCatching { unregisterReceiver(screenRx) }
         scope.cancel()
         super.onDestroy()
     }
