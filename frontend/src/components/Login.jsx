@@ -1,6 +1,5 @@
 import Ico from "./Ico";
 import React, { useEffect, useRef, useState } from "react";
-import { createClient } from "@supabase/supabase-js";
 import { api, setToken } from "../api";
 
 const FEATS = [
@@ -37,9 +36,11 @@ export default function Login({ onAuth, joinCode }) {
   // a code arriving after mount (link opened in the running app) defaults to register
   useEffect(() => { if (joinCode && !username && !email) setMode("register"); }, [joinCode]);
 
-  function supa() {
-    if (!supaRef.current && cfg?.supabase)
+  async function supa() {
+    if (!supaRef.current && cfg?.supabase) {
+      const { createClient } = await import("@supabase/supabase-js");
       supaRef.current = createClient(cfg.supabase_url, cfg.supabase_anon);
+    }
     return supaRef.current;
   }
 
@@ -48,7 +49,7 @@ export default function Login({ onAuth, joinCode }) {
     setErr(""); setBusy(true);
     try {
       if (prov === "supabase") {
-        const c = supa();
+        const c = await supa();
         if (mode === "login") {
           const { data, error } = await c.auth.signInWithPassword(
             { email: email.trim(), password });
