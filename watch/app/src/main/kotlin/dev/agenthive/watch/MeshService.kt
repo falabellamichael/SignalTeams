@@ -83,7 +83,16 @@ class MeshService : Service() {
                 } catch (e: Exception) {
                     Log.w("MeshService", "cycle failed: ${e.message}")
                 }
-                delay(30_000)
+                // No IP path = nothing a 30s poll can accomplish — park on the
+                // network latch instead. The callback wakes us the instant
+                // WiFi/LTE appears; the timeout is a slow re-check of the
+                // phone proxy, not a busy poll.
+                if (!app.nexus.directNetworkUp() &&
+                    app.api.baseUrl != "phone://proxy") {
+                    app.nexus.awaitDirect(120_000)
+                } else {
+                    delay(30_000)
+                }
             }
         }
         return START_STICKY
@@ -137,7 +146,12 @@ class MeshService : Service() {
             // the BT companion relay (TCP-only). One connect() is still worth it —
             // its bindDirectNetwork wait IS the LTE-modem wake window — but
             // burning three full passes on a guaranteed fail just drains battery.
+            // During cell cooldown the radio is resting anyway — skip it all.
             if (!direct) {
+                if (app.nexus.inCellCooldown()) {
+                    notify("Waiting for network…")
+                    return
+                }
                 try {
                     app.nexus.connect(
                         deviceName = "${app.store.username.ifBlank { "hive" }}-watch",

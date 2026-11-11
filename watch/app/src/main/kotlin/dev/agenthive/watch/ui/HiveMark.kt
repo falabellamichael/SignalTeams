@@ -25,7 +25,17 @@ import dev.agenthive.watch.R
  * the mark never stops animating unless the caller removes it.
  */
 @Composable
-fun HiveMark(size: Dp, modifier: Modifier = Modifier, tint: ColorFilter? = null) {
+fun HiveMark(size: Dp, modifier: Modifier = Modifier, tint: ColorFilter? = null,
+             animate: Boolean = true) {
+    if (!animate) {
+        Image(
+            painter = painterResource(R.drawable.hive_mark),
+            contentDescription = "AgentHive",
+            colorFilter = tint,
+            modifier = modifier.size(size),
+        )
+        return
+    }
     val t = rememberInfiniteTransition(label = "hive_mark")
     val spin by t.animateFloat(
         0f, 360f,

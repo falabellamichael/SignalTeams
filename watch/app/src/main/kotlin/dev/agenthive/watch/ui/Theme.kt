@@ -69,26 +69,34 @@ fun GeminiOrb(
     size: Dp = 44.dp,
     active: Boolean = false,
     modifier: Modifier = Modifier,
+    animate: Boolean = true,
 ) {
-    val tr = rememberInfiniteTransition(label = "geminiOrb")
-    val spin by tr.animateFloat(
-        initialValue = 0f,
-        targetValue = 360f,
-        animationSpec = infiniteRepeatable(
-            tween(if (active) 2600 else 8000, easing = LinearEasing),
-            RepeatMode.Restart,
-        ),
-        label = "spin",
-    )
-    val pulse by tr.animateFloat(
-        initialValue = if (active) 0.88f else 0.94f,
-        targetValue = if (active) 1.14f else 1.05f,
-        animationSpec = infiniteRepeatable(
-            tween(if (active) 650 else 1800, easing = LinearEasing),
-            RepeatMode.Reverse,
-        ),
-        label = "pulse",
-    )
+    // Ambient mode draws the same orb frozen — no animation clock to feed.
+    val spin: Float
+    val pulse: Float
+    if (animate) {
+        val tr = rememberInfiniteTransition(label = "geminiOrb")
+        spin = tr.animateFloat(
+            initialValue = 0f,
+            targetValue = 360f,
+            animationSpec = infiniteRepeatable(
+                tween(if (active) 2600 else 8000, easing = LinearEasing),
+                RepeatMode.Restart,
+            ),
+            label = "spin",
+        ).value
+        pulse = tr.animateFloat(
+            initialValue = if (active) 0.88f else 0.94f,
+            targetValue = if (active) 1.14f else 1.05f,
+            animationSpec = infiniteRepeatable(
+                tween(if (active) 650 else 1800, easing = LinearEasing),
+                RepeatMode.Reverse,
+            ),
+            label = "pulse",
+        ).value
+    } else {
+        spin = 0f; pulse = 1f
+    }
 
     Box(modifier = modifier.size(size), contentAlignment = Alignment.Center) {
     Canvas(modifier = Modifier.matchParentSize()) {
@@ -131,6 +139,6 @@ fun GeminiOrb(
         }
 
     }
-    HiveMark(size = size * 0.52f)
+    HiveMark(size = size * 0.52f, animate = animate)
     }
 }

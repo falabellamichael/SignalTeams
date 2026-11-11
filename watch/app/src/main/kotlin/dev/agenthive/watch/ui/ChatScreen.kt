@@ -242,7 +242,7 @@ private fun TopArcPill(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             val icon = state.agent?.icon?.ifBlank { "✦" } ?: "✦"
-            if (icon == "✦") HiveMark(12.dp)
+            if (icon == "✦") HiveMark(12.dp, animate = !state.ambient)
             else Text(icon, color = HiveColors.Violet, fontSize = 10.sp)
             Spacer(Modifier.width(4.dp))
             Text(
@@ -300,7 +300,8 @@ private fun GeminiHomeStage(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        GeminiOrb(size = 42.dp, active = state.busy || state.listening || state.speaking)
+        GeminiOrb(size = 42.dp, active = state.busy || state.listening || state.speaking,
+                  animate = !state.ambient)
 
         Spacer(Modifier.height(4.dp))
 
@@ -502,7 +503,7 @@ private fun BottomArcDock(
                 Text("■ Stop",
                     color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
             } else {
-                HiveMark(14.dp)
+                HiveMark(14.dp, animate = !state.ambient)
                 Spacer(Modifier.width(5.dp))
                 Text("Ask",
                     color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)

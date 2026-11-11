@@ -237,6 +237,13 @@ class NexusNode(private val ctx: Context) {
     @Volatile var companionProxyViable = true
     private var wifiDemand: ConnectivityManager.NetworkCallback? = null
     private var cellDemand: ConnectivityManager.NetworkCallback? = null
+    /** Dead-radio bookkeeping: an unfulfilled cell demand keeps the modem
+     *  powering + scanning forever (DENIED attach, expired plan, no coverage).
+     *  Give it a window to attach, then let the radio rest and retry later. */
+    @Volatile private var cellDemandSince = 0L
+    @Volatile private var cellCooldownUntil = 0L
+    private val CELL_GIVE_MS = 8 * 60_000L       // unanswered → stop asking
+    private val CELL_COOLDOWN_MS = 30 * 60_000L  // then retry on a slow clock
 
     fun directNetworkUp(): Boolean {
         val cm = connectivityManager() ?: return false
@@ -279,15 +286,15 @@ class NexusNode(private val ctx: Context) {
         cm.allNetworks.firstOrNull { isDirect(cm, it) }
 
     /**
-     * Standing demand for a direct radio — naming CELLULAR is what powers the
-     * LTE modem on Wear OS when only the BT proxy is up. Registered at init so
-     * the radio is already waking while the app boots; held for the process
-     * lifetime so the modem never goes back to sleep between links (that was
-     * the real "takes forever to bridge" — every cold path paid the full
-     * 20–40 s power-up). teardown() only releases it on a real stop.
+     * Demand for a direct radio — naming CELLULAR is what powers the LTE
+     * modem on Wear OS when only the BT proxy is up. The WIFI request is
+     * standing (it's the path we already use); the CELLULAR one is held only
+     * while WiFi is down — that's the only window LTE can matter, and an
+     * unfulfilled demand otherwise keeps the modem waking forever.
+     * A dead radio (denied attach, lapsed plan, no coverage) gets a window
+     * to attach, then a cooldown so it stops cycling.
      */
     private fun registerDirectDemand() {
-        if (wifiDemand != null && cellDemand != null) return
         val cm = connectivityManager() ?: return
         val cb = object : ConnectivityManager.NetworkCallback() {
             override fun onAvailable(network: Network) = offer(network)
@@ -306,6 +313,9 @@ class NexusNode(private val ctx: Context) {
             }
             private fun offer(network: Network) {
                 if (!isDirect(cm, network)) return
+                val caps = cm.getNetworkCapabilities(network)
+                if (caps?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true)
+                    releaseCellDemand(cm)          // WiFi won — let the modem sleep
                 val ok = cm.bindProcessToNetwork(network)
                 directLatch.countDown()
                 Log.i("NexusNode", "direct net up ${transports(cm, network)} bind=$ok")
@@ -324,25 +334,47 @@ class NexusNode(private val ctx: Context) {
                 Log.w("NexusNode", "requestNetwork wifi failed: ${e.message}")
             }
         }
-        if (cellDemand == null) {
-            val cellCb = object : ConnectivityManager.NetworkCallback() {
-                override fun onAvailable(network: Network) = cb.onAvailable(network)
-                override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) = cb.onCapabilitiesChanged(network, caps)
-                override fun onLost(network: Network) = cb.onLost(network)
-            }
-            cellDemand = cellCb
-            try {
-                cm.requestNetwork(
-                    NetworkRequest.Builder()
-                        .addTransportType(NetworkCapabilities.TRANSPORT_CELLULAR)
-                        .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
-                        .build(), cellCb
-                )
-            } catch (e: Exception) {
-                Log.w("NexusNode", "requestNetwork cellular failed: ${e.message}")
-            }
+        if (cellDemand == null) registerCellDemand(cm)
+    }
+
+    /** Ask the OS for cellular — skipped during cooldown so a dead radio rests. */
+    private fun registerCellDemand(cm: ConnectivityManager) {
+        if (cellDemand != null) return
+        if (SystemClock.elapsedRealtime() < cellCooldownUntil) return
+        val cb = wifiDemand ?: return
+        val cellCb = object : ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: Network) = cb.onAvailable(network)
+            override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) = cb.onCapabilitiesChanged(network, caps)
+            override fun onLost(network: Network) = cb.onLost(network)
+        }
+        cellDemand = cellCb
+        cellDemandSince = SystemClock.elapsedRealtime()
+        try {
+            cm.requestNetwork(
+                NetworkRequest.Builder()
+                    .addTransportType(NetworkCapabilities.TRANSPORT_CELLULAR)
+                    .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                    .build(), cellCb
+            )
+        } catch (e: Exception) {
+            Log.w("NexusNode", "requestNetwork cellular failed: ${e.message}")
         }
     }
+
+    private fun releaseCellDemand(cm: ConnectivityManager) {
+        cellDemand?.let { runCatching { cm.unregisterNetworkCallback(it) } }
+        cellDemand = null
+        cellDemandSince = 0L
+    }
+
+    /** Event-driven idle for the keep-alive: true if a direct net arrived. */
+    fun awaitDirect(timeoutMs: Long): Boolean =
+        runCatching { directLatch.await(timeoutMs,
+            java.util.concurrent.TimeUnit.MILLISECONDS) }.getOrDefault(false)
+
+    /** True while LTE is being ignored — a dead radio resting between tries. */
+    fun inCellCooldown(): Boolean =
+        SystemClock.elapsedRealtime() < cellCooldownUntil
 
     /**
      * Wear OS routes app traffic through the BLUETOOTH companion-proxy by
@@ -376,6 +408,16 @@ class NexusNode(private val ctx: Context) {
         } else {
             cm.bindProcessToNetwork(null)
             Log.w("NexusNode", "no direct network — BT proxy or cellular pending, process unbound")
+            // Keep begging for LTE only for a while — a dead radio (denied
+            // attach, lapsed plan) otherwise cycles the modem forever.
+            val now = SystemClock.elapsedRealtime()
+            if (cellDemandSince > 0 && now - cellDemandSince > CELL_GIVE_MS) {
+                releaseCellDemand(cm)
+                cellCooldownUntil = now + CELL_COOLDOWN_MS
+                Log.i("NexusNode", "cell demand unanswered — radio rests for ${CELL_COOLDOWN_MS/60000}min")
+            } else {
+                registerCellDemand(cm)
+            }
         }
     }
 
