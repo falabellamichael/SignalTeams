@@ -707,7 +707,11 @@ class HiveViewModel(app: Application) : AndroidViewModel(app) {
             _ui.update { it.copy(input = "") }
             return
         }
-        if (msg.isEmpty() || s.busy) { Log.w("HiveVM", "send: empty/busy busy=${s.busy}"); return }
+        if (msg.isEmpty()) { Log.w("HiveVM", "send: empty"); return }
+        // A fresh ask while a reply streams/plays interrupts it — the
+        // Gemini barge-in contract: the button means "I want to talk NOW",
+        // not "queue this for later" or the old silent drop.
+        if (s.busy) stopAll()
 
         // parked on an "ask" — this utterance is the user's pick.
         if (deviceAgent?.feedPick(msg) == true) {
