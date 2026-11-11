@@ -158,6 +158,11 @@
   names to the stored URI with no extra model call. Watch hardware: Galaxy
   Watch8 Classic (product `pa3q`, serial suffix B7MA, 438×438, Wear OS 5);
   the paired phone is an SM-S938W (S25 Ultra) running `dev.agenthive.phone`.
+  **Install gotcha — both APKs share `applicationId = dev.agenthive.phone`**:
+  `install -r` of `app-debug.apk` onto the phone silently replaces the
+  companion with the round watch UI (and vice versa). Always pick the adb
+  serial by `ro.product.model`, never by position: L-series (SM-Lxxx) =
+  watch → `watch/app` APK; SM-Sxxx = phone → `watch/phone` APK.
   **Hardware adb-testing traps (Galaxy Watch):** the watch PIN-locks the moment it leaves the wrist
   (`dumpsys trust` → `deviceLocked=1`) — a keyguard overlay then eats EVERY
   tap while uiautomator dumps still show the app's windows, so input looks
