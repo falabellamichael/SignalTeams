@@ -47,6 +47,9 @@ data class UiState(
     val agents: List<HiveApi.Agent> = emptyList(),
     val chat: ChatRef? = null,
     val messages: JSONArray = JSONArray(),
+    /** Bumped when `messages` mutates in place — StateFlow dedupes on
+     *  equals, and a same-ref copy would drop the live-append update. */
+    val messagesVersion: Int = 0,
     val sending: Boolean = false,
     // settings surface — mirrors the web SettingsModal pages
     val meJson: JSONObject? = null,
@@ -189,7 +192,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 val arr = s.messages
                 val dup = (0 until arr.length()).any {
                     arr.optJSONObject(it)?.optInt("id") == m.optInt("id") }
-                if (dup) s else s.copy(messages = JSONArray(arr.toString()).put(m))
+                // mutate in place + version bump — was JSONArray(arr.toString()),
+                // a full 50-message serialize+parse per incoming WS message
+                if (dup) s else s.copy(messages = arr.put(m),
+                                       messagesVersion = s.messagesVersion + 1)
             }
             viewModelScope.launch { api.markRead(cid) }
             return

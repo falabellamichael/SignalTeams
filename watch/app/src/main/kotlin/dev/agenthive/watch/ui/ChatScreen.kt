@@ -85,7 +85,13 @@ fun ChatScreen(
 
     LaunchedEffect(state.messages.size, state.messages.lastOrNull()?.text?.length) {
         if (state.messages.isNotEmpty()) {
-            runCatching { listState.animateScrollToItem(0) }
+            // Streaming patches land every 75ms — animateScrollToItem would
+            // cancel+relaunch ~13×/sec. Snap-follow while the tail streams;
+            // animate only the final settle.
+            runCatching {
+                if (state.messages.last().pending) listState.scrollToItem(0)
+                else listState.animateScrollToItem(0)
+            }
         }
     }
 
