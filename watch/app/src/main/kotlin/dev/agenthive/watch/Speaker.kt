@@ -6,7 +6,6 @@ import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import android.util.Log
 import dev.agenthive.watch.data.HiveApi
-import java.io.File
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -156,25 +155,34 @@ class Speaker(private val api: HiveApi, private val ctx: Context) {
         }
     }
 
+    /** Bytes → MediaPlayer without touching flash — a temp file per
+     *  sentence was a flash write + file churn each chunk. */
+    private fun mediaSourceOf(bytes: ByteArray) = object : android.media.MediaDataSource() {
+        override fun readAt(position: Long, buffer: ByteArray, offset: Int, size: Int): Int {
+            if (position >= bytes.size) return -1
+            val n = minOf(size, bytes.size - position.toInt())
+            System.arraycopy(bytes, position.toInt(), buffer, offset, n)
+            return n
+        }
+        override fun getSize() = bytes.size.toLong()
+        override fun close() {}
+    }
+
     private suspend fun playMp3(bytes: ByteArray) {
-        val f = File.createTempFile("hive_tts", ".mp3")
-        f.writeBytes(bytes)
+        // One reused player — fresh MediaPlayer() per chunk paid DRM state
+        // setup/teardown on every sentence boundary.
+        val mp = player ?: MediaPlayer().also { player = it }
+        mp.reset()
+        mp.setDataSource(mediaSourceOf(bytes))
         suspendCancellableCoroutine<Unit> { cont ->
-            val mp = MediaPlayer()
-            player = mp
+            var done = false
             fun finish() {
-                if (player === mp) player = null
-                runCatching { mp.release() }
-                runCatching { f.delete() }
+                if (done) return; done = true
                 if (cont.isActive) cont.resume(Unit)
             }
             mp.setOnCompletionListener { finish() }
             mp.setOnErrorListener { _, _, _ -> finish(); true }
-            runCatching {
-                mp.setDataSource(f.absolutePath)
-                mp.prepare()
-                mp.start()
-            }.onFailure {
+            runCatching { mp.prepare(); mp.start() }.onFailure {
                 Log.w("HiveSpeaker", "playback failed: ${it.message}")
                 finish()
             }

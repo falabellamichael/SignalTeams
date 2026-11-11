@@ -762,6 +762,7 @@ class NexusNode(private val ctx: Context) {
         runCatching { cli?.let { NexusLib.load().ln_destroy(it) } }
         runCatching { ident?.let { NexusLib.load().ln_identity_destroy(it) } }
         cli = null; ident = null; info = NexusInfo(); suspended = false
+        egresses.clear()
         if (releaseDemand) {
             val cm = connectivityManager()
             wifiDemand?.let { runCatching { cm?.unregisterNetworkCallback(it) } }
@@ -784,6 +785,7 @@ class NexusNode(private val ctx: Context) {
         mutex.withLock {
             cli?.let { runCatching { NexusLib.load().ln_resume(it) } }
             suspended = false
+            egresses.clear()    // transport reset killed every listener
         }
     }
 
@@ -873,26 +875,41 @@ class NexusNode(private val ctx: Context) {
         return strPtr(NexusLib.load().ln_get_node_id(c))
     }
 
+    /** Live egress listeners keyed by target — MeshService and the ViewModel
+     *  can both bridge the same hive on a restart and each open would leak a
+     *  separate loopback listener. A transport reset (resume) or teardown
+     *  kills them all, so both paths drop the map. */
+    private val egresses = HashMap<String, Int>()
+
     /**
      * Bridge a peer's published mesh service to a loopback port.
-     * Returns the loopback port, or null on failure.
+     * `force` evicts + re-opens — for callers that just watched a probe of
+     * the cached port fail. Returns the loopback port, or null on failure.
      */
-    suspend fun openEgress(ip: String, port: Int): Int? = withContext(Dispatchers.IO) {
+    suspend fun openEgress(ip: String, port: Int, force: Boolean = false): Int? = withContext(Dispatchers.IO) {
         mutex.withLock {
             val c = cli ?: return@withLock null
-            if (NexusLib.load().ln_mesh_is_active(c) == 0) return@withLock null
             val api = NexusLib.load()
+            if (api.ln_mesh_is_active(c) == 0) return@withLock null
             val clean = ip.substringBefore("/")
+            val key = "$clean:$port"
+            if (!force) {
+                egresses[key]?.let { return@withLock it }
+            } else if (egresses.remove(key) != null) {
+                runCatching { api.ln_mesh_close_egress(c, clean, port.toShort()) }
+            }
             val outPort = ShortByReference()
             val rc = api.ln_mesh_open_egress(c, clean, port.toShort(), outPort)
             val lp = outPort.value.toInt() and 0xFFFF
-            if (rc == 0 && lp > 0) lp else null
+            if (rc == 0 && lp > 0) { egresses[key] = lp; lp } else null
         }
     }
 
     suspend fun closeEgress(ip: String, port: Int) = withContext(Dispatchers.IO) {
         mutex.withLock {
-            cli?.let { NexusLib.load().ln_mesh_close_egress(it, ip.substringBefore("/"), port.toShort()) }
+            val clean = ip.substringBefore("/")
+            egresses.remove("$clean:$port")
+            cli?.let { NexusLib.load().ln_mesh_close_egress(it, clean, port.toShort()) }
         }
     }
 }

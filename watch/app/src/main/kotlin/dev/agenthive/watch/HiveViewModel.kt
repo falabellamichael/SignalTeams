@@ -631,11 +631,13 @@ class HiveViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private suspend fun finishReady() {
-        loadAgents()
+        // READY paints before the agents RTT lands — send() already defers
+        // an ask that arrives while the list is still loading.
         _ui.update {
             it.copy(phase = Phase.READY, unlinked = false, mesh = "mesh",
                     statusLine = "", error = "")
         }
+        loadAgents()
         store.meshEnabled = true
         contextStartMeshService()
         startMeshPoll()
@@ -756,7 +758,23 @@ class HiveViewModel(app: Application) : AndroidViewModel(app) {
             return
         }
 
-        val agent = s.agent ?: run { Log.w("HiveVM", "send: no agent"); return }
+        val agent = s.agent ?: run {
+            // Agents still loading (boot-time ask, restore in flight) —
+            // a real ask shouldn't silently drop. Wait for the list to land
+            // (restore/finishReady populates it), then take the send again.
+            Log.w("HiveVM", "send: no agent yet — deferring '$msg'")
+            viewModelScope.launch {
+                val deadline = System.currentTimeMillis() + 20_000
+                while (_ui.value.agent == null && System.currentTimeMillis() < deadline) {
+                    if (api.token.isNotBlank()) runCatching { loadAgents() }
+                    if (_ui.value.agent != null) break
+                    delay(800)
+                }
+                if (_ui.value.agent != null) send(text)
+                else _ui.update { it.copy(error = "no agent loaded — is the hive linked?") }
+            }
+            return
+        }
         if (api.token.isBlank()) {
             Log.w("HiveVM", "send: no token base=${api.baseUrl}")
             _ui.update { it.copy(error = "link a hive from the mesh console (🔗) to chat") }
@@ -828,7 +846,9 @@ class HiveViewModel(app: Application) : AndroidViewModel(app) {
         try {
             if (ip.isNotBlank()) {
                 val port = store.meshTargetPort.takeIf { it > 0 } ?: HIVE_VPORT
-                nexus.openEgress(ip, port)?.let { lp ->
+                // force — the bridge probe above just failed; the cached
+                // map entry is that same dead port.
+                nexus.openEgress(ip, port, force = true)?.let { lp ->
                     api.baseUrl = "http://127.0.0.1:$lp"
                     store.meshUrl = api.baseUrl
                     store.egressPort = lp

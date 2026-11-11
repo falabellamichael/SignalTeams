@@ -81,7 +81,9 @@ object MeshLinker {
             val port = store.meshTargetPort.takeIf { it > 0 } ?: HIVE_VPORT
             var lp: Int? = null
             repeat(3) {                     // dataplane may still be settling post-join
-                lp = nexus.openEgress(knownIp, port)
+                // force — the cached map entry is exactly the port whose
+                // probe just failed above.
+                lp = nexus.openEgress(knownIp, port, force = true)
                 if (lp != null) return@repeat
                 delay(400)
             }
