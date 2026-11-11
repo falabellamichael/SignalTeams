@@ -149,6 +149,13 @@ class MeshService : Service() {
                     runCatching { app.nexus.suspendMesh() }
                     notify("Mesh sleeping — wakes when you do")
                     continue
+                } else if (!interactive &&
+                    SystemClock.elapsedRealtime() - lastActive > DEEP_IDLE_MS / 2) {
+                    // Diagnostic: approaching the suspend mark — shows whether
+                    // idle is accumulating or something keeps bumping it.
+                    Log.d("MeshService", "idle ${
+                        (SystemClock.elapsedRealtime() - lastActive) / 1000
+                    }s state=${app.nexus.state}")
                 }
 
                 try {

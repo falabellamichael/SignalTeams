@@ -168,6 +168,10 @@ class HiveViewModel(app: Application) : AndroidViewModel(app) {
      * hive kicked this watch or the bound session is gone.
      */
     private fun restore() {
+        // Heal stale loopback serverUrls — pair-over-mesh logins used to
+        // persist the ephemeral egress port, which is dead by next boot.
+        if (store.serverUrl.startsWith("http://127.0.0.1:") ||
+            store.serverUrl.startsWith("http://localhost")) store.serverUrl = ""
         _ui.update {
             it.copy(
                 serverUrl = store.serverUrl,
@@ -394,7 +398,12 @@ class HiveViewModel(app: Application) : AndroidViewModel(app) {
             _ui.update { it.copy(phase = Phase.LINKING, error = "", log = emptyList()) }
             logLine("signing in…")
             val (token, u) = api.login(server, user, pass)
-            store.serverUrl = server; store.username = u.username
+            // A loopback URL is the mesh egress bridge — per-session, dead by
+            // next boot. Persisting it as serverUrl makes later passes probe
+            // a stale port before discovering mesh_url instead.
+            if (!server.startsWith("http://127.0.0.1:") &&
+                !server.startsWith("http://localhost")) store.serverUrl = server
+            store.username = u.username
             store.displayName = u.displayName; store.token = token
             _ui.update { it.copy(username = u.username, displayName = u.displayName) }
             logLine("welcome, ${u.displayName}")
