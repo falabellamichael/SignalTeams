@@ -359,7 +359,14 @@ export default function App() {
         connDownRef.current = evt.retries;
         setConnDown(evt.retries);
       } else if (evt.type === "presence") {
-        setOnlineIds(evt.online);
+        setOnlineIds((prev) => {
+          const next = evt.online || [];
+          if (prev.length === next.length) {
+            const s = new Set(next);
+            if (prev.every((id) => s.has(id))) return prev;
+          }
+          return next;
+        });
       } else if (evt.type === "message") {
         const ch = channelRef.current;
         const guests = getGuestChans().filter((g) => g.id === evt.channel_id);
@@ -782,10 +789,11 @@ export default function App() {
     }
     setMe(await api.updateMe({ muted, notify_mentions: nm }));
   }
+  const onlineSet = useMemo(() => new Set(onlineIds), [onlineIds]);
   const members = server && !dmChannel
-    ? server.members.map((m) => ({ ...m, online: onlineIds.includes(m.id) || m.id === me.id }))
+    ? server.members.map((m) => ({ ...m, online: onlineSet.has(m.id) || m.id === me.id }))
     : channel?.group
-      ? (channel.members || []).map((m) => ({ ...m, online: onlineIds.includes(m.id) || m.id === me.id }))
+      ? (channel.members || []).map((m) => ({ ...m, online: onlineSet.has(m.id) || m.id === me.id }))
       : null;
 
   let main;
