@@ -64,6 +64,24 @@ def nexus_status(user=Depends(current_user)):
 async def nexus_connect(req: ConnectReq, user=Depends(require_admin)):
     if not nexus.sdk_available():
         raise HTTPException(503, f"nexus SDK not found at {nexus.sdk_path()}")
+    st = nexus.NODE.status()
+    if st.get("state") == "running":
+        tok = (req.link_token or "").strip()
+        # a code pasted anywhere (incl. the server box by mistake) means
+        # "join another mesh", not "reconnect" — accept_invite handles both
+        # the 8-digit code and the lnk_ token forms.
+        if not tok and re.fullmatch(r"(lnk_\S+|[\d\s]+)", req.server or ""):
+            tok = re.sub(r"\s+", "", req.server or "")
+        if tok:
+            try:
+                d = await asyncio.to_thread(nexus.NODE.accept_invite, tok)
+            except RuntimeError as e:
+                raise HTTPException(502, str(e))
+            return {"ok": True, "accepted": tok[:8] + "…",
+                    **(d if isinstance(d, dict) else {})}
+        if not any([req.server.strip(), req.region.strip(),
+                    req.device_name.strip(), req.link_token.strip()]):
+            return st          # already running — don't tear it down on a no-op
     try:
         return await asyncio.to_thread(
             nexus.NODE.start, req.link_token, req.server, req.region, req.device_name)
