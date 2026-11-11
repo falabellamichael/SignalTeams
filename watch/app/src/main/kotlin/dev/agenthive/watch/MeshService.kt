@@ -190,9 +190,14 @@ class MeshService : Service() {
         linking = true
         linkStart = android.os.SystemClock.elapsedRealtime()
         try {
-            val hasPhone = dev.agenthive.watch.device.PhoneBridge.hasNearbyPhone(this)
+            // The node list is a Wear binder round-trip — lazy so healthy
+            // direct passes never pay it; computed once per pass.
+            var phoneN: Boolean? = null
+            suspend fun phoneNearby(): Boolean = phoneN
+                ?: dev.agenthive.watch.device.PhoneBridge.hasNearbyPhone(this)
+                    .also { phoneN = it }
             val direct = app.nexus.directNetworkUp()
-            if (!direct && hasPhone) {
+            if (!direct && phoneNearby()) {
                 // No IP path of our own — the phone proxy is the only route.
                 // First probe answers in ~1s when the Wear link is alive;
                 // only on a miss do we pay the retry loop.
@@ -296,7 +301,7 @@ class MeshService : Service() {
                     }
                 } catch (e: Exception) {
                     Log.w("MeshService", "pass $attempt: ${e.message}")
-                    if (attempt == 3 && hasPhone) {
+                    if (attempt == 3 && phoneNearby()) {
                         if (phoneMeshUp()) {
                             app.store.meshEnabled = true
                             app.api.baseUrl = "phone://proxy"
@@ -309,7 +314,7 @@ class MeshService : Service() {
                 }
                 delay(if (attempt == 1) 8_000 else 15_000)
             }
-            if (hasPhone && dev.agenthive.watch.device.PhoneBridge.probePhoneMesh(this)) {
+            if (phoneNearby() && dev.agenthive.watch.device.PhoneBridge.probePhoneMesh(this)) {
                 app.store.meshEnabled = true
                 app.api.baseUrl = "phone://proxy"
                 app.store.meshUrl = "phone://proxy"

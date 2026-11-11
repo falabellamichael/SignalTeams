@@ -59,7 +59,7 @@ fun SetupScreen(
                 .padding(horizontal = 24.dp, vertical = 18.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            GeminiOrb(size = 38.dp, active = busy)
+            GeminiOrb(size = 38.dp, active = busy, animate = !state.ambient)
             Spacer(Modifier.height(4.dp))
             Text(
                 "Hive Watch",

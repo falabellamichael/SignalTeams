@@ -176,6 +176,9 @@ class NexusNode(private val ctx: Context) {
     private fun captureNativeOutput() {
         runCatching {
             val f = File(dir, "native.log")
+            // Bound the debug sink — it survives across processes and would
+            // otherwise grow forever.
+            if (f.length() > 512_000) f.writeText("")
             val libc = com.sun.jna.Native.load("c", LibC::class.java)
             // O_WRONLY|O_CREAT|O_APPEND, mode 0600
             val fd = libc.open(f.absolutePath, 1 or 64 or 1024, 384)
@@ -201,19 +204,9 @@ class NexusNode(private val ctx: Context) {
             // Upstream's mobile trust store is SSL_CERT_FILE alone — extra
             // OpenSSL env (OPENSSL_CONF, SSL_CERT_DIR) can break provider
             // init inside the static OpenSSL and kill every handshake.
-            // SDK debug logging → logcat
-            Os.setenv("LN_DEBUG", "1", true)
-            Os.setenv("RUST_LOG", "trace", true)
-            Os.setenv("SPDLOG_LEVEL", "trace", true)
-            // TEMP diag: TLS handshake stage — does keylog appear (keys derived
-            // = handshake reached cert-verify) or not (dies in ClientHello)?
-            val keylog = File(dir, "keylog.txt")
-            Os.setenv("SSLKEYLOGFILE", keylog.absolutePath, true)
-            // TEMP diag: confirm native getenv() actually sees it
-            runCatching {
-                val libc = com.sun.jna.Native.load("c", LibC::class.java)
-                Log.i("NexusNode", "SSL_CERT_FILE=${libc.getenv("SSL_CERT_FILE")} path=${pem.absolutePath}")
-            }.onFailure { Log.w("NexusNode", "getenv diag failed: ${it.message}") }
+            // Native logging stays at the SDK default — trace-level spdlog
+            // was writing every packet to native.log all day (constant flash
+            // IO + unbounded growth), and a TLS keylog must never ship.
         }.onFailure {
             Log.w("NexusNode", "Failed to install cacert.pem: ${it.message}")
         }
@@ -240,6 +233,10 @@ class NexusNode(private val ctx: Context) {
     @Volatile var companionProxyViable = true
     private var wifiDemand: ConnectivityManager.NetworkCallback? = null
     private var cellDemand: ConnectivityManager.NetworkCallback? = null
+    /** Last net that woke the keep-alive — onCapabilitiesChanged fires on
+     *  every bandwidth/metered flap, so only an identity change earns a
+     *  kick (each kick is a whole link pass: FFI + an HTTP probe). */
+    @Volatile private var lastUpNet: Network? = null
     /** Dead-radio bookkeeping: an unfulfilled cell demand keeps the modem
      *  powering + scanning forever (DENIED attach, expired plan, no coverage).
      *  Give it a window to attach, then let the radio rest and retry later. */
@@ -313,6 +310,7 @@ class NexusNode(private val ctx: Context) {
                     val ok = cm.bindProcessToNetwork(rem)
                     Log.i("NexusNode", "re-seated process to ${transports(cm, rem)} ok=$ok")
                 }
+                lastUpNet = rem
                 onNetEvent?.invoke()
             }
             private fun offer(network: Network) {
@@ -323,7 +321,10 @@ class NexusNode(private val ctx: Context) {
                 val ok = cm.bindProcessToNetwork(network)
                 directLatch.countDown()
                 Log.i("NexusNode", "direct net up ${transports(cm, network)} bind=$ok")
-                onNetEvent?.invoke()
+                if (network != lastUpNet) {
+                    lastUpNet = network
+                    onNetEvent?.invoke()
+                }
             }
         }
         if (wifiDemand == null) {
@@ -397,11 +398,13 @@ class NexusNode(private val ctx: Context) {
         val cm = connectivityManager() ?: return
         registerDirectDemand()
         var net = directNet(cm)
+        // The companion check is a Wear binder round-trip — only worth it when
+        // there's no direct net and the wait window actually depends on it.
+        val hasPhone = if (net == null) hasCompanionCheck?.invoke() ?: false else false
         // If phone is connected over Bluetooth, don't stall for 35s when LTE takes time;
         // give LTE a short chance (3s) before letting the companion mesh proxy take over.
         // BUT only on the first join attempts — once a join has failed, the proxy is
         // presumed dead too, and a cold modem needs its full 20-40s power-up window.
-        val hasPhone = hasCompanionCheck?.invoke() ?: false
         val effectiveWait =
             if (hasPhone && companionProxyViable && joinFails < 2) 3_000L else waitMs
 
