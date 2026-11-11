@@ -10,7 +10,7 @@ from .config import WORKSPACE_AGENT_TOOLS
 from .db import db, emit_buzz, now
 from .hub import hub
 
-from .helpers import STAR_EMOJI, _agent_llm, _grounding, _memories, _server_llm, _split_model, _sysprompt, _user_llm, agent_bot_user, can_see_agent, can_use_agent, channel_member_ids, friend_ids, message_json, starboard_bot_user
+from .helpers import STAR_EMOJI, _agent_llm, _grounding, _memories, _server_llm, _split_model, _sysprompt, _user_llm, _v4, agent_bot_user, can_see_agent, can_use_agent, channel_member_ids, friend_ids, message_json, starboard_bot_user
 from . import connections as cx
 from . import workspace as wsx
 
@@ -381,7 +381,7 @@ def _ai_web_tool(name, args):
             url = str(args.get("url") or "")[:500].strip()
             if not url.startswith(("http://", "https://")):
                 return {"ok": False, "error": "url must start with http(s)://"}
-            req = _u.Request(url, headers={"User-Agent": "SignalTeams-agent/1.0"})
+            req = _u.Request(_v4(url), headers={"User-Agent": "SignalTeams-agent/1.0"})
             with _u.urlopen(req, timeout=8) as r:
                 raw = r.read(400_000)
                 ctype = r.headers.get("Content-Type", "")

@@ -12,6 +12,7 @@ import time
 import urllib.request
 
 from .config import LMSTUDIO, MODELDIR, OLLAMA, LLM_TIMEOUT as TIMEOUT
+from .helpers import _v4
 
 _dir_cache = {"t": 0.0, "models": []}
 
@@ -62,6 +63,7 @@ def _ep_headers(endpoint):
 
 
 def _post(url, payload, timeout, key=None, extra=None):
+    url = _v4(url)
     headers = {"User-Agent": DEFAULT_UA, "Content-Type": "application/json", **(extra or {})}
     if key and "Authorization" not in headers and "authorization" not in headers:
         headers["Authorization"] = f"Bearer {key}"
@@ -72,6 +74,7 @@ def _post(url, payload, timeout, key=None, extra=None):
 
 
 def _get(url, timeout=3, key=None, extra=None):
+    url = _v4(url)
     headers = {"User-Agent": DEFAULT_UA, **(extra or {})}
     if key and "Authorization" not in headers and "authorization" not in headers:
         headers["Authorization"] = f"Bearer {key}"
@@ -402,7 +405,7 @@ def tts_speech(endpoint, text, voice=None, model=None):
     if voice:
         payload["voice"] = voice
     req = urllib.request.Request(
-        f"{_oai_base(endpoint['url'])}/audio/speech",
+        _v4(f"{_oai_base(endpoint['url'])}/audio/speech"),
         data=json.dumps(payload).encode(), headers=hdrs, method="POST")
     with urllib.request.urlopen(req, timeout=45) as r:
         return r.read(), r.headers.get("Content-Type") or "audio/mpeg", use
@@ -504,7 +507,7 @@ def chat_stream(system_prompt, history, message, model=None, provider=None, temp
             if endpoint.get("key") and "Authorization" not in hdrs and "authorization" not in hdrs:
                 hdrs["Authorization"] = f"Bearer {endpoint['key']}"
             req = urllib.request.Request(
-                f"{_oai_base(endpoint['url'])}/chat/completions",
+                _v4(f"{_oai_base(endpoint['url'])}/chat/completions"),
                 data=json.dumps({"model": use, "messages": _oai_msgs(), "temperature": temp,
                                  "max_tokens": 2048, "stream": True}).encode(),
                 headers=hdrs,
@@ -578,7 +581,7 @@ def chat_stream(system_prompt, history, message, model=None, provider=None, temp
         o_msgs = ([dict(m, images=[im["b64"] for im in images])
                    if m is msgs[-1] else m for m in msgs] if images else msgs)
         req = urllib.request.Request(
-            f"{OLLAMA}/api/chat",
+            _v4(f"{OLLAMA}/api/chat"),
             data=json.dumps({"model": use, "messages": o_msgs, "stream": True,
                              "options": {"temperature": temp}}).encode(),
             headers={"User-Agent": DEFAULT_UA, "Content-Type": "application/json"}, method="POST")

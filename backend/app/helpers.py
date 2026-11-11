@@ -502,6 +502,15 @@ def messages_json_batch(conn, rows, viewer_id=None):
     return out
 
 
+def _v4(url):
+    """'localhost' costs ~2s on Windows: urlopen tries ::1 first and our
+    loopback services listen IPv4-only, so the connect stalls on fallback.
+    Rewrite plaintext loopback to 127.0.0.1 (https left alone — the cert
+    would fail hostname verification for 'localhost' rewritten to an IP)."""
+    return url.replace("://localhost", "://127.0.0.1", 1) \
+        if url.startswith("http://") else url
+
+
 def _meta_content(html, key):
     """content= value of the <meta> tag whose property/name matches `key`."""
     for tag in re.findall(r"<meta\s[^>]*>", html, re.I):
@@ -852,6 +861,7 @@ def _grounding(url, method="GET", message="", headers=None):
     Supports custom request headers (JSON). Best-effort, 6s timeout, 2KB cap."""
     import urllib.request as _u
     try:
+        url = _v4(url)
         extra = {}
         if headers:
             extra = {str(k): str(v) for k, v in (json.loads(headers) if isinstance(headers, str) else headers).items()}
