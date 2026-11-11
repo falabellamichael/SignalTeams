@@ -16,14 +16,21 @@ import kotlinx.coroutines.withContext
  * plus fire-and-forget paths the watch's WatchWearService answers.
  */
 object WatchBridge {
+    /** connectedNodes is a GMS binder query — caching it 30s skips a
+     *  round trip on every notification/companion push (watch parity).
+     *  A failed send drops the cache so a re-tether is seen at once. */
+    @Volatile private var nodeCache: Pair<Long, String>? = null
+
     suspend fun send(ctx: Context, path: String, data: ByteArray = ByteArray(0)): Boolean =
         withContext(Dispatchers.IO) {
-            val node = Tasks.await(
-                Wearable.getNodeClient(ctx).connectedNodes).firstOrNull()
+            val now = android.os.SystemClock.elapsedRealtime()
+            val nodeId = nodeCache?.takeIf { now - it.first < 30_000 }?.second
+                ?: Tasks.await(Wearable.getNodeClient(ctx).connectedNodes)
+                    .firstOrNull()?.id?.also { nodeCache = now to it }
                 ?: return@withContext false
-            Tasks.await(
-                Wearable.getMessageClient(ctx).sendMessage(node.id, path, data))
-            true
+            runCatching {
+                Tasks.await(Wearable.getMessageClient(ctx).sendMessage(nodeId, path, data))
+            }.onFailure { nodeCache = null }.isSuccess
         }
 
     suspend fun notifyWatch(ctx: Context, text: String) =
