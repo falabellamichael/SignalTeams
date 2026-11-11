@@ -189,7 +189,7 @@ class HiveViewModel(app: Application) : AndroidViewModel(app) {
             // warm path — MeshService already holds a live bridge; one probe
             // and a session claim instead of a whole relink.
             val warm = store.meshUrl
-            if (warm.startsWith("phone://") || (warm.isNotBlank() && api.probeHive(warm))) {
+            if (warm.isNotBlank() && api.probeHive(warm)) {
                 api.baseUrl = warm
                 logLine("mesh link verified live — no relink needed")
                 if (store.token.isNotBlank()) {
