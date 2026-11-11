@@ -749,6 +749,8 @@ export default function App() {
     setRefresh((r) => r + 1);
   }
 
+  const onlineSet = useMemo(() => new Set(onlineIds), [onlineIds]);
+
   // ---- render ----
 
   if (!booted) return null;
@@ -789,7 +791,6 @@ export default function App() {
     }
     setMe(await api.updateMe({ muted, notify_mentions: nm }));
   }
-  const onlineSet = useMemo(() => new Set(onlineIds), [onlineIds]);
   const members = server && !dmChannel
     ? server.members.map((m) => ({ ...m, online: onlineSet.has(m.id) || m.id === me.id }))
     : channel?.group
