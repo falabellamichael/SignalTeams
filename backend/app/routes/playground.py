@@ -18,6 +18,29 @@ from .. import workspace as wsx
 
 router = APIRouter()
 
+# /api/assistant/next hits the live gcal plugin per call — watches, tiles and
+# complications can all ask within a second of each other. The raw events
+# payload is cacheable for a short TTL; the "in Nm" label is still computed
+# fresh on every request so relative times never go stale.
+_cal_cache = {}  # uid -> (ts, plugin_result)
+
+
+def _gcal_events(uid):
+    ts, cached = _cal_cache.get(uid, (0.0, None))
+    if cached is not None and time.time() - ts < 120:
+        return cached
+    try:
+        with db() as conn:
+            r = cx.plugin_tool(conn, uid, "gcal", {"action": "events", "days": 1})
+    except Exception:
+        r = {"ok": False}
+    _cal_cache[uid] = (time.time(), r)
+    if len(_cal_cache) > 500:
+        now_ = time.time()
+        for k in [k for k, v in _cal_cache.items() if now_ - v[0] > 600]:
+            del _cal_cache[k]
+    return r
+
 
 def _probe_endpoint(ep: dict, model_override: str = "") -> dict:
     """Test an OpenAI-compatible, Anthropic, Ollama, or Webhook endpoint."""
@@ -433,12 +456,7 @@ def assistant_next(user=Depends(current_user)):
     "Team sync in 35m". Empty label when nothing is due within 6h, the
     calendar plugin isn't connected, or its grant lapsed — the caller just
     shows the default face."""
-    try:
-        with db() as conn:
-            r = cx.plugin_tool(conn, user["id"], "gcal",
-                               {"action": "events", "days": 1})
-    except Exception:
-        r = {"ok": False}
+    r = _gcal_events(user["id"])
     if not r.get("ok") or not isinstance(r.get("result"), list):
         return {"label": "", "kind": ""}
     import datetime as _dt
