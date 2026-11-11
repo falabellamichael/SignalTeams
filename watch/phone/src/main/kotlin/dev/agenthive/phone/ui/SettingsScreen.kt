@@ -933,7 +933,7 @@ private fun MeshPage(state: UiState, vm: AppViewModel,
                      onBack: () -> Unit) {
     val clip = LocalClipboardManager.current
     val nx = state.nxStatus
-    val online = nx.optBoolean("online", nx.optBoolean("enabled"))
+    val online = nx.optString("state") == "running" || nx.optBoolean("tunnel_up")
     SubPage("Nexus Mesh", onBack) {
         item {
             Row(

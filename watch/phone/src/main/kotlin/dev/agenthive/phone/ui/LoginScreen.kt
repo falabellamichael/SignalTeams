@@ -277,8 +277,10 @@ fun LoginScreen(state: UiState, vm: AppViewModel) {
                     HorizontalDivider(color = DcBorder, modifier = Modifier.weight(1f))
                 }
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Text("mesh link up", color = DcGreen, fontSize = 12.sp,
-                         modifier = Modifier.weight(1f))
+                    Text(
+                        if (state.meshUp) "mesh link up" else "paired to your hive",
+                        color = if (state.meshUp) DcGreen else DcSub,
+                        fontSize = 12.sp, modifier = Modifier.weight(1f))
                     Text("switch hive", color = DcSub, fontSize = 12.sp,
                          modifier = Modifier.clickable { vm.forgetHive() })
                 }
