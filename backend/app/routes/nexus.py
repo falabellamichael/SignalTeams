@@ -256,13 +256,15 @@ async def watch_session(req: WatchSessionReq, request: Request):
     # codes render grouped ("7665 0116") — whatever the user typed, the kv
     # key is digits: drop every whitespace run before lookup
     code = re.sub(r"\s+", "", req.code or "")
-    pair = nexus._kv_get(f"watch_pair:{code}") if code else None
+    pair_key = f"watch_pair:{code}" if code else ""
+    pair = nexus._kv_get(pair_key) if pair_key else None
     if not pair and code:
         # the general "Connect another device" invite mints invite_role:{code}
         # instead of watch_pair:{code} — same SDK link token, so the mesh
         # join already worked; bind the watch to the inviting admin's account
         inv = nexus._kv_get(f"invite_role:{code}")
         if inv and inv.get("exp", 0) >= now and inv.get("by"):
+            pair_key = f"invite_role:{code}"
             pair = {"uid": inv["by"], "exp": inv["exp"]}
 
     if bound.get("uid") and req.secret and req.secret == bound.get("secret"):
