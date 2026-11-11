@@ -90,6 +90,20 @@ object MeshLinker {
             }
         }
 
+        // No direct network → the UDP dataplane can't form, so every openEgress
+        // below is doomed (control plane rides the BT sysproxy fine, which is
+        // why the join "succeeds" but the bridge never opens). The phone proxy
+        // is the only path that can actually carry data — probe it first.
+        if (!nexus.directNetworkUp()
+            && dev.agenthive.watch.device.PhoneBridge.probePhoneMesh(app)) {
+            log("no direct network — riding phone proxy")
+            api.baseUrl = "phone://proxy"
+            store.meshUrl = "phone://proxy"
+            onHive(store.meshTargetIp, store.meshTargetPort, 0, store.hiveNodeId)
+            return Triple(store.hiveNodeId.ifBlank { "phone-proxy" },
+                          store.meshTargetIp, 0)
+        }
+
         for (round in 1..6) {
             var devN = -1; var peerN = -1
             runCatching { nexus.devices() }.getOrNull()?.let { arr ->
