@@ -532,6 +532,9 @@ class HiveViewModel(app: Application) : AndroidViewModel(app) {
             } catch (e: Exception) {
                 lastErr = e.message ?: "session claim failed"
                 Log.w("HiveVM", "watchSession try$i err=$lastErr")
+                // A 4xx is a verdict — wrong/expired/revoked — retrying the
+                // same code seven more times is 10s of guaranteed failure.
+                if ((e as? HiveApi.ApiException)?.code in 400..499) break
                 delay(1500)
             }
         }

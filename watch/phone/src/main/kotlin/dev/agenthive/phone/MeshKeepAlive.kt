@@ -65,13 +65,16 @@ class PhoneMeshService : Service() {
         }
         loopJob = scope.launch {
             val app = application as PhoneApp
+            val pm = getSystemService(android.os.PowerManager::class.java)
             while (isActive) {
                 if (!app.store.meshEnabled && !app.store.paired) {
                     stopSelf(); break
                 }
                 runCatching { linkOnce(app) }
                     .onFailure { Log.w("PhoneMesh", "cycle: ${it.message}") }
-                delay(30_000)
+                // Proxy traffic hits the open bridge directly — the cycle only
+                // verifies warmth, so a screen-off phone doesn't need 30s cadence.
+                delay(if (pm?.isInteractive == false) 90_000 else 30_000)
             }
         }
         return START_STICKY
