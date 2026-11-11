@@ -110,23 +110,42 @@ class HiveViewModel(app: Application) : AndroidViewModel(app) {
     /** True when the utterance is an in-app task ("play X on spotify") —
      *  needs a task verb AND an installed app's name. Plain "open X" stays
      *  with DeviceCommands' instant path. */
-    private fun deviceGoal(msg: String): String? {
-        val t = msg.lowercase()
-        if (t.matches(Regex("^(open|launch|start|run)\\s+(the\\s+|up\\s+)?[\\w .'-]+$")))
-            return null
-        val verb = Regex(
-            "\\b(play|listen|watch|stream|order|find|search|send|post|message|" +
-            "call|book|navigate|queue|download|buy|reply|text|email|create|add|log)\\b")
-        if (!verb.containsMatchIn(t)) return null
+    /** Launcher labels cache — queryIntentActivities is a PackageManager
+     *  binder round trip and deviceGoal runs on every send. */
+    @Volatile private var appLabels: Pair<Long, List<String>>? = null
+    private fun launcherLabels(): List<String> {
+        appLabels?.let { (t, l) ->
+            if (System.currentTimeMillis() - t < 120_000) return l
+        }
         val pm = getApplication<Application>().packageManager
         val probe = android.content.Intent(android.content.Intent.ACTION_MAIN)
             .addCategory(android.content.Intent.CATEGORY_LAUNCHER)
-        val hasApp = pm.queryIntentActivities(probe,
-            android.content.pm.PackageManager.MATCH_ALL).any { ri ->
-            val label = ri.loadLabel(pm)?.toString()?.lowercase() ?: ""
-            label.isNotBlank() &&
-                Regex("\\b${Regex.escape(label)}\\b").containsMatchIn(t)
+        val labels = pm.queryIntentActivities(probe,
+            android.content.pm.PackageManager.MATCH_ALL)
+            .mapNotNull { it.loadLabel(pm)?.toString()?.lowercase() }
+            .filter { it.isNotBlank() }
+        appLabels = System.currentTimeMillis() to labels
+        return labels
+    }
+
+    /** Word-boundary contains without a Regex compile per app label —
+     *  deviceGoal used to build ~one Pattern per launcher per send. */
+    private fun containsWord(t: String, w: String): Boolean {
+        var i = t.indexOf(w)
+        while (i >= 0) {
+            val before = i == 0 || !t[i - 1].isLetterOrDigit()
+            val after = i + w.length >= t.length || !t[i + w.length].isLetterOrDigit()
+            if (before && after) return true
+            i = t.indexOf(w, i + 1)
         }
+        return false
+    }
+
+    private fun deviceGoal(msg: String): String? {
+        val t = msg.lowercase()
+        if (t.matches(RX_OPEN_APP)) return null
+        if (!RX_TASK_VERB.containsMatchIn(t)) return null
+        val hasApp = launcherLabels().any { containsWord(t, it) }
         return if (hasApp) msg else null
     }
 
@@ -1109,5 +1128,13 @@ class HiveViewModel(app: Application) : AndroidViewModel(app) {
          *  semicolon, colon or dash + whitespace (requires the space so
          *  hyphenated words never cut). */
         private val CLAUSE_END = Regex("[,;:—–]\\s+")
+
+        /** deviceGoal matchers — plain "open X" stays on the DeviceCommands
+         *  instant path; a task needs a real verb + an installed app name. */
+        private val RX_OPEN_APP =
+            Regex("^(open|launch|start|run)\\s+(the\\s+|up\\s+)?[\\w .'-]+$")
+        private val RX_TASK_VERB = Regex(
+            "\\b(play|listen|watch|stream|order|find|search|send|post|message|" +
+            "call|book|navigate|queue|download|buy|reply|text|email|create|add|log)\\b")
     }
 }
