@@ -459,6 +459,11 @@ class NexusNode:
                 raise RuntimeError((d or {}).get("error") or f"invite accept failed (rc={rc})")
             if d.get("success") is False:
                 raise RuntimeError("invite rejected")
+            # re-publish our API service so the freshly-joined group's view of
+            # this node carries it — a no-op if the record was already global
+            vport = int(config.NEXUS_VPORT or get_cfg().get("vport") or config.PORT)
+            _ln().lib.ln_mesh_expose_service(
+                self.cli, vport, f"tcp:127.0.0.1:{config.PORT}".encode())
             return d
 
     def remove_device(self, node_id):
