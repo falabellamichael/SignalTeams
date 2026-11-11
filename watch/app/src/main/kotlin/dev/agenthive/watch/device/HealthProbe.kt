@@ -50,9 +50,13 @@ object HealthProbe {
             override fun onAccuracyChanged(s: Sensor?, a: Int) {}
         }
         sm.registerListener(l, sensor, SensorManager.SENSOR_DELAY_NORMAL)
-        val v = withTimeoutOrNull(ms) { got.await() }
-        sm.unregisterListener(l)
-        return v
+        // finally, not a plain line after await — a cancelled ask (barge-in,
+        // stop) would skip unregister and hold the HR sensor on forever.
+        try {
+            return withTimeoutOrNull(ms) { got.await() }
+        } finally {
+            sm.unregisterListener(l)
+        }
     }
 
     /** Heart rate in bpm — waits for a real reading (wrist contact takes a
