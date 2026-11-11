@@ -25,11 +25,15 @@ object WatchBridge {
         withContext(Dispatchers.IO) {
             val now = android.os.SystemClock.elapsedRealtime()
             val nodeId = nodeCache?.takeIf { now - it.first < 30_000 }?.second
-                ?: Tasks.await(Wearable.getNodeClient(ctx).connectedNodes)
-                    .firstOrNull()?.id?.also { nodeCache = now to it }
+                ?: runCatching {
+                    Tasks.await(Wearable.getNodeClient(ctx).connectedNodes,
+                        4, java.util.concurrent.TimeUnit.SECONDS)
+                }.getOrNull()
+                    ?.firstOrNull()?.id?.also { nodeCache = now to it }
                 ?: return@withContext false
             runCatching {
-                Tasks.await(Wearable.getMessageClient(ctx).sendMessage(nodeId, path, data))
+                Tasks.await(Wearable.getMessageClient(ctx).sendMessage(nodeId, path, data),
+                    4, java.util.concurrent.TimeUnit.SECONDS)
             }.onFailure { nodeCache = null }.isSuccess
         }
 
