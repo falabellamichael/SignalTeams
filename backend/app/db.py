@@ -1,6 +1,7 @@
 """SQLite layer for SignalTeams. WAL mode, foreign keys on, stdlib sqlite3."""
 import json
 import sqlite3
+import threading
 import time
 from contextlib import contextmanager
 
@@ -421,14 +422,39 @@ def connect():
     return conn
 
 
+_tls = threading.local()
+
+
 @contextmanager
 def db():
-    conn = connect()
+    """Per-thread connection pool — connect() costs ~2.3ms (file open +
+    four PRAGMAs) and most requests pay it 2-3 times (auth + route +
+    nested calls). Reuse is semantics-identical: a `with db()` inside
+    another checks out a *different* conn, so nested transactions stay
+    independent exactly as they were with fresh connections."""
+    free = getattr(_tls, "free", None)
+    if free is None:
+        free = _tls.free = []
+    conn = free.pop() if free else connect()
+    dead = False
     try:
         yield conn
         conn.commit()
+    except sqlite3.Error:
+        dead = True
+        try:
+            conn.rollback()
+        except sqlite3.Error:
+            pass
+        raise
+    except BaseException:
+        conn.rollback()
+        raise
     finally:
-        conn.close()
+        if dead:
+            conn.close()
+        else:
+            free.append(conn)
 
 
 def init():
