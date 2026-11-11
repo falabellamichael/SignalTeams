@@ -1084,8 +1084,7 @@ class HiveViewModel(app: Application) : AndroidViewModel(app) {
                     continue
                 }
                 val st = runCatching { nexus.meshStatus() }.getOrNull()
-                val peers = runCatching { nexus.peers() }.getOrNull()
-                val pc = peers?.length() ?: st?.optInt("peer_count", 0) ?: 0
+                val pc = st?.optInt("peer_count", 0) ?: 0
                 val oc = st?.optInt("online_count", 0) ?: 0
                 val up = st?.optBoolean("tunnel_up", false) ?: false
                 val cleanIp = nexus.info.tunnelIp.substringBefore("/")
