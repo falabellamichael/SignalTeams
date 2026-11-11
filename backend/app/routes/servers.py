@@ -8,7 +8,8 @@ from ..auth import current_user
 from ..db import db, emit_buzz, now
 from ..hub import hub
 
-from ..helpers import _clean_automod, _pub_server, _sys_post, audit, channel_json, public_user
+from ..helpers import (_clean_automod, _pub_server, _sys_post, audit, channel_json,
+                       friend_ids, public_user)
 from ..schemas import BanIn, CategoryPatch, ChannelIn, ChannelPatch, DigestIn, JoinIn, MemberRoleIn, NickIn, RoleIn, ServerIn, ServerPatch, TimeoutIn, TransferIn
 from ..services import _server_changed
 
@@ -355,14 +356,18 @@ def get_server(sid: int, user=Depends(current_user)):
                 (sid, user["id"])).fetchone():
             raise HTTPException(404, "No such server")
         d = _pub_server(dict(s))
-        d["channels"] = [channel_json(conn, r, user["id"]) for r in conn.execute(
+        fids = friend_ids(conn, user["id"])
+        d["channels"] = [channel_json(conn, r, user["id"], fids) for r in conn.execute(
             "SELECT * FROM channels WHERE server_id=? ORDER BY position, id", (sid,)).fetchall()]
+        member_roles = {}
+        for x in conn.execute(
+                "SELECT user_id, role_id FROM member_roles WHERE server_id=?",
+                (sid,)).fetchall():
+            member_roles.setdefault(x["user_id"], []).append(x["role_id"])
         d["members"] = [
             {**public_user(r), "nickname": r["nickname"],
              "timeout_until": r["timeout_until"],
-             "role_ids": [x["role_id"] for x in conn.execute(
-                 "SELECT role_id FROM member_roles WHERE server_id=? AND user_id=?",
-                 (sid, r["id"])).fetchall()]}
+             "role_ids": member_roles.get(r["id"], [])}
             for r in conn.execute(
                 "SELECT u.*, m.nickname, m.timeout_until FROM users u "
                 "JOIN server_members m ON m.user_id=u.id "

@@ -46,12 +46,14 @@ def friend_ids(conn, uid):
     return [r["fid"] for r in rows]
 
 
-def can_see_agent(conn, agent, uid):
+def can_see_agent(conn, agent, uid, fids=None):
     if agent["visibility"] == "public" or agent["owner_id"] == uid:
         return True
     if agent["visibility"] == "private":
         return False
-    return agent["owner_id"] in friend_ids(conn, uid)
+    if fids is None:
+        fids = friend_ids(conn, uid)
+    return agent["owner_id"] in fids
 
 
 def can_use_agent(conn, agent, uid):
@@ -241,8 +243,10 @@ def can_see_pack(conn, p, uid):
     return p["owner_id"] == uid or p["owner_id"] in friend_ids(conn, uid)
 
 
-def channel_json(conn, ch, uid=None):
+def channel_json(conn, ch, uid=None, fids=None):
     d = dict(ch)
+    if uid is not None and fids is None:
+        fids = friend_ids(conn, uid)
     try:
         roster = json.loads(d.get("roster") or "[]")
     except Exception:
@@ -250,7 +254,7 @@ def channel_json(conn, ch, uid=None):
     out = []
     for aid in roster:
         a = conn.execute("SELECT * FROM agents WHERE id=?", (aid,)).fetchone()
-        if a and (uid is None or can_see_agent(conn, a, uid)):
+        if a and (uid is None or can_see_agent(conn, a, uid, fids)):
             out.append({"id": a["id"], "name": a["name"], "icon": a["icon"],
                         "owner_id": a["owner_id"]})
     d["roster"] = out
@@ -261,7 +265,7 @@ def channel_json(conn, ch, uid=None):
     d["lurkers"] = []
     for aid in lurk:
         la = conn.execute("SELECT * FROM agents WHERE id=?", (aid,)).fetchone()
-        if la and (uid is None or can_see_agent(conn, la, uid)):
+        if la and (uid is None or can_see_agent(conn, la, uid, fids)):
             d["lurkers"].append(aid)
     try:
         d["forum_tags"] = json.loads(d.get("forum_tags") or "[]")
