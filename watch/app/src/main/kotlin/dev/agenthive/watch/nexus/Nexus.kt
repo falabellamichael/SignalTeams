@@ -881,6 +881,38 @@ class NexusNode(private val ctx: Context) {
         }
     }
 
+    /** Join the token's group on the LIVE client — set_link_token +
+     *  join_network creates a durable device record, so membership survives
+     *  restarts (acceptInvite's grant is runtime-only and dies with the node).
+     *  A second join on a running client is additive: existing groups stay. */
+    suspend fun joinForeign(token: String): Boolean = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            val c = cli ?: run { Log.w("NexusNode", "joinForeign: no client"); return@withLock false }
+            val api = NexusLib.load()
+            val t = token.replace(Regex("\\s+"), "")
+            if (api.ln_set_link_token(c, t) != 0) {
+                Log.w("NexusNode", "joinForeign: set_link_token refused")
+                return@withLock false
+            }
+            var ok = false
+            var lastErr = "join failed"
+            repeat(3) {
+                if (ok) return@repeat
+                val out = PointerByReference()
+                val rc = api.ln_join_network(c, cfg.account, "", out)
+                val d = jsonOf(out)
+                Log.i("NexusNode", "joinForeign join rc=$rc ok=${d?.optBoolean("success")} err=${d?.optString("error")}")
+                if (rc == 0 && d?.optBoolean("success") == true) ok = true
+                else {
+                    lastErr = d?.optString("error") ?: "join rc=$rc"
+                    Thread.sleep(1500)
+                }
+            }
+            if (!ok) Log.w("NexusNode", "joinForeign('$t') failed: $lastErr")
+            ok
+        }
+    }
+
     /** Our own node id as the mesh sees it ("" before first join). */
     fun nodeId(): String {
         val c = cli ?: return ""

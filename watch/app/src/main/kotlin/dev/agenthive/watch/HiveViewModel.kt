@@ -575,8 +575,15 @@ class HiveViewModel(app: Application) : AndroidViewModel(app) {
         }
         Log.i("HiveVM", "meshUp connect done nodeId=${ni.nodeId} tunnel=${ni.tunnelIp}")
         if (linkToken.isNotBlank()) {
-            val acc = runCatching { nexus.acceptInvite(linkToken) }
-            Log.i("HiveVM", "acceptInvite('$linkToken') -> ${acc.getOrNull()} err=${acc.exceptionOrNull()?.message}")
+            // joinForeign first: a device record in the code's group is a
+            // DURABLE membership — acceptInvite is runtime-only and its
+            // grant dies with the node (watch re-pairs after every restart).
+            val jf = runCatching { nexus.joinForeign(linkToken) }
+            Log.i("HiveVM", "joinForeign('$linkToken') -> ${jf.getOrNull()} err=${jf.exceptionOrNull()?.message}")
+            if (jf.getOrNull() != true) {
+                val acc = runCatching { nexus.acceptInvite(linkToken) }
+                Log.i("HiveVM", "acceptInvite('$linkToken') -> ${acc.getOrNull()} err=${acc.exceptionOrNull()?.message}")
+            }
         }
         store.meshEnabled = true
         val clean = ni.tunnelIp.substringBefore("/")
