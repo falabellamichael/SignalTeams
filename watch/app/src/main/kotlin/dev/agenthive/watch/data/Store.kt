@@ -109,6 +109,9 @@ class Store(ctx: Context) {
         if (ts <= 0) return
         val j = runCatching { JSONObject(lastReadJson) }
             .getOrDefault(JSONObject())
+        // resync calls this every 20s while a chat is open — skip the disk
+        // write when the watermark didn't advance
+        if (j.optDouble("$cid") >= ts) return
         j.put("$cid", ts)
         lastReadJson = j.toString()
     }
