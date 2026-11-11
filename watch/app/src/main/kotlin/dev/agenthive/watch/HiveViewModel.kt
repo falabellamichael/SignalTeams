@@ -921,8 +921,18 @@ class HiveViewModel(app: Application) : AndroidViewModel(app) {
             val tail = reply.substring(spokenUpTo)
             if (!force && tail.length < 24) return
             val cut = if (force) reply.length else {
-                val m = SENTENCE_END.findAll(tail).lastOrNull() ?: return
-                spokenUpTo + m.range.last + 1
+                val m = SENTENCE_END.findAll(tail).lastOrNull()
+                if (m != null) spokenUpTo + m.range.last + 1
+                else if (spokenUpTo == 0) {
+                    // First audio shouldn't wait out a long opener's full
+                    // sentence — cut at the first clause boundary (comma/
+                    // semicolon/dash + space) once a speakable clause exists
+                    // so kokoro synth starts a beat sooner. Later chunks
+                    // keep sentence boundaries; the prosody gap is natural.
+                    val c = CLAUSE_END.find(tail)
+                    if (c != null && c.range.last + 1 >= 16) spokenUpTo + c.range.last + 1
+                    else return
+                } else return
             }
             hive.speaker.feed(reply.substring(spokenUpTo, cut))
             spokenUpTo = cut
@@ -1085,5 +1095,10 @@ class HiveViewModel(app: Application) : AndroidViewModel(app) {
         /** Complete-sentence boundary for the streaming TTS feed: terminator
          *  + optional closing quote/bracket + whitespace, or a line break. */
         private val SENTENCE_END = Regex("[.!?]+[\"'”’)\\]]*\\s+|\\n+")
+
+        /** Clause boundary for the first-audio shortcut only: comma,
+         *  semicolon, colon or dash + whitespace (requires the space so
+         *  hyphenated words never cut). */
+        private val CLAUSE_END = Regex("[,;:—–]\\s+")
     }
 }
