@@ -112,9 +112,10 @@ class Speaker(private val api: HiveApi, private val ctx: Context) {
      *  the reply streams; ordering is preserved by the pump. */
     fun feed(text: String) {
         if (!enabled) return
-        if (speakable(text).length < 2) return
+        val say = speakable(text)
+        if (say.length < 2) return
         pending.incrementAndGet()
-        queue.trySend(text)
+        queue.trySend(say)
         synchronized(pumpLock) {
             if (pump?.isActive == true) return
             pump = scope.launch {
@@ -122,14 +123,11 @@ class Speaker(private val api: HiveApi, private val ctx: Context) {
                 // ahead of playback. The fetch is timeboxed so a slow mesh
                 // path can't stall the whole speech queue.
                 launch {
-                    for (chunk in queue) {
-                        val say = speakable(chunk)
-                        if (say.length >= 2) {
-                            val bytes = kotlinx.coroutines.withTimeoutOrNull(12_000) {
-                                runCatching { api.ttsBytes(say) }.getOrNull()
-                            }
-                            audio.send(Said(say, bytes))
-                        } else pending.decrementAndGet()
+                    for (say in queue) {
+                        val bytes = kotlinx.coroutines.withTimeoutOrNull(12_000) {
+                            runCatching { api.ttsBytes(say) }.getOrNull()
+                        }
+                        audio.send(Said(say, bytes))
                     }
                 }
                 // Stage 2 — playback: backend mp3 when synthesis produced
