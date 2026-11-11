@@ -14,6 +14,88 @@ import android.util.Log
  * goes to the LLM as usual.
  */
 object DeviceCommands {
+    private val RX01 = Regex("^(?:open|launch|start|load|pull up|bring up)\\s+(.+?)\\s+on (?:my|the) phone$")
+    private val RX02 = Regex("^navigate (?:to |me to )?(.+?) on (?:my|the) phone$")
+    private val RX03 = Regex("^(?:turn|switch|toggle)?\\s*(?:my |the )?phone('s)? (?:torch|flashlight|light|flash) (on|off)$|^(?:torch|flashlight|flash) (on|off) on (?:my|the) phone$")
+    private val RX04 = Regex("^(?:put|set|switch|silence|mute|unmute)\\s*(?:my |the )?phone (?:on |to )?(silent|vibrate|normal|sound|loud|mute|unmute)$")
+    private val RX05 = Regex("^(?:what'?s|what is|which|identify|name|shazam|recognize|tell me|find|listen for)\\b.*\\b(?:song|track|music|tune)\\b.* on (?:my|the) phone$|^(?:what song|what track|what tune|shazam|identify|recognize|name|listen to)\\b.* on (?:my|the) phone$")
+    private val RX06 = Regex("^(?:take|open|launch|snap)?\\s*(?:a )?(photo|picture|selfie|camera|the camera) on (?:my|the) phone$|^camera on (?:my|the) phone$")
+    private val RX07 = Regex("^(?:call|dial|phone) (.+?) on (?:my|the) phone$")
+    private val RX08 = Regex("^(?:text|sms|message) (.+?) on (?:my|the) phone$")
+    private val RX09 = Regex("^(?:whatsapp|wa) (?:call |message |text )?(.+?)(?: on (?:my|the) phone)?$")
+    private val RX10 = Regex("^(?:open|launch|start|run|load|bring up|fire up|go to|pull up)\\s+(?:the\\s+|up\\s+)?(.+)$")
+    private val RX11 = Regex("^(wifi|bluetooth|bt|battery|display|airplane|date|location|locate)\\s+settings$")
+    private val RX12 = Regex("^(?:start|begin|track|log|record)\\s+.*")
+    private val RX13 = Regex("^(pause|stop|play|resume|unpause)(?:\\s+(?:the\\s+)?(?:music|audio|media|song|track|it))?$")
+    private val RX14 = Regex("^(next|skip)(?:\\s+(?:the\\s+)?(?:track|song|music))?$")
+    private val RX15 = Regex("^(?:previous|prev|back)(?:\\s+(?:the\\s+)?(?:track|song|music))$")
+    private val RX16 = Regex("^volume (?:to )?(\\d+)$")
+    private val RX17 = Regex("^(alarm|ringer|notification) volume\\s*(up|down|to \\d+|max)?$")
+    private val RX18 = Regex("\\d+")
+    private val RX19 = Regex("^(?:set (?:a )?)?timer(?:\\s+for)?\\s+(\\d+)\\s*(second|sec|minute|min|hour|hr)s?\\b")
+    private val RX20 = Regex("^(?:set (?:an )?)?alarm\\s+(?:for|at)\\s+(\\d{1,2})(?::(\\d{2}))?\\s*(am|pm)?")
+    private val RX21 = Regex("^(?:set (?:an )?)?alarm (\\d{1,2})(\\d{2})\\s*(am|pm)?")
+    private val RX22 = Regex("^(?:pause|hold|resume|restart|reset|stop|cancel|dismiss|snooze)\\s+(?:the |my )?timer\\b.*$")
+    private val RX23 = Regex("\\s+")
+    private val RX24 = Regex("^(?:dismiss|stop|cancel|turn off)\\s+(?:the |my )?alarm\\b.*$|^alarm off$")
+    private val RX25 = Regex("^(?:snooze)\\s*(?:the |my )?alarm\\b.*$|^snooze$")
+    private val RX26 = Regex("^(?:how long|how much time|time left|what'?s left|remaining)(?:\\s+(?:is\\s+)?(?:left\\s+)?on)?\\s*(?:my |the )?timer\\b.*$|^timer left$")
+    private val RX27 = Regex("^remind me to\\s+(.+?)\\s+in\\s+(\\d+)\\s*(second|sec|minute|min|hour|hr)s?\\b")
+    private val RX28 = Regex("^remind me to\\s+(.+?)\\s+at\\s+(\\d{1,2})(?::(\\d{2}))?\\s*(am|pm)?")
+    private val RX29 = Regex("^remind me (?:to )?(.+?)\\s+when i (?:get|arrive|reach)(?: to)?\\s+(.+)$")
+    private val RX30 = Regex("address|is at|lives at|is ")
+    private val RX31 = Regex("(?:is at|lives at|address:? is|is|:)\\s*(.+)$")
+    private val RX32 = Regex("^(?:create|add|schedule|make)(?:\\s+(?:a|an|me a))?\\s+(?:calendar\\s+)?(?:event|appointment|meeting)\\s*(?:called|named|titled)?\\s*(.*)$")
+    private val RX33 = Regex("^(?:navigate (?:me )?to|directions to|take me to|guide me to)\\s+(.+)$")
+    private val RX34 = Regex("^(?:call|dial|phone)\\s+([+0-9() .-]{5,})$")
+    private val RX35 = Regex("^(?:call|dial|phone)\\s+(.+)$")
+    private val RX36 = Regex("^(?:text|sms|message)\\s+(.+?)(?:\\s+(?:saying|with|say)\\s+(.+))?$")
+    private val RX37 = Regex("[+0-9() .-]{5,}")
+    private val RX38 = Regex("^(?:what'?s|check|read|show)?\\s*(?:my )?(heart rate|pulse|bpm)\\b.*$")
+    private val RX39 = Regex("^(?:what'?s|check|read|show)?\\s*(?:the |my )?(air pressure|barometric pressure|barometer|pressure)\\b.*$")
+    private val RX40 = Regex("^(?:what'?s|how many|check|show)?\\s*(?:my )?(step count|steps)( today)?\\b.*$")
+    private val RX41 = Regex("^(?:start|begin|track|log|record)\\s+(?:a |an |my )?([a-z ]+?)\\s*(?:workout|exercise|session)?$")
+    private val RX42 = Regex("^(?:pause|hold)\\s+(?:my |the )?(?:workout|exercise|run|walk|ride|swim|session).*$")
+    private val RX43 = Regex("^(?:resume|continue|unpause)\\s+(?:my |the )?(?:workout|exercise|run|walk|ride|swim|session).*$")
+    private val RX44 = Regex("^(?:end|stop|finish|complete)\\s+(?:my |the )?(?:workout|exercise|run|walk|ride|swim|session).*$")
+    private val RX45 = Regex("^(?:workout|exercise)\\s+status$|^am i working out.*$|^(?:my )?workout.*$")
+    private val RX46 = Regex("^(?:what'?s|what is|what song is)?\\s*(?:this|playing|this song|this track|the song|now playing)\\b.*$|^what am i listening to.*$|^song.*$")
+    private val RX47 = Regex("^(?:reply|respond|answer)(?:\\s+to)?(?:\\s+(?:it|that|the (?:latest|last) (?:message|notification|text)))?\\s+(?:saying|with|say)\\s+(.+)$")
+    private val RX48 = Regex("^(?:read|show|what(?:'s| are))\\s+(?:my )?(?:new )?notifications?.*$|^any notifications.*$")
+    private val RX49 = Regex("^(?:what'?s|what is|describe|read)\\s+(?:on )?my screen.*$|^what am i looking at.*$")
+    private val RX50 = Regex("^(?:what'?s|how'?s|check)?\\s*(?:my )?phone('s| is)? (battery|charge)\\b.*$|^phone battery$")
+    private val RX51 = Regex("^(?:turn|set|make|crank)?\\s*(?:my |the )?phone('s)? (?:media )?volume (up|down|louder|quieter|lower)\\b.*$")
+    private val RX52 = Regex("^(?:what'?s|how'?s|check)?\\s*(?:my )?(battery|battery level|charge|charge level)\\b.*$")
+    private val RX53 = Regex("^will it (rain|snow)( today| tonight| tomorrow)?.*$|^(?:chance|odds) of (rain|snow).*$")
+    private val RX54 = Regex("^.*weather.*tomorrow.*$|^tomorrow'?s (?:weather|forecast).*$|^(?:weather|forecast) (?:for )?tomorrow.*$")
+    private val RX55 = Regex("^(?:what'?s|what is|how'?s|check|tell me)?\\s*(?:the\\s+)?(weather|forecast|temperature)(?:\\s+(?:like|outside|today|now|here))?$")
+    private val RX56 = Regex("^(?:how (?:high|far up)|what'?s (?:my|the) (?:altitude|elevation)|elevation|altitude)\\b.*$")
+    private val RX57 = Regex("^(?:how fast|what'?s my speed|current speed|how fast am (?:i|we))\\b.*$")
+    private val RX58 = Regex("^(?:where am i|what'?s my location|where are we)\\b.*$")
+    private val RX59 = Regex("^(?:what'?s|what is|show|read|check)?\\s*(?:on )?my (?:calendar|schedule|agenda)( today| tomorrow)?$|^(?:any|what) (?:events|meetings|appointments)( today| tomorrow)?.*$")
+    private val RX60 = Regex("^how long (?:till|until|to)\\s+(\\d{1,2})(?::(\\d{2}))?\\s*(am|pm)?\\s*$")
+    private val RX61 = Regex("^(?:how long (?:has|have) (?:this watch|it|you) been (?:on|running)|uptime|watch uptime).*$")
+    private val RX62 = Regex("^(?:mesh|hive|link) status$|^are we (?:linked|connected)\\b.*$|^is the mesh (?:up|working)\\b.*$")
+    private val RX63 = Regex("^(?:who am i|what'?s my name|what do you call me)$")
+    private val RX64 = Regex("^(play|pause|stop|resume|unpause|next|skip|previous|prev|back)(?:\\s+(?:the\\s+)?(?:music|audio|media|song|track|it))? on (?:my|the) phone$")
+    private val RX65 = Regex("^what'?s playing on (?:my|the) phone$|^what (?:is|was) playing on (?:my|the) phone$")
+    private val RX66 = Regex("^(?:read|check|show|what are|any)(?:\\s+my)? phone'?s? notifications\\b.*$|^(?:any|what) notifications? on (?:my|the) phone\\b.*$")
+    private val RX67 = Regex("^(?:flip|toss)\\s+(?:a )?coin.*$|^coin flip$|^heads or tails.*$")
+    private val RX68 = Regex("^(?:roll|throw)\\s+(?:a |an |the )?(?:(\\d+)[- ]?sided )?(?:dice|die|d(\\d+)).*$|^roll (\\d+)$")
+    private val RX69 = Regex("^(?:pick|choose|random)\\s+(?:a )?(?:number )?between\\s+(\\d+)\\s+(?:and|to)\\s+(\\d+).*$")
+    private val RX70 = Regex("^(?:what time is it in|time in|what'?s the time in)\\s+(.+)$")
+    private val RX71 = Regex("^(?:clear|dismiss|wipe|sweep)(?:\\s+(?:all\\s+)?(?:my\\s+)?)(?:the\\s+)?notifications\\b.*$")
+    private val RX72 = Regex("^(?:vibrate|buzz|test vibration|haptic test)\\b.*$")
+    private val RX73 = Regex("^(?:find|ring|locate|where'?s|where is|ping)\\s*(?:my |the )?(phone|mobile)\\b.*$|^find my phone$")
+    private val RX74 = Regex("^(?:stop|silence|cancel|quiet) (?:my |the )?phone('s| is)? ?(?:alarm|ringing|ringtone)?$|^found it$|^stop (?:the )?ringing$")
+    private val RX75 = Regex("^(?:record|take|make|start|open)?\\s*(?:a )?(voice memo|voice note|voice recording|memo|recording|voice recorder)$")
+    private val RX76 = Regex("^(?:what'?s|what is|how much|check)?\\s*(?:my )?(?:free |available )?(storage|disk space|space left|free space)\\b.*$")
+    private val RX77 = Regex("^(?:what (?:watch|device|model) (?:is this|am i wearing)|about (?:this|my) watch|watch info|device info)$")
+    private val RX78 = Regex("^(?:what'?s|what is)?\\s*(?:my )?(?:ip|ip address|wifi address)$")
+    private val RX79 = Regex("^(?:remember|note that|note|jot down|keep in mind(?: that)?)\\s*(?:that\\s+|to\\s+)?(.+)$")
+    private val RX80 = Regex("^forget\\s+(?:that\\s+|about\\s+|item\\s+|number\\s+|#\\s*)?(.+)$")
+    private val RX81 = Regex("^(?:tap|press|click|hit)\\s+(?:on\\s+|the\\s+)?(.+)$")
+
 
     data class CmdReply(
         val text: String,
@@ -127,14 +209,14 @@ object DeviceCommands {
         if (t.isBlank()) return null
 
         // ---- "on my phone" forwards (before the local open-app matcher) ---
-        Regex("^(?:open|launch|start|load|pull up|bring up)\\s+(.+?)\\s+on (?:my|the) phone$")
+        RX01
             .find(t)?.let { m ->
                 val name = m.groupValues[1].trim()
                 return CmdReply("Opening $name on your phone…",
                     deferred = { PhoneBridge.phoneIntent(
                         ctx, "app:$name", "Sent “$name” to your phone.") })
             }
-        Regex("^navigate (?:to |me to )?(.+?) on (?:my|the) phone$")
+        RX02
             .find(t)?.let { m ->
                 val dest = m.groupValues[1].trim()
                 return CmdReply("Sending directions…",
@@ -143,7 +225,7 @@ object DeviceCommands {
                             android.net.Uri.encode(dest),
                         "Navigating to $dest on your phone.") })
             }
-        Regex("^(?:turn|switch|toggle)?\\s*(?:my |the )?phone('s)? (?:torch|flashlight|light|flash) (on|off)$|^(?:torch|flashlight|flash) (on|off) on (?:my|the) phone$")
+        RX03
             .find(t)?.let { m ->
                 val on = m.groupValues[2] == "on" || m.groupValues[3] == "on"
                 return CmdReply(if (on) "Lighting it up…" else "Killing it…",
@@ -151,7 +233,7 @@ object DeviceCommands {
                         "torch:${if (on) "on" else "off"}",
                         "Phone torch ${if (on) "on" else "off"}.") })
             }
-        Regex("^(?:put|set|switch|silence|mute|unmute)\\s*(?:my |the )?phone (?:on |to )?(silent|vibrate|normal|sound|loud|mute|unmute)$")
+        RX04
             .find(t)?.let { m ->
                 val mode = when (m.groupValues[1]) {
                     "mute" -> "silent"; "unmute", "sound", "loud" -> "normal"
@@ -162,26 +244,26 @@ object DeviceCommands {
             }
         // "what's this song on my phone" → phone-side Google Sound Search.
         // Needs an ID verb — "next track on my phone" is media transport.
-        Regex("^(?:what'?s|what is|which|identify|name|shazam|recognize|tell me|find|listen for)\\b.*\\b(?:song|track|music|tune)\\b.* on (?:my|the) phone$|^(?:what song|what track|what tune|shazam|identify|recognize|name|listen to)\\b.* on (?:my|the) phone$")
+        RX05
             .find(t)?.let {
                 return CmdReply("Waking the song finder…",
                     deferred = { PhoneBridge.phoneIntent(ctx,
                         "music:", "Song search is listening on your phone.") })
             }
-        Regex("^(?:take|open|launch|snap)?\\s*(?:a )?(photo|picture|selfie|camera|the camera) on (?:my|the) phone$|^camera on (?:my|the) phone$")
+        RX06
             .find(t)?.let {
                 return CmdReply("Opening the camera…",
                     deferred = { PhoneBridge.phoneIntent(
                         ctx, "cap:camera", "Camera's up on your phone.") })
             }
-        Regex("^(?:call|dial|phone) (.+?) on (?:my|the) phone$")
+        RX07
             .find(t)?.let { m ->
                 val who = m.groupValues[1].trim()
                 return CmdReply("Passing the call…",
                     deferred = { PhoneBridge.phoneIntent(ctx,
                         "call:$who", "Dialing $who on your phone.") })
             }
-        Regex("^(?:text|sms|message) (.+?) on (?:my|the) phone$")
+        RX08
             .find(t)?.let { m ->
                 val who = m.groupValues[1].trim()
                 return CmdReply("Opening the composer…",
@@ -190,7 +272,7 @@ object DeviceCommands {
             }
         // WhatsApp — mirrors Google's /whatsappmessage channel; the phone
         // resolves the name and opens the WhatsApp send sheet.
-        Regex("^(?:whatsapp|wa) (?:call |message |text )?(.+?)(?: on (?:my|the) phone)?$")
+        RX09
             .find(t)?.let { m ->
                 val who = m.groupValues[1].trim()
                 return CmdReply("Opening WhatsApp…",
@@ -199,7 +281,7 @@ object DeviceCommands {
             }
 
         // ---- open / launch apps -------------------------------------------
-        Regex("^(?:open|launch|start|run|load|bring up|fire up|go to|pull up)\\s+(?:the\\s+|up\\s+)?(.+)$")
+        RX10
             .find(t)?.let { m ->
                 val name = m.groupValues[1]
                 // settings deep-links before generic app search
@@ -207,7 +289,7 @@ object DeviceCommands {
                     settingsDeep(ctx, "settings")
                     return CmdReply("Opening settings")
                 }
-                Regex("^(wifi|bluetooth|bt|battery|display|airplane|date|location|locate)\\s+settings$")
+                RX11
                     .find(name)?.let { s ->
                         settingsDeep(ctx, s.groupValues[1])
                         return CmdReply("Opening ${s.groupValues[1]} settings")
@@ -218,7 +300,7 @@ object DeviceCommands {
                 }
                 // "start a run"/"track a walk" — workout verbs defer to the
                 // HealthWorkout matcher below, not the app opener.
-                if (t.matches(Regex("^(?:start|begin|track|log|record)\\s+.*"))) {
+                if (t.matches(RX12)) {
                     val exercise = HealthWorkout.typeFor(
                         name.removePrefix("a ").removePrefix("an ")
                             .removePrefix("my "))
@@ -233,12 +315,12 @@ object DeviceCommands {
         }
 
         // ---- media transport -----------------------------------------------
-        Regex("^(pause|stop|play|resume|unpause)(?:\\s+(?:the\\s+)?(?:music|audio|media|song|track|it))?$")
+        RX13
             .find(t)?.let { m -> return media(ctx, m.groupValues[1].let {
                 if (it == "unpause") "resume" else it }) }
-        Regex("^(next|skip)(?:\\s+(?:the\\s+)?(?:track|song|music))?$")
+        RX14
             .find(t)?.let { return media(ctx, "next") }
-        Regex("^(?:previous|prev|back)(?:\\s+(?:the\\s+)?(?:track|song|music))$")
+        RX15
             .find(t)?.let { return media(ctx, "prev") }
 
         // ---- volume ---------------------------------------------------------
@@ -275,7 +357,7 @@ object DeviceCommands {
                 return CmdReply("Unmuted")
             }
         }
-        Regex("^volume (?:to )?(\\d+)$").find(t)?.let { m ->
+        RX16.find(t)?.let { m ->
             val pct = m.groupValues[1].toIntOrNull()?.coerceIn(0, 100) ?: 50
             am(ctx).setStreamVolume(AudioManager.STREAM_MUSIC,
                 am(ctx).getStreamMaxVolume(AudioManager.STREAM_MUSIC) * pct / 100,
@@ -283,7 +365,7 @@ object DeviceCommands {
             return CmdReply("Volume set to $pct%")
         }
         // per-stream volumes — ring/alarm like Gemini's audio controls
-        Regex("^(alarm|ringer|notification) volume\\s*(up|down|to \\d+|max)?$")
+        RX17
             .find(t)?.let { m ->
                 val stream = when (m.groupValues[1]) {
                     "alarm" -> AudioManager.STREAM_ALARM
@@ -298,7 +380,7 @@ object DeviceCommands {
                         am(ctx).getStreamMaxVolume(stream), AudioManager.FLAG_SHOW_UI)
                     "" -> am(ctx).adjustStreamVolume(stream,
                         AudioManager.ADJUST_SAME, AudioManager.FLAG_SHOW_UI)
-                    else -> Regex("\\d+").find(m.groupValues[2])?.value?.toIntOrNull()
+                    else -> RX18.find(m.groupValues[2])?.value?.toIntOrNull()
                         ?.let { pct ->
                             am(ctx).setStreamVolume(stream,
                                 am(ctx).getStreamMaxVolume(stream) *
@@ -330,7 +412,7 @@ object DeviceCommands {
         }
 
         // ---- clock: timers / alarms (SET_ALARM is auto-granted) ---------------
-        Regex("^(?:set (?:a )?)?timer(?:\\s+for)?\\s+(\\d+)\\s*(second|sec|minute|min|hour|hr)s?\\b")
+        RX19
             .find(t)?.let { m ->
                 val n = m.groupValues[1].toIntOrNull() ?: 0
                 val secs = when (m.groupValues[2].first()) {
@@ -345,7 +427,7 @@ object DeviceCommands {
                 return CmdReply(if (ok) "Timer set for $n ${m.groupValues[2]}s"
                     else "No clock app here handles timers.", ok = ok)
             }
-        Regex("^(?:set (?:an )?)?alarm\\s+(?:for|at)\\s+(\\d{1,2})(?::(\\d{2}))?\\s*(am|pm)?")
+        RX20
             .find(t)?.let { m ->
                 var h = m.groupValues[1].toInt()
                 val ap = m.groupValues[3]
@@ -361,7 +443,7 @@ object DeviceCommands {
                         if (h < 12) "am" else "pm")
                     else "No clock app here handles alarms.", ok = ok)
             }
-        Regex("^(?:set (?:an )?)?alarm (\\d{1,2})(\\d{2})\\s*(am|pm)?").find(t)
+        RX21.find(t)
             ?.let { m ->
                 var h = m.groupValues[1].toInt()
                 if (m.groupValues[3] == "pm" && h < 12) h += 12
@@ -373,33 +455,33 @@ object DeviceCommands {
             }
         // Samsung's TimerAssistantHandleActivity exposes pause/resume/reset/
         // dismiss — real timer control, not just a UI hop (Gemini parity).
-        Regex("^(?:pause|hold|resume|restart|reset|stop|cancel|dismiss|snooze)\\s+(?:the |my )?timer\\b.*$")
+        RX22
             .find(t)?.let { m ->
-                val action = when (m.groupValues[0].split(Regex("\\s+"))[0]) {
+                val action = when (m.groupValues[0].split(RX23)[0]) {
                     "pause", "hold" -> "com.samsung.android.watch.timer.action.PAUSE_TIMER"
                     "resume", "restart" -> "com.samsung.android.watch.timer.action.RESUME_TIMER"
                     "reset" -> "com.samsung.android.watch.timer.action.RESET_TIMER"
                     else -> "android.intent.action.DISMISS_TIMER"
                 }
                 val ok = fire(ctx, Intent(action))
-                return CmdReply(when (m.groupValues[0].split(Regex("\\s+"))[0]) {
+                return CmdReply(when (m.groupValues[0].split(RX23)[0]) {
                     "pause", "hold" -> if (ok) "Timer paused." else "No running timer to pause."
                     "resume", "restart" -> if (ok) "Timer resumed." else "No paused timer."
                     "reset" -> if (ok) "Timer reset." else "No running timer."
                     else -> if (ok) "Timer dismissed." else "No timer running."
                 }, ok = ok)
             }
-        Regex("^(?:dismiss|stop|cancel|turn off)\\s+(?:the |my )?alarm\\b.*$|^alarm off$")
+        RX24
             .find(t)?.let {
                 val ok = fire(ctx, Intent("android.intent.action.DISMISS_ALARM"))
                 return CmdReply(if (ok) "Alarm dismissed." else "No ringing alarm.", ok = ok)
             }
-        Regex("^(?:snooze)\\s*(?:the |my )?alarm\\b.*$|^snooze$")
+        RX25
             .find(t)?.let {
                 val ok = fire(ctx, Intent("android.intent.action.SNOOZE_ALARM"))
                 return CmdReply(if (ok) "Snoozed." else "No ringing alarm.", ok = ok)
             }
-        Regex("^(?:how long|how much time|time left|what'?s left|remaining)(?:\\s+(?:is\\s+)?(?:left\\s+)?on)?\\s*(?:my |the )?timer\\b.*$|^timer left$")
+        RX26
             .find(t)?.let {
                 val ok = fire(ctx, Intent(
                     "com.samsung.android.app.wear.timer.SHOW_REMAINING_TIME"))
@@ -420,7 +502,7 @@ object DeviceCommands {
         }
 
         // ---- reminders (alarm/timer carrying your message) ----------------------
-        Regex("^remind me to\\s+(.+?)\\s+in\\s+(\\d+)\\s*(second|sec|minute|min|hour|hr)s?\\b")
+        RX27
             .find(t)?.let { m ->
                 val what = m.groupValues[1]
                 val n = m.groupValues[2].toIntOrNull() ?: 0
@@ -435,7 +517,7 @@ object DeviceCommands {
                 return CmdReply(if (ok) "I'll remind you to $what in $n ${m.groupValues[3]}s."
                     else "No clock app here handles reminders.", ok = ok)
             }
-        Regex("^remind me to\\s+(.+?)\\s+at\\s+(\\d{1,2})(?::(\\d{2}))?\\s*(am|pm)?")
+        RX28
             .find(t)?.let { m ->
                 val what = m.groupValues[1]
                 var h = m.groupValues[2].toInt()
@@ -451,7 +533,7 @@ object DeviceCommands {
                     else "No clock app here handles reminders.", ok = ok)
             }
         // "remind me to call mom when i get to the office" — geofence reminder.
-        Regex("^remind me (?:to )?(.+?)\\s+when i (?:get|arrive|reach)(?: to)?\\s+(.+)$")
+        RX29
             .find(t)?.let { m ->
                 val what = m.groupValues[1].trim()
                 val place = m.groupValues[2].trim()
@@ -469,10 +551,10 @@ object DeviceCommands {
                                     .map { it.optString("t") }
                                     .firstOrNull { s ->
                                         s.contains(key, true) &&
-                                            s.contains(Regex("address|is at|lives at|is ")) }
+                                            s.contains(RX30) }
                             }
                             hit?.let { s ->
-                                Regex("(?:is at|lives at|address:? is|is|:)\\s*(.+)$")
+                                RX31
                                     .find(s)?.groupValues?.get(1)?.trim()
                             } ?: place
                         } else place
@@ -500,7 +582,7 @@ object DeviceCommands {
         }
 
         // ---- calendar (INSERT intent — no calendar permission needed) ------------
-        Regex("^(?:create|add|schedule|make)(?:\\s+(?:a|an|me a))?\\s+(?:calendar\\s+)?(?:event|appointment|meeting)\\s*(?:called|named|titled)?\\s*(.*)$")
+        RX32
             .find(t)?.let { m ->
                 val title = m.groupValues[1].trim()
                     .removeSurrounding("\"").ifBlank { "New event" }
@@ -512,7 +594,7 @@ object DeviceCommands {
             }
 
         // ---- places / navigation ----------------------------------------------
-        Regex("^(?:navigate (?:me )?to|directions to|take me to|guide me to)\\s+(.+)$")
+        RX33
             .find(t)?.let { m ->
                 val q = android.net.Uri.encode(m.groupValues[1])
                 val ok = fire(ctx, Intent(Intent.ACTION_VIEW,
@@ -524,14 +606,14 @@ object DeviceCommands {
             }
 
         // ---- calls / texts ----------------------------------------------------
-        Regex("^(?:call|dial|phone)\\s+([+0-9() .-]{5,})$").find(t)?.let { m ->
+        RX34.find(t)?.let { m ->
             val num = m.groupValues[1].trim()
             val ok = fire(ctx, Intent(Intent.ACTION_DIAL,
                 android.net.Uri.parse("tel:${android.net.Uri.encode(num)}")))
             return CmdReply(if (ok) "Dialing $num" else "No dialer here.", ok = ok)
         }
         // "call mike" — spoken name → contact lookup → dial
-        Regex("^(?:call|dial|phone)\\s+(.+)$").find(t)?.let { m ->
+        RX35.find(t)?.let { m ->
             val who = m.groupValues[1].trim()
             val (hit, err) = ContactsProbe.lookup(ctx, who)
             if (err != null) return CmdReply(err, ok = false)
@@ -545,12 +627,12 @@ object DeviceCommands {
             return CmdReply(if (ok) "Opening the dialer" else "No dialer here.", ok = ok)
         }
         // "text mike saying on my way" / "sms 5551234"
-        Regex("^(?:text|sms|message)\\s+(.+?)(?:\\s+(?:saying|with|say)\\s+(.+))?$")
+        RX36
             .find(t)?.let { m ->
                 var target = m.groupValues[1].trim()
                 val body = m.groupValues[2].trim().removeSurrounding("\"")
                 if (target == "me") target = "my number"
-                val num = if (target.matches(Regex("[+0-9() .-]{5,}"))) target
+                val num = if (target.matches(RX37)) target
                     else {
                         val (hit, err) = ContactsProbe.lookup(ctx, target)
                         if (err != null) return CmdReply(err, ok = false)
@@ -564,7 +646,7 @@ object DeviceCommands {
             }
 
         // ---- health -----------------------------------------------------------
-        Regex("^(?:what'?s|check|read|show)?\\s*(?:my )?(heart rate|pulse|bpm)\\b.*$")
+        RX38
             .find(t)?.let {
                 return CmdReply("Checking your heart rate…", deferred = {
                     val bpm = HealthProbe.heartRate(ctx)
@@ -574,7 +656,7 @@ object DeviceCommands {
                     } else "Your heart rate is ${bpm.toInt()} beats per minute."
                 })
             }
-        Regex("^(?:what'?s|check|read|show)?\\s*(?:the |my )?(air pressure|barometric pressure|barometer|pressure)\\b.*$")
+        RX39
             .find(t)?.let {
                 return CmdReply("Reading the barometer…", deferred = {
                     val hpa = HealthProbe.pressure(ctx)
@@ -582,7 +664,7 @@ object DeviceCommands {
                     else "Air pressure is ${hpa.toInt()} hectopascals."
                 })
             }
-        Regex("^(?:what'?s|how many|check|show)?\\s*(?:my )?(step count|steps)( today)?\\b.*$")
+        RX40
             .find(t)?.let {
                 return CmdReply("Checking your steps…", deferred = {
                     val s = HealthProbe.steps(ctx)
@@ -602,7 +684,7 @@ object DeviceCommands {
         }
 
         // ---- workouts (Health Services) -----------------------------------------
-        Regex("^(?:start|begin|track|log|record)\\s+(?:a |an |my )?([a-z ]+?)\\s*(?:workout|exercise|session)?$")
+        RX41
             .find(t)?.let { m ->
                 val kind = HealthWorkout.typeFor(m.groupValues[1].trim())
                     ?: return@let null
@@ -610,25 +692,25 @@ object DeviceCommands {
                     HealthWorkout.start(ctx, kind, m.groupValues[1].trim())
                 })
             }
-        Regex("^(?:pause|hold)\\s+(?:my |the )?(?:workout|exercise|run|walk|ride|swim|session).*$")
+        RX42
             .find(t)?.let {
                 return CmdReply("Pausing…", deferred = { HealthWorkout.pause(ctx) })
             }
-        Regex("^(?:resume|continue|unpause)\\s+(?:my |the )?(?:workout|exercise|run|walk|ride|swim|session).*$")
+        RX43
             .find(t)?.let {
                 return CmdReply("Resuming…", deferred = { HealthWorkout.resume(ctx) })
             }
-        Regex("^(?:end|stop|finish|complete)\\s+(?:my |the )?(?:workout|exercise|run|walk|ride|swim|session).*$")
+        RX44
             .find(t)?.let {
                 return CmdReply("Ending your workout…", deferred = { HealthWorkout.end(ctx) })
             }
-        Regex("^(?:workout|exercise)\\s+status$|^am i working out.*$|^(?:my )?workout.*$")
+        RX45
             .find(t)?.let {
                 return CmdReply("Checking…", deferred = { HealthWorkout.status(ctx) })
             }
 
         // ---- what's playing ----------------------------------------------------
-        Regex("^(?:what'?s|what is|what song is)?\\s*(?:this|playing|this song|this track|the song|now playing)\\b.*$|^what am i listening to.*$|^song.*$")
+        RX46
             .find(t)?.takeIf { !t.endsWith(" on my phone") &&
                              !t.endsWith(" on the phone") }?.let {
                 if (!HiveNotifService.isEnabled(ctx))
@@ -638,7 +720,7 @@ object DeviceCommands {
             }
 
         // ---- reply to a notification --------------------------------------------
-        Regex("^(?:reply|respond|answer)(?:\\s+to)?(?:\\s+(?:it|that|the (?:latest|last) (?:message|notification|text)))?\\s+(?:saying|with|say)\\s+(.+)$")
+        RX47
             .find(t)?.let { m ->
                 if (!HiveNotifService.isEnabled(ctx)) {
                     runCatching { ctx.startActivity(HiveNotifService.settingsIntent()) }
@@ -649,7 +731,7 @@ object DeviceCommands {
             }
 
         // ---- notifications -----------------------------------------------------
-        Regex("^(?:read|show|what(?:'s| are))\\s+(?:my )?(?:new )?notifications?.*$|^any notifications.*$")
+        RX48
             .find(t)?.let {
                 if (!HiveNotifService.isEnabled(ctx)) {
                     runCatching { ctx.startActivity(HiveNotifService.settingsIntent()) }
@@ -661,7 +743,7 @@ object DeviceCommands {
             }
 
         // ---- screen awareness ---------------------------------------------------
-        Regex("^(?:what'?s|what is|describe|read)\\s+(?:on )?my screen.*$|^what am i looking at.*$")
+        RX49
             .find(t)?.let {
                 if (!HiveA11y.isEnabled(ctx)) {
                     runCatching { ctx.startActivity(HiveA11y.settingsIntent()) }
@@ -676,7 +758,7 @@ object DeviceCommands {
         // "phone battery" — ask the phone over the Wear data layer first
         // (real value, like Assistant); fall back to mining the battery
         // notification the system posts.
-        Regex("^(?:what'?s|how'?s|check)?\\s*(?:my )?phone('s| is)? (battery|charge)\\b.*$|^phone battery$")
+        RX50
             .find(t)?.let {
                 return CmdReply("Asking your phone…", deferred = {
                     val viaBridge = PhoneBridge.phoneStatus(ctx)
@@ -689,7 +771,7 @@ object DeviceCommands {
                     else viaBridge
                 })
             }
-        Regex("^(?:turn|set|make|crank)?\\s*(?:my |the )?phone('s)? (?:media )?volume (up|down|louder|quieter|lower)\\b.*$")
+        RX51
             .find(t)?.let {
                 val up = !it.groupValues[2].let { d ->
                     d.contains("down") || d.contains("quieter") || d.contains("lower") }
@@ -697,7 +779,7 @@ object DeviceCommands {
                     if (up) "Turning the phone up…" else "Turning the phone down…",
                     deferred = { PhoneBridge.phoneVolume(ctx, up) })
             }
-        Regex("^(?:what'?s|how'?s|check)?\\s*(?:my )?(battery|battery level|charge|charge level)\\b.*$")
+        RX52
             .find(t)?.let {
                 val bm = ctx.getSystemService(Context.BATTERY_SERVICE)
                     as android.os.BatteryManager
@@ -715,7 +797,7 @@ object DeviceCommands {
         }
 
         // ---- weather (open-meteo, no key needed) ------------------------------
-        Regex("^will it (rain|snow)( today| tonight| tomorrow)?.*$|^(?:chance|odds) of (rain|snow).*$")
+        RX53
             .find(t)?.let { m ->
                 val tomorrow = m.groupValues[0].contains("tomorrow")
                 return CmdReply("Checking…", deferred = {
@@ -726,7 +808,7 @@ object DeviceCommands {
                     }
                 })
             }
-        Regex("^.*weather.*tomorrow.*$|^tomorrow'?s (?:weather|forecast).*$|^(?:weather|forecast) (?:for )?tomorrow.*$")
+        RX54
             .find(t)?.let {
                 return CmdReply("Checking tomorrow…", deferred = {
                     kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
@@ -735,7 +817,7 @@ object DeviceCommands {
                     }
                 })
             }
-        Regex("^(?:what'?s|what is|how'?s|check|tell me)?\\s*(?:the\\s+)?(weather|forecast|temperature)(?:\\s+(?:like|outside|today|now|here))?$")
+        RX55
             .find(t)?.let {
                 return CmdReply("Checking the weather…", deferred = {
                     kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
@@ -745,19 +827,19 @@ object DeviceCommands {
             }
 
         // ---- GPS reads (altitude / speed / where am I) --------------------------
-        Regex("^(?:how (?:high|far up)|what'?s (?:my|the) (?:altitude|elevation)|elevation|altitude)\\b.*$")
+        RX56
             .find(t)?.let {
                 return CmdReply("Checking the GPS…", deferred = {
                     GpsProbe.altitude(ctx)
                 })
             }
-        Regex("^(?:how fast|what'?s my speed|current speed|how fast am (?:i|we))\\b.*$")
+        RX57
             .find(t)?.let {
                 return CmdReply("Checking the GPS…", deferred = {
                     GpsProbe.speed(ctx)
                 })
             }
-        Regex("^(?:where am i|what'?s my location|where are we)\\b.*$")
+        RX58
             .find(t)?.let {
                 return CmdReply("Working out where you are…", deferred = {
                     kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
@@ -767,7 +849,7 @@ object DeviceCommands {
             }
 
         // ---- calendar reads (READ_CALENDAR) -------------------------------------
-        Regex("^(?:what'?s|what is|show|read|check)?\\s*(?:on )?my (?:calendar|schedule|agenda)( today| tomorrow)?$|^(?:any|what) (?:events|meetings|appointments)( today| tomorrow)?.*$")
+        RX59
             .find(t)?.let { m ->
                 val tomorrow = m.groupValues.any { it.contains("tomorrow") }
                 return CmdReply("Checking your calendar…", deferred = {
@@ -778,7 +860,7 @@ object DeviceCommands {
             }
 
         // ---- countdown to a time --------------------------------------------------
-        Regex("^how long (?:till|until|to)\\s+(\\d{1,2})(?::(\\d{2}))?\\s*(am|pm)?\\s*$")
+        RX60
             .find(t)?.let { m ->
                 val now = java.time.LocalDateTime.now()
                 var h = m.groupValues[1].toInt()
@@ -798,13 +880,13 @@ object DeviceCommands {
             }
 
         // ---- uptime / mesh status / identity --------------------------------------
-        Regex("^(?:how long (?:has|have) (?:this watch|it|you) been (?:on|running)|uptime|watch uptime).*$")
+        RX61
             .find(t)?.let {
                 val ms = android.os.SystemClock.elapsedRealtime()
                 val h = ms / 3_600_000; val mm = (ms / 60_000) % 60
                 return CmdReply("This watch has been up for ${h}h ${mm}m.")
             }
-        Regex("^(?:mesh|hive|link) status$|^are we (?:linked|connected)\\b.*$|^is the mesh (?:up|working)\\b.*$")
+        RX62
             .find(t)?.let {
                 val s = runCatching {
                     (ctx.applicationContext as? dev.agenthive.watch.HiveApp)?.store
@@ -815,7 +897,7 @@ object DeviceCommands {
                     CmdReply("Paired, but the egress bridge isn't up.")
                 else CmdReply("Not paired to a hive.", ok = false)
             }
-        Regex("^(?:who am i|what'?s my name|what do you call me)$")
+        RX63
             .find(t)?.let {
                 val name = runCatching {
                     (ctx.applicationContext as? dev.agenthive.watch.HiveApp)?.store
@@ -826,7 +908,7 @@ object DeviceCommands {
             }
 
         // ---- phone media + notifications (Wear bridge, needs phone NL access) ----
-        Regex("^(play|pause|stop|resume|unpause|next|skip|previous|prev|back)(?:\\s+(?:the\\s+)?(?:music|audio|media|song|track|it))? on (?:my|the) phone$")
+        RX64
             .find(t)?.let { m ->
                 val verb = when (m.groupValues[1]) {
                     "unpause" -> "play"; "skip" -> "next"; "back" -> "prev"
@@ -834,23 +916,23 @@ object DeviceCommands {
                 return CmdReply("Sending it…",
                     deferred = { PhoneBridge.phoneMedia(ctx, verb) })
             }
-        Regex("^what'?s playing on (?:my|the) phone$|^what (?:is|was) playing on (?:my|the) phone$")
+        RX65
             .find(t)?.let {
                 return CmdReply("Asking your phone…",
                     deferred = { PhoneBridge.phonePlaying(ctx) })
             }
-        Regex("^(?:read|check|show|what are|any)(?:\\s+my)? phone'?s? notifications\\b.*$|^(?:any|what) notifications? on (?:my|the) phone\\b.*$")
+        RX66
             .find(t)?.let {
                 return CmdReply("Checking your phone…",
                     deferred = { PhoneBridge.phoneNotifs(ctx) })
             }
 
         // ---- dice / coins / picks ------------------------------------------------
-        Regex("^(?:flip|toss)\\s+(?:a )?coin.*$|^coin flip$|^heads or tails.*$")
+        RX67
             .find(t)?.let {
                 return CmdReply(if (Math.random() < 0.5) "Heads." else "Tails.")
             }
-        Regex("^(?:roll|throw)\\s+(?:a |an |the )?(?:(\\d+)[- ]?sided )?(?:dice|die|d(\\d+)).*$|^roll (\\d+)$")
+        RX68
             .find(t)?.let { m ->
                 val sides = m.groupValues[1].toIntOrNull()
                     ?: m.groupValues[2].toIntOrNull()
@@ -858,7 +940,7 @@ object DeviceCommands {
                 val n = sides.coerceIn(2, 1000)
                 return CmdReply("🎲 ${(1..n).random()} of $n.")
             }
-        Regex("^(?:pick|choose|random)\\s+(?:a )?(?:number )?between\\s+(\\d+)\\s+(?:and|to)\\s+(\\d+).*$")
+        RX69
             .find(t)?.let { m ->
                 val a = m.groupValues[1].toIntOrNull() ?: 1
                 val b = m.groupValues[2].toIntOrNull() ?: a + 10
@@ -867,7 +949,7 @@ object DeviceCommands {
             }
 
         // ---- time in another city --------------------------------------------------
-        Regex("^(?:what time is it in|time in|what'?s the time in)\\s+(.+)$")
+        RX70
             .find(t)?.let { m ->
                 val zone = cityZone(m.groupValues[1])
                 return if (zone == null) {
@@ -903,7 +985,7 @@ object DeviceCommands {
         }
 
         // ---- clear notifications -------------------------------------------------
-        Regex("^(?:clear|dismiss|wipe|sweep)(?:\\s+(?:all\\s+)?(?:my\\s+)?)(?:the\\s+)?notifications\\b.*$")
+        RX71
             .find(t)?.let {
                 if (!HiveNotifService.isEnabled(ctx))
                     return CmdReply("I need notification access to clear those — enable AgentHive.", ok = false)
@@ -912,7 +994,7 @@ object DeviceCommands {
             }
 
         // ---- haptics -------------------------------------------------------------
-        Regex("^(?:vibrate|buzz|test vibration|haptic test)\\b.*$")
+        RX72
             .find(t)?.let {
                 runCatching {
                     val vib = ctx.getSystemService(android.os.Vibrator::class.java)
@@ -923,13 +1005,13 @@ object DeviceCommands {
             }
 
         // ---- find my phone (Wear data layer → phone app) --------------------------
-        Regex("^(?:find|ring|locate|where'?s|where is|ping)\\s*(?:my |the )?(phone|mobile)\\b.*$|^find my phone$")
+        RX73
             .find(t)?.let {
                 return CmdReply("Looking for your phone…", deferred = {
                     PhoneBridge.findPhone(ctx)
                 })
             }
-        Regex("^(?:stop|silence|cancel|quiet) (?:my |the )?phone('s| is)? ?(?:alarm|ringing|ringtone)?$|^found it$|^stop (?:the )?ringing$")
+        RX74
             .find(t)?.let {
                 return CmdReply("Silencing it…", deferred = {
                     PhoneBridge.stopPhone(ctx)
@@ -937,7 +1019,7 @@ object DeviceCommands {
             }
 
         // ---- voice memo (Samsung recorder) ----------------------------------------
-        Regex("^(?:record|take|make|start|open)?\\s*(?:a )?(voice memo|voice note|voice recording|memo|recording|voice recorder)$")
+        RX75
             .find(t)?.let {
                 val ok = runCatching {
                     ctx.packageManager.getLaunchIntentForPackage(
@@ -949,18 +1031,18 @@ object DeviceCommands {
             }
 
         // ---- device info ----------------------------------------------------------
-        Regex("^(?:what'?s|what is|how much|check)?\\s*(?:my )?(?:free |available )?(storage|disk space|space left|free space)\\b.*$")
+        RX76
             .find(t)?.let {
                 val fs = android.os.StatFs(android.os.Environment.getDataDirectory().path)
                 val free = fs.availableBytes / 1_000_000_000.0
                 val total = fs.totalBytes / 1_000_000_000.0
                 return CmdReply("%.1f GB free of %.0f GB.".format(free, total))
             }
-        Regex("^(?:what (?:watch|device|model) (?:is this|am i wearing)|about (?:this|my) watch|watch info|device info)$")
+        RX77
             .find(t)?.let {
                 return CmdReply("This is a ${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL} running Wear OS (API ${android.os.Build.VERSION.SDK_INT}).")
             }
-        Regex("^(?:what'?s|what is)?\\s*(?:my )?(?:ip|ip address|wifi address)$")
+        RX78
             .find(t)?.let {
                 val ip = runCatching {
                     java.net.NetworkInterface.getNetworkInterfaces().toList()
@@ -1006,7 +1088,7 @@ object DeviceCommands {
         }
 
         // ---- memory ("remember this", Personal Context) -----------------------
-        Regex("^(?:remember|note that|note|jot down|keep in mind(?: that)?)\\s*(?:that\\s+|to\\s+)?(.+)$")
+        RX79
             .find(t)?.let { m ->
             val what = m.groupValues[1].trim()
             if (what.isBlank()) return null
@@ -1019,7 +1101,7 @@ object DeviceCommands {
             })
         }
         // "forget 2" drops item 2; "forget the wifi password" drops by match.
-        Regex("^forget\\s+(?:that\\s+|about\\s+|item\\s+|number\\s+|#\\s*)?(.+)$")
+        RX80
             .find(t)?.let { m ->
             val what = m.groupValues[1].trim()
             if (what.isBlank()) return null
@@ -1061,7 +1143,7 @@ object DeviceCommands {
         }
 
         // ---- tap by text -----------------------------------------------------
-        Regex("^(?:tap|press|click|hit)\\s+(?:on\\s+|the\\s+)?(.+)$")
+        RX81
             .find(t)?.let { m ->
                 if (!HiveA11y.isEnabled(ctx)) {
                     runCatching { ctx.startActivity(HiveA11y.settingsIntent()) }

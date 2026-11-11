@@ -54,15 +54,17 @@ class Speaker(private val api: HiveApi, private val ctx: Context) {
     private var pump: Job? = null
     private val pumpLock = Any()
 
-    /** Human-speakable text: strip markdown/tool scaffolding, cap length. */
+    /** Human-speakable text: strip markdown/tool scaffolding, cap length.
+     *  Patterns are hoisted — Regex() compiles a Pattern per construction
+     *  and this runs once per streamed sentence. */
     private fun speakable(raw: String): String {
         var t = raw
-        t = t.replace(Regex("```[\\s\\S]*?```"), " code ")
-        t = t.replace(Regex("`([^`]*)`"), "$1")
-        t = t.replace(Regex("https?://\\S+"), "link")
-        t = t.replace(Regex("[*_#>|]"), " ")
-        t = t.replace(Regex("\\[([^]]*)]\\([^)]*\\)"), "$1")
-        t = t.replace(Regex("\\s+"), " ").trim()
+        t = t.replace(RX_FENCE, " code ")
+        t = t.replace(RX_INLINE, "$1")
+        t = t.replace(RX_URL, "link")
+        t = t.replace(RX_MARKUP, " ")
+        t = t.replace(RX_LINK, "$1")
+        t = t.replace(RX_WS, " ").trim()
         return t.take(800)
     }
 
@@ -208,5 +210,14 @@ class Speaker(private val api: HiveApi, private val ctx: Context) {
             engine.speak(say, TextToSpeech.QUEUE_FLUSH, null, id)
             cont.invokeOnCancellation { engine.stop() }
         }
+    }
+
+    private companion object {
+        val RX_FENCE = Regex("```[\\s\\S]*?```")
+        val RX_INLINE = Regex("`([^`]*)`")
+        val RX_URL = Regex("https?://\\S+")
+        val RX_MARKUP = Regex("[*_#>|]")
+        val RX_LINK = Regex("\\[([^]]*)]\\([^)]*\\)")
+        val RX_WS = Regex("\\s+")
     }
 }
