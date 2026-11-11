@@ -212,6 +212,18 @@ async def nexus_watch_pair(user=Depends(require_admin)):
             "hive_device": st.get("device_name") or ""}
 
 
+def _owner_uid() -> int:
+    """The hive owner — first admin — used when a group member claims a watch
+    session without a locally minted code (Lemonade-app invites carry no uid)."""
+    with db() as conn:
+        r = conn.execute("SELECT id FROM users WHERE is_admin=1 ORDER BY id LIMIT 1").fetchone()
+        if not r:
+            r = conn.execute("SELECT id FROM users ORDER BY id LIMIT 1").fetchone()
+    if not r:
+        raise HTTPException(503, "no users to bind a watch to")
+    return r["id"]
+
+
 def _watch_user(uid: int) -> dict:
     with db() as conn:
         r = conn.execute("SELECT * FROM users WHERE id=?", (uid,)).fetchone()
@@ -235,7 +247,9 @@ async def watch_session(req: WatchSessionReq, request: Request):
     First pair: {node_id, code, secret} redeems a minted watch-pair code; the
     node must already be a group member (the join had to happen). Reconnect:
     {node_id, secret} alone works forever for a bound watch while it stays in
-    the group — kick it in Mesh settings and this stops answering."""
+    the group — kick it in Mesh settings and this stops answering.
+    Any code minted elsewhere (Lemonade app, another hive) still pairs a
+    group member — membership is the credential; codes only pick the user."""
     now = time.time()
     ip = request.client.host if request.client else "?"
     hits = [t for t in _ws_hits.get(ip, []) if now - t < 60]
@@ -267,17 +281,31 @@ async def watch_session(req: WatchSessionReq, request: Request):
             pair_key = f"invite_role:{code}"
             pair = {"uid": inv["by"], "exp": inv["exp"]}
 
+    in_group = await asyncio.to_thread(_node_in_group, node_id)
+
     if bound.get("uid") and req.secret and req.secret == bound.get("secret"):
         uid = bound["uid"]                     # reconnection path — no code needed
         pair = None                            # bound path doesn't consume a code
-    else:
-        if not pair or pair.get("exp", 0) < now:
-            raise HTTPException(403, "invalid or expired pairing code")
+    elif pair and pair.get("exp", 0) >= now:
         if not req.secret:
             raise HTTPException(400, "secret required")
+        if not in_group:
+            raise HTTPException(403, "node is not in this hive's mesh group")
         uid = pair["uid"]
+    elif in_group and code:
+        # The code isn't one of ours — but the SDK already let this node into
+        # the group (a Lemonade-app invite, an expired pair mint, or a wiped
+        # watch whose stored secret is gone). The mesh join was the real vetting:
+        # bound nodes keep their user, new nodes bind to the hive owner.
+        if not req.secret:
+            raise HTTPException(400, "secret required")
+        uid = bound.get("uid") or _owner_uid()
+        pair = None                            # unrecognized mints aren't ours to burn
+    else:
+        raise HTTPException(403, "invalid or expired pairing code"
+                          if code else "node is not in this hive's mesh group")
 
-    if not await asyncio.to_thread(_node_in_group, node_id):
+    if not in_group:
         raise HTTPException(403, "node is not in this hive's mesh group")
 
     user = _watch_user(uid)
