@@ -36,6 +36,25 @@ object MeshLinker {
         val cands = LinkedHashMap<String, Cand>()
         val selfIp = nexus.info.tunnelIp.substringBefore("/")
 
+        // No direct network → the UDP dataplane can't form, so every openEgress
+        // below is doomed (control plane rides the BT sysproxy fine, which is
+        // why a join can "succeed" yet never carry data). The phone proxy is
+        // the only path that can work — probe it and get out instead of
+        // burning cycles re-bridging into a dead dataplane.
+        if (!nexus.directNetworkUp()) {
+            if (dev.agenthive.watch.device.PhoneBridge.probePhoneMesh(app)) {
+                log("no direct network — riding phone proxy")
+                api.baseUrl = "phone://proxy"
+                store.meshUrl = "phone://proxy"
+                onHive(store.meshTargetIp, store.meshTargetPort, 0,
+                       store.hiveNodeId)
+                return Triple(store.hiveNodeId.ifBlank { "phone-proxy" },
+                              store.meshTargetIp, 0)
+            }
+            log("no network path — WiFi/LTE down, phone unreachable")
+            return null
+        }
+
         // fast path — re-open the egress to the last-linked hive before any
         // group scan; a stored pairing reconnects in under a second.
         val knownIp = store.meshTargetIp
@@ -44,15 +63,11 @@ object MeshLinker {
             // must not swap a healthy bridge for a fresh port every pass, that
             // races and kills in-flight requests.
             val cur = api.baseUrl.ifBlank { store.meshUrl }
-            // Proxy is a fallback, not a preference: only keep it while there is
-            // no direct path — once WiFi/LTE is back, our own tunnel is strictly
-            // better than routing the hive through the phone over Bluetooth.
-            if (cur.startsWith("phone://") && !nexus.directNetworkUp()
-                && dev.agenthive.watch.device.PhoneBridge.probePhoneMesh(app)) {
-                api.baseUrl = "phone://proxy"
-                store.meshUrl = "phone://proxy"
-                onHive(knownIp, store.meshTargetPort, 0, store.hiveNodeId)
-                return Triple(store.hiveNodeId.ifBlank { "phone-proxy" }, knownIp, 0)
+            // directNetworkUp() passed above — a stored phone:// is stale now
+            // that a real path exists; re-bridge to our own tunnel instead.
+            if (cur.startsWith("phone://")) {
+                api.baseUrl = ""
+                store.meshUrl = ""
             }
             if (cur.startsWith("http://127.0.0.1:") && api.probeHive(cur)) {
                 api.baseUrl = cur
@@ -88,20 +103,6 @@ object MeshLinker {
                 }
                 nexus.closeEgress(knownIp, port)
             }
-        }
-
-        // No direct network → the UDP dataplane can't form, so every openEgress
-        // below is doomed (control plane rides the BT sysproxy fine, which is
-        // why the join "succeeds" but the bridge never opens). The phone proxy
-        // is the only path that can actually carry data — probe it first.
-        if (!nexus.directNetworkUp()
-            && dev.agenthive.watch.device.PhoneBridge.probePhoneMesh(app)) {
-            log("no direct network — riding phone proxy")
-            api.baseUrl = "phone://proxy"
-            store.meshUrl = "phone://proxy"
-            onHive(store.meshTargetIp, store.meshTargetPort, 0, store.hiveNodeId)
-            return Triple(store.hiveNodeId.ifBlank { "phone-proxy" },
-                          store.meshTargetIp, 0)
         }
 
         for (round in 1..6) {
