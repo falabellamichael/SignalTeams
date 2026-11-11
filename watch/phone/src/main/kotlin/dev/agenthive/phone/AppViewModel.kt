@@ -183,6 +183,19 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /** Per-channel trailing debounce for read marks — a burst of incoming
+     *  messages in the open channel used to POST /read once per message.
+     *  One job per cid coalesces the burst into a single call ~4s out. */
+    private val readJobs = mutableMapOf<Int, Job>()
+
+    private fun markReadSoon(cid: Int) {
+        if (readJobs[cid]?.isActive == true) return
+        readJobs[cid] = viewModelScope.launch {
+            delay(4_000)
+            api.markRead(cid)
+        }
+    }
+
     private fun onWsMessage(evt: JSONObject) {
         val cid = evt.optInt("channel_id")
         val m = evt.optJSONObject("message") ?: return
@@ -197,7 +210,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 if (dup) s else s.copy(messages = arr.put(m),
                                        messagesVersion = s.messagesVersion + 1)
             }
-            viewModelScope.launch { api.markRead(cid) }
+            markReadSoon(cid)
             return
         }
         val author = m.optJSONObject("author")
