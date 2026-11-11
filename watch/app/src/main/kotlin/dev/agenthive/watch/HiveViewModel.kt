@@ -300,7 +300,10 @@ class HiveViewModel(app: Application) : AndroidViewModel(app) {
     /** PRIMARY: 8-digit code → mesh join → discover hive → mesh session.
      *  Blank code = mesh-only join — the watch stands on the mesh with no hive. */
     fun linkWithCode(code: String) {
-        val c = code.trim()
+        // Codes display grouped on the hive ("7665 0116") — strip any space
+        // the user faithfully types back in; the mesh join AND the session
+        // claim both take this sanitized value.
+        val c = code.filterNot { it.isWhitespace() }
         if (c.isBlank()) { joinMeshOnly(); return }
         // An in-flight job is usually the doomed-to-fail restore loop still
         // burning discover rounds — a fresh code should preempt it, not drop.
@@ -340,7 +343,7 @@ class HiveViewModel(app: Application) : AndroidViewModel(app) {
 
     /** Console path when already on the mesh but not linked to a hive. */
     fun linkHive(code: String) {
-        val c = code.trim()
+        val c = code.filterNot { it.isWhitespace() }
         if (c.isBlank()) {
             _ui.update { it.copy(statusLine = "enter the 8-digit code") }
             return

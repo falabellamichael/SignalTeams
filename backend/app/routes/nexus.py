@@ -12,6 +12,7 @@ membership in the group IS the authentication, no hive URL or password ever
 touches the bezel.
 """
 import asyncio
+import re
 import time
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -252,8 +253,17 @@ async def watch_session(req: WatchSessionReq, request: Request):
         raise HTTPException(400, "node_id required")
 
     bound = nexus._kv_get(f"watch_bound:{node_id}") or {}
-    pair_key = f"watch_pair:{req.code.strip()}" if req.code else ""
-    pair = nexus._kv_get(pair_key) if pair_key else None
+    # codes render grouped ("7665 0116") — whatever the user typed, the kv
+    # key is digits: drop every whitespace run before lookup
+    code = re.sub(r"\s+", "", req.code or "")
+    pair = nexus._kv_get(f"watch_pair:{code}") if code else None
+    if not pair and code:
+        # the general "Connect another device" invite mints invite_role:{code}
+        # instead of watch_pair:{code} — same SDK link token, so the mesh
+        # join already worked; bind the watch to the inviting admin's account
+        inv = nexus._kv_get(f"invite_role:{code}")
+        if inv and inv.get("exp", 0) >= now and inv.get("by"):
+            pair = {"uid": inv["by"], "exp": inv["exp"]}
 
     if bound.get("uid") and req.secret and req.secret == bound.get("secret"):
         uid = bound["uid"]                     # reconnection path — no code needed
