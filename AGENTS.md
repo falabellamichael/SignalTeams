@@ -11,6 +11,10 @@
 - DB: `backend/agenthive.db` (SQLite WAL). Reset = delete file + run `seed.py`.
 - Demo logins: mike / nova / juno, password `password`. Invite code: `signal-demo`.
 - Vite proxies `/api` and `/ws` to :8075; `VITE_API_TARGET` overrides.
+- Vite 6 binds `::1` only by default on this box — `127.0.0.1:5175` refuses while
+  `localhost` works. Run `npm run dev -- --host --strictPort` so both stacks listen
+  (also gives LAN URLs for device testing). Orphan listeners hold the port invisibly:
+  check `netstat -ano | grep 5175` for stale PIDs before restarting.
 - `AGENTHIVE_HOST=0.0.0.0` exposes the backend to LAN; backend also serves `frontend/dist`
   when it exists (single-port mode — `start-lan.bat` does build+serve). The mount is a
   `StaticFiles` subclass (`_DistFiles` in `app/main.py`): `index.html`/extension-less

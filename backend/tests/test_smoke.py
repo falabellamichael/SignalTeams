@@ -48,7 +48,9 @@ class Smoke(unittest.TestCase):
         cls.tmp = tempfile.mkdtemp(prefix="st-test-")
         env = {**os.environ,
                "AGENTHIVE_DB": os.path.join(cls.tmp, "test.db"),
-               "AGENTHIVE_MODELDIR": cls.tmp}   # empty dir -> modeldir scan is a no-op
+               "AGENTHIVE_MODELDIR": cls.tmp,   # empty dir -> modeldir scan is a no-op
+               "AGENTHIVE_OLLAMA": "http://127.0.0.1:9",  # dead port -> 502 path is
+               "AGENTHIVE_LMSTUDIO": "http://127.0.0.1:9"}  # deterministic, not live LLM
         cls.proc = subprocess.Popen(
             [PY, "-m", "uvicorn", "app.main:app",
              "--host", "127.0.0.1", "--port", str(cls.port)],
