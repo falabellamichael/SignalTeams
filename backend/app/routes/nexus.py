@@ -74,9 +74,12 @@ async def nexus_connect(req: ConnectReq, user=Depends(require_admin)):
             tok = re.sub(r"\s+", "", req.server or "")
         if tok:
             try:
-                d = await asyncio.to_thread(nexus.NODE.accept_invite, tok)
-            except RuntimeError as e:
-                raise HTTPException(502, str(e))
+                d = await asyncio.to_thread(nexus.NODE.join_foreign, tok)
+            except RuntimeError:
+                try:
+                    d = await asyncio.to_thread(nexus.NODE.accept_invite, tok)
+                except RuntimeError as e:
+                    raise HTTPException(502, str(e))
             return {"ok": True, "accepted": tok[:8] + "…",
                     **(d if isinstance(d, dict) else {})}
         if not any([req.server.strip(), req.region.strip(),
@@ -199,10 +202,16 @@ async def nexus_accept_invite(req: AcceptInviteReq, user=Depends(require_admin))
     Additive: our own group stays; the foreign group's members become
     reachable peers (and reach the service we publish — that's how a watch
     that only knows the Lemonade mesh still finds this hive)."""
+    # join_foreign registers a device record in the foreign group (visible in
+    # members' device lists); accept_invite is membership-only — try it as the
+    # fallback for tokens the join path refuses.
     try:
-        d = await asyncio.to_thread(nexus.NODE.accept_invite, req.code)
-    except RuntimeError as e:
-        raise HTTPException(502, str(e))
+        d = await asyncio.to_thread(nexus.NODE.join_foreign, req.code)
+    except RuntimeError:
+        try:
+            d = await asyncio.to_thread(nexus.NODE.accept_invite, req.code)
+        except RuntimeError as e:
+            raise HTTPException(502, str(e))
     return {"ok": True, **(d if isinstance(d, dict) else {"result": d})}
 
 

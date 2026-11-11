@@ -444,6 +444,35 @@ class NexusNode:
                 raise RuntimeError(d["error"])
             return d
 
+    def join_foreign(self, token):
+        """Join ANOTHER mesh network by redeeming a foreign 8-digit code or
+        lnk_ token (e.g. minted by the Lemonade app) — set_link_token +
+        join_network on the live client. Unlike accept_invite this creates a
+        device record in that group, so its members can enumerate and reach
+        this node (membership alone is invisible to their device lists)."""
+        with self.lock:
+            if not self.cli:
+                raise RuntimeError("mesh is not connected")
+            ln = _ln()
+            token = re.sub(r"\s+", "", str(token))   # codes paste grouped ("5548 5978")
+            if ln.lib.ln_set_link_token(self.cli, token.encode()) != 0:
+                raise RuntimeError("invalid link token (8-digit code or lnk_…)")
+            joined, last_err = None, "join failed"
+            for _ in range(3):
+                rc, d, _ = ln.jstr(ln.lib.ln_join_network,
+                                   self.cli, b"agenthive", b"")
+                if rc == 0 and (d or {}).get("success"):
+                    joined = d
+                    break
+                last_err = (d or {}).get("error") or f"join rc={rc}"
+                time.sleep(2)
+            if not joined:
+                raise RuntimeError(last_err)
+            vport = int(config.NEXUS_VPORT or get_cfg().get("vport") or config.PORT)
+            ln.lib.ln_mesh_expose_service(
+                self.cli, vport, f"tcp:127.0.0.1:{config.PORT}".encode())
+            return joined
+
     def accept_invite(self, token):
         """Join ANOTHER mesh group by redeeming a code/lnk_ token minted
         elsewhere (e.g. the Lemonade app). Additive — our own group stays and
