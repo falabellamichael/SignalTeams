@@ -624,7 +624,9 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                         arr.optJSONObject(arr.length() - 1)
                             ?.optDouble("created_at") ?: 0.0)
                 }
-                delay(4000)
+                // WS already live-appends — this is only the missed-event
+                // resync, not the delivery path. 4s was a per-open radio burn.
+                delay(20_000)
             }
         }
     }

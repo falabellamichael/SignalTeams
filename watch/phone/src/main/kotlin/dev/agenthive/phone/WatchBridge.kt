@@ -8,6 +8,7 @@ import com.google.android.gms.wearable.Wearable
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 /**
@@ -40,8 +41,11 @@ object WatchBridge {
         pending[path]?.complete(String(data))
     }
 
-    /** Ask the watch for its status — battery/charging JSON on /reply. */
-    suspend fun watchStatus(ctx: Context): String {
+    /** Ask the watch for its status — battery/charging JSON on /reply.
+     *  Serialized: two concurrent callers share one reply path and would
+     *  clobber each other's deferred (same fix as the watch's PhoneBridge). */
+    private val statusMutex = kotlinx.coroutines.sync.Mutex()
+    suspend fun watchStatus(ctx: Context): String = statusMutex.withLock {
         val replyPath = "/hive/status/reply"
         val d = kotlinx.coroutines.CompletableDeferred<String>()
         pending[replyPath] = d
@@ -49,7 +53,7 @@ object WatchBridge {
         if (!ok) { pending.remove(replyPath); return "" }
         val raw = kotlinx.coroutines.withTimeoutOrNull(6_000) { d.await() }
         pending.remove(replyPath)
-        return raw ?: ""
+        raw ?: ""
     }
 }
 
