@@ -22,6 +22,8 @@ fun HiveScreen(
     onRelinkMesh: () -> Unit,
     onClearChat: () -> Unit,
     onDisconnect: () -> Unit,
+    onScanHives: () -> Unit = {},
+    onPickHive: (dev.agenthive.watch.MeshLinker.MeshHive) -> Unit = {},
 ) {
     val bg = Modifier.background(HiveColors.Bg)
     when (state.phase) {
@@ -38,12 +40,16 @@ fun HiveScreen(
             onDisconnect = onDisconnect,
             onCode = onCode,
             onLinkCode = onLinkHive,
+            onScanHives = onScanHives,
+            onPickHive = onPickHive,
             modifier = modifier.then(bg),
         )
         else -> SetupScreen(
             state = state,
             onCode = onCode,
             onLinkCode = onLinkCode,
+            onScanHives = onScanHives,
+            onPickHive = onPickHive,
             modifier = modifier.then(bg),
         )
     }

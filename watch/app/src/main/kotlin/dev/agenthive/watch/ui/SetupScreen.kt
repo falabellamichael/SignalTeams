@@ -41,6 +41,8 @@ fun SetupScreen(
     modifier: Modifier = Modifier,
     onCode: (String) -> Unit,
     onLinkCode: (String) -> Unit,
+    onScanHives: () -> Unit = {},
+    onPickHive: (dev.agenthive.watch.MeshLinker.MeshHive) -> Unit = {},
 ) {
     val busy = state.phase != Phase.SETUP
     Box(
@@ -146,6 +148,17 @@ fun SetupScreen(
                         fontWeight = FontWeight.Bold,
                     )
                 }
+
+                if (state.unlinked) {
+                    Spacer(Modifier.height(10.dp))
+                    HivePicker(
+                        hives = state.hives,
+                        scanning = state.hiveScanning,
+                        activeNodeId = state.meshSnap.hiveNodeId,
+                        onScan = onScanHives,
+                        onPick = onPickHive,
+                    )
+                }
             }
 
             if (state.error.isNotBlank()) {
@@ -158,6 +171,92 @@ fun SetupScreen(
                 )
             }
             Spacer(Modifier.height(14.dp))
+        }
+    }
+}
+
+/** Mesh hive switcher — every group member answering the AgentHive probe is
+ *  a tap-to-connect row. Bound hives get a "linked" chip (code-free hop),
+ *  the active hive highlights, ↻ rescans. */
+@Composable
+fun HivePicker(
+    hives: List<dev.agenthive.watch.MeshLinker.MeshHive>,
+    scanning: Boolean,
+    activeNodeId: String,
+    onScan: () -> Unit,
+    onPick: (dev.agenthive.watch.MeshLinker.MeshHive) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+        androidx.compose.foundation.layout.Row(
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                "HIVES ON MESH",
+                color = HiveColors.Faint,
+                fontSize = 7.sp,
+                fontWeight = FontWeight.Bold,
+            )
+            Spacer(Modifier.size(6.dp))
+            Box(
+                modifier = Modifier
+                    .clip(CircleShape)
+                    .border(1.dp, HiveColors.Cyan, CircleShape)
+                    .clickable(onClick = onScan)
+                    .padding(horizontal = 6.dp, vertical = 1.dp),
+            ) {
+                Text(
+                    if (scanning) "…" else "↻",
+                    color = HiveColors.Cyan,
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
+        }
+        Spacer(Modifier.height(4.dp))
+        if (scanning) {
+            CircularProgressIndicator(modifier = Modifier.size(14.dp))
+            Spacer(Modifier.height(4.dp))
+        }
+        hives.forEach { h ->
+            val active = h.nodeId.isNotBlank() && h.nodeId == activeNodeId
+            androidx.compose.foundation.layout.Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(if (active) HiveColors.PanelHi else HiveColors.Panel)
+                    .border(
+                        1.dp,
+                        if (active) HiveColors.MeshOn else HiveColors.Border,
+                        RoundedCornerShape(10.dp),
+                    )
+                    .clickable { onPick(h) }
+                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        h.name, color = HiveColors.Text, fontSize = 10.sp,
+                        fontWeight = FontWeight.SemiBold, maxLines = 1,
+                    )
+                    Text(h.ip, color = HiveColors.Dim, fontSize = 8.sp, maxLines = 1)
+                }
+                if (h.bound) {
+                    Text(
+                        "linked", color = HiveColors.MeshOn,
+                        fontSize = 7.sp, fontWeight = FontWeight.Bold,
+                    )
+                    Spacer(Modifier.size(4.dp))
+                }
+                if (active) Text("●", color = HiveColors.MeshOn, fontSize = 8.sp)
+            }
+            Spacer(Modifier.height(4.dp))
+        }
+        if (!scanning && hives.isEmpty()) {
+            Text(
+                "no hives found — tap ↻ to rescan",
+                color = HiveColors.Faint, fontSize = 8.sp, textAlign = TextAlign.Center,
+            )
         }
     }
 }

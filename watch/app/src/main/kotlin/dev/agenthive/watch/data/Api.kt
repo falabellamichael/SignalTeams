@@ -619,17 +619,7 @@ class HiveApi(var ctx: android.content.Context? = null) {
             if (ok) lastProbeOk = System.currentTimeMillis()
             return@withContext ok
         }
-        val directOk = runCatching {
-            val req = Request.Builder().url("$base/api/auth/config").build()
-            probeClient.newCall(req).execute().use { r ->
-                val body = r.body?.string() ?: ""
-                val ok = r.isSuccessful && body.contains("supabase")
-                if (!ok) android.util.Log.d("HiveApi", "probeHive $base status=${r.code} match=${body.contains("supabase")}")
-                ok
-            }
-        }.onFailure {
-            android.util.Log.d("HiveApi", "probeHive $base failed: ${it.message}")
-        }.getOrDefault(false)
+        val directOk = probeHiveInfo(base) != null
         if (directOk) lastProbeOk = System.currentTimeMillis()
 
         if (!directOk && baseOverride == null && proxy != null) {
@@ -641,6 +631,29 @@ class HiveApi(var ctx: android.content.Context? = null) {
         }
         directOk
     }
+
+    /**
+     * GET /api/auth/config — unauthed AgentHive fingerprint. Returns the parsed
+     * JSON (supabase keys + `hive` identity block) or null when the endpoint
+     * isn't one of ours. The hive-switcher scan reads `hive.name` from it.
+     */
+    suspend fun probeHiveInfo(base: String): org.json.JSONObject? =
+        kotlinx.coroutines.withContext(Dispatchers.IO) {
+            runCatching {
+                val req = Request.Builder()
+                    .url("${base.trimEnd('/')}/api/auth/config").build()
+                probeClient.newCall(req).execute().use { r ->
+                    val body = r.body?.string() ?: ""
+                    if (!r.isSuccessful || !body.contains("supabase")) {
+                        android.util.Log.d("HiveApi", "probeHiveInfo $base status=${r.code}")
+                        return@withContext null
+                    }
+                    org.json.JSONObject(body)
+                }
+            }.onFailure {
+                android.util.Log.d("HiveApi", "probeHiveInfo $base failed: ${it.message}")
+            }.getOrNull()
+        }
 
     /**
      * POST /api/watch/session — mesh-membership auth. First pair sends

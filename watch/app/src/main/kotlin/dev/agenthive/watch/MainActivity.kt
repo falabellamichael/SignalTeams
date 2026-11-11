@@ -114,6 +114,8 @@ class MainActivity : ComponentActivity() {
             val onRelinkMesh = remember { vm::relinkMesh }
             val onClearChat = remember { vm::clearChat }
             val onDisconnect = remember { vm::disconnect }
+            val onScanHives = remember { vm::scanHives }
+            val onPickHive = remember { vm::switchHive }
             HiveTheme {
                 HiveScreen(
                     state = state,
@@ -129,6 +131,8 @@ class MainActivity : ComponentActivity() {
                     onRelinkMesh = onRelinkMesh,
                     onClearChat = onClearChat,
                     onDisconnect = onDisconnect,
+                    onScanHives = onScanHives,
+                    onPickHive = onPickHive,
                 )
             }
         }

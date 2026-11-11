@@ -68,6 +68,10 @@ data class UiState(
     val meshSnap: MeshSnapshot = MeshSnapshot(),
     val error: String = "",
     val caps: HiveApi.Caps = HiveApi.Caps(),
+    val hives: List<MeshLinker.MeshHive> = emptyList(), // mesh-found hives (switcher)
+    val hiveScanning: Boolean = false,
+    val hiveName: String = "",        // active hive's display name
+    val linkTarget: String = "",      // nodeId picked for code-linking, "" = auto
     /** Proactive glanceable line from /api/assistant/next — becomes a
      *  prompt chip when non-blank ("Meeting in 35m" → tap asks about it). */
     val suggestion: String = "",
@@ -87,6 +91,7 @@ class HiveViewModel(app: Application) : AndroidViewModel(app) {
 
     private var meshPoll: Job? = null
     private var sessionJob: Job? = null
+    private var scanJob: Job? = null
     private var sendJob: Job? = null
     private var deviceAgent: DeviceAgent? = null
 
@@ -335,6 +340,7 @@ class HiveViewModel(app: Application) : AndroidViewModel(app) {
                 }
                 startMeshPoll()
                 contextStartMeshService()
+                scanHives()
             } catch (e: Exception) {
                 _ui.update { it.copy(error = e.message ?: "mesh join failed", phase = Phase.SETUP) }
             } finally { releaseLinkWake() }
@@ -355,14 +361,90 @@ class HiveViewModel(app: Application) : AndroidViewModel(app) {
             holdLinkWake()
             try {
                 _ui.update { it.copy(statusLine = "linking hive…", error = "") }
-                runCatching { nexus.acceptInvite(c) }
-                discoverHive { logLine(it) }
-                    ?: throw Exception("no hive peer found in group")
+                val t = _ui.value.hives.firstOrNull { it.nodeId == _ui.value.linkTarget }
+                if (t != null) {
+                    // picked from the switcher — claim directly on its bridge
+                    bridgeTo(t)
+                } else {
+                    runCatching { nexus.acceptInvite(c) }
+                    discoverHive { logLine(it) }
+                        ?: throw Exception("no hive peer found in group")
+                }
                 claimSession(c)
                 finishReady()
             } catch (e: Exception) {
                 _ui.update { it.copy(error = e.message ?: "link failed", statusLine = "") }
             } finally { releaseLinkWake() }
+        }
+    }
+
+    /** Re-scan the mesh for hives — populates the switcher list. Runs on its
+     *  own job so it never cancels an in-flight link. */
+    fun scanHives() {
+        if (nexus.state != NexusState.RUNNING || _ui.value.hiveScanning) return
+        val prev = scanJob; prev?.cancel()
+        scanJob = viewModelScope.launch {
+            prev?.join()
+            _ui.update { it.copy(hiveScanning = true) }
+            try {
+                val found = MeshLinker.discoverAll(getApplication()) { logLine(it) }
+                _ui.update { it.copy(hives = found, hiveScanning = false) }
+                if (found.isEmpty()) logLine("no hives answering on the mesh")
+            } catch (e: Exception) {
+                _ui.update { it.copy(hiveScanning = false) }
+            }
+        }
+    }
+
+    /** Hop to another hive on the mesh. Bound hives reconnect code-free;
+     *  unbound ones become the target — the console's code field claims them. */
+    fun switchHive(h: MeshLinker.MeshHive) {
+        if (_ui.value.phase == Phase.LINKING || h.ip.isBlank()) return
+        val prev = sessionJob
+        prev?.cancel()
+        sessionJob = viewModelScope.launch {
+            prev?.join()
+            holdLinkWake()
+            try {
+                _ui.update {
+                    it.copy(statusLine = "linking ${h.name}…", error = "",
+                            linkTarget = h.nodeId)
+                }
+                bridgeTo(h)
+                if (h.nodeId in store.boundHiveIds()) {
+                    claimSession("")              // bound → codeless reconnect
+                    finishReady()
+                } else {
+                    // needs that hive's own code — land unlinked with this
+                    // node as the link target so the code claims it directly
+                    _ui.update {
+                        it.copy(linkTarget = h.nodeId,
+                                statusLine = "enter ${h.name}'s code")
+                    }
+                }
+            } catch (e: Exception) {
+                _ui.update { it.copy(error = e.message ?: "switch failed",
+                                    statusLine = "") }
+            } finally { releaseLinkWake() }
+        }
+    }
+
+    /** Point the API at a picked hive's egress and remember it as the target. */
+    private suspend fun bridgeTo(h: MeshLinker.MeshHive) {
+        val lp = nexus.openEgress(h.ip, MeshLinker.HIVE_VPORT)
+            ?: throw Exception("can't bridge to ${h.name}")
+        api.baseUrl = "http://127.0.0.1:$lp"
+        store.meshUrl = api.baseUrl
+        store.meshTargetIp = h.ip
+        store.meshTargetPort = MeshLinker.HIVE_VPORT
+        store.hiveNodeId = h.nodeId
+        store.egressPort = lp
+        store.hiveName = h.name
+        _ui.update {
+            it.copy(meshSnap = it.meshSnap.copy(
+                hiveTunnelIp = h.ip, hiveNodeId = h.nodeId,
+                hiveVport = MeshLinker.HIVE_VPORT, egressPort = lp),
+                hiveName = h.name)
         }
     }
 
@@ -382,6 +464,7 @@ class HiveViewModel(app: Application) : AndroidViewModel(app) {
                 }
                 startMeshPoll()
                 contextStartMeshService()
+                scanHives()
                 return
             }
             claimSession(code)
@@ -556,6 +639,16 @@ class HiveViewModel(app: Application) : AndroidViewModel(app) {
                         }
                     }
                     store.paired = true
+                    store.markBound(store.hiveNodeId)
+                    if (store.hiveName.isBlank()) {
+                        // classic discover path doesn't fetch the name — get it
+                        val n = runCatching {
+                            api.probeHiveInfo(api.baseUrl)
+                                ?.optJSONObject("hive")?.optString("name")
+                        }.getOrNull().orEmpty()
+                        if (n.isNotBlank()) store.hiveName = n
+                    }
+                    _ui.update { it.copy(hiveName = store.hiveName) }
                     logLine("linked as ${store.displayName}")
                     return
                 }
@@ -666,7 +759,8 @@ class HiveViewModel(app: Application) : AndroidViewModel(app) {
         // an ask that arrives while the list is still loading.
         _ui.update {
             it.copy(phase = Phase.READY, unlinked = false, mesh = "mesh",
-                    statusLine = "", error = "")
+                    statusLine = "", error = "", hiveName = store.hiveName,
+                    linkTarget = "")
         }
         loadAgents()
         store.meshEnabled = true
@@ -714,6 +808,7 @@ class HiveViewModel(app: Application) : AndroidViewModel(app) {
 
     fun disconnect() {
         meshPoll?.cancel()
+        scanJob?.cancel()
         store.clear()
         api.token = ""; api.baseUrl = ""
         viewModelScope.launch { nexus.stop() }   // mutex-guarded teardown

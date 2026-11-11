@@ -1,6 +1,7 @@
 package dev.agenthive.watch
 
 import android.util.Log
+import dev.agenthive.watch.nexus.NexusNode
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.coroutineScope
@@ -24,6 +25,105 @@ object MeshLinker {
         val admin: Boolean,
         val member: Boolean,
     )
+
+    /** A group member that answered the AgentHive probe — a switchable hive. */
+    data class MeshHive(
+        val nodeId: String,
+        val ip: String,
+        val name: String,
+        val lp: Int,          // live local egress bridge to it (127.0.0.1:lp)
+        val member: Boolean,
+        val bound: Boolean,   // this watch already claimed a session on it
+    )
+
+    /** Enumerate group devices + dataplane peers into [cands] (keyed by node
+     *  id, falling back to ip). Returns (devices seen, peers seen) for logs. */
+    private suspend fun collectCands(
+        nexus: NexusNode, selfIp: String, cands: MutableMap<String, Cand>,
+    ): Pair<Int, Int> {
+        var devN = -1; var peerN = -1
+        runCatching { nexus.devices() }.getOrNull()?.let { arr ->
+            devN = arr.length()
+            for (i in 0 until arr.length()) {
+                val d = arr.optJSONObject(i) ?: continue
+                if (d.optBoolean("is_self")) continue
+                val ip = d.optString("tunnel_ip").substringBefore("/")
+                if (ip.isBlank()) continue
+                val nid = d.optString("node_id")
+                cands[nid.ifBlank { ip }] = Cand(
+                    nid, ip,
+                    admin = d.optBoolean("admin"),
+                    member = d.optBoolean("member") ||
+                            d.optString("group_role") == "member",
+                )
+            }
+        }
+        runCatching { nexus.peers() }.getOrNull()?.let { arr ->
+            peerN = arr.length()
+            for (i in 0 until arr.length()) {
+                val p = arr.optJSONObject(i) ?: continue
+                val ip = p.optString("tunnel_ip").substringBefore("/")
+                if (ip.isBlank() || ip == selfIp) continue
+                val nid = p.optString("node_id")
+                val key = nid.ifBlank { ip }
+                if (!cands.containsKey(key)) cands[key] = Cand(nid, ip, false, false)
+            }
+        }
+        return devN to peerN
+    }
+
+    /**
+     * Hive switcher scan: probe EVERY candidate, keep all that answer
+     * /api/auth/config. Winners keep their egress bridge open so switching is
+     * a baseUrl swap, not a re-bridge. Names come from each hive's own
+     * `hive.name` identity block (fallback: tunnel ip).
+     */
+    suspend fun discoverAll(
+        app: HiveApp,
+        log: (String) -> Unit = {},
+    ): List<MeshHive> {
+        val nexus = app.nexus
+        val store = app.store
+        if (!nexus.directNetworkUp()) return emptyList()
+
+        val selfIp = nexus.info.tunnelIp.substringBefore("/")
+        val cands = LinkedHashMap<String, Cand>()
+        for (round in 1..3) {
+            val (d, p) = collectCands(nexus, selfIp, cands)
+            Log.i("MeshLinker", "scan r$round dev=$d peer=$p cands=${cands.size}")
+            if (cands.isNotEmpty()) break
+            delay(1200)
+        }
+        val bound = store.boundHiveIds()
+        val found = java.util.concurrent.CopyOnWriteArrayList<MeshHive>()
+        coroutineScope {
+            for (c in cands.values.sortedWith(
+                compareByDescending<Cand> { it.admin }.thenByDescending { it.member }
+            ).take(8)) {
+                launch {
+                    repeat(2) {
+                        val lp = nexus.openEgress(c.ip, HIVE_VPORT) ?: return@repeat
+                        val info = app.api.probeHiveInfo("http://127.0.0.1:$lp")
+                        if (info != null) {
+                            val name = info.optJSONObject("hive")
+                                ?.optString("name")?.takeIf { it.isNotBlank() }
+                                ?: c.ip
+                            log("found ${name} — ${c.ip}")
+                            found.add(MeshHive(c.nodeId, c.ip, name, lp,
+                                c.member, c.nodeId in bound))
+                            return@launch
+                        }
+                        nexus.closeEgress(c.ip, HIVE_VPORT)
+                        delay(500)
+                    }
+                }
+            }
+        }
+        return found.sortedWith(
+            compareByDescending<MeshHive> { it.bound }
+                .thenByDescending { it.member }
+                .thenBy { it.name })
+    }
 
     suspend fun discover(
         app: HiveApp,

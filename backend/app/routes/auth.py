@@ -90,10 +90,19 @@ SUPABASE_ANON = _cfg.SUPABASE_ANON_KEY
 @router.get("/api/auth/config")
 def auth_config():
     """Public auth-providers config so the login page knows what to offer.
-    The anon key is a public client key — safe to expose to the browser."""
+    The anon key is a public client key — safe to expose to the browser.
+    Also the unauthed fingerprint the watch's mesh discovery probes — the
+    hive block names this backend for the hive-switcher picker."""
+    hive = {"app": "signalteams"}
+    try:
+        from .. import nexus
+        hive["name"] = nexus.get_cfg().get("device_name") or ""
+    except Exception:
+        hive.setdefault("name", "")
     return {"supabase": bool(SUPABASE_URL and SUPABASE_ANON),
             "supabase_url": SUPABASE_URL or None,
-            "supabase_anon": SUPABASE_ANON or None}
+            "supabase_anon": SUPABASE_ANON or None,
+            "hive": hive}
 
 
 def _supabase_user(access_token: str) -> dict:

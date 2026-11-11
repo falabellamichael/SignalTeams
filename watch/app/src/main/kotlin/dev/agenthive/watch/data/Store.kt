@@ -63,6 +63,26 @@ class Store(ctx: Context) {
         get() = prefs.getBoolean("paired", false)
         set(v) = prefs.edit().putBoolean("paired", v).apply()
 
+    /** Display name of the hive we're linked to (from its `hive.name`
+     *  identity block) — paints in the chat header + console. */
+    var hiveName: String
+        get() = prefs.getString("hive_name", "") ?: ""
+        set(v) = prefs.edit().putString("hive_name", v).apply()
+
+    /** Mesh node_ids this watch has claimed a session on (CSV) — those hives
+     *  reconnect code-free, which is what makes the switcher one-tap. */
+    private var boundHives: String
+        get() = prefs.getString("bound_hives", "") ?: ""
+        set(v) = prefs.edit().putString("bound_hives", v).apply()
+
+    fun boundHiveIds(): Set<String> =
+        boundHives.split(',').filter { it.isNotBlank() }.toSet()
+
+    fun markBound(nodeId: String) {
+        if (nodeId.isBlank() || nodeId in boundHiveIds()) return
+        boundHives = (boundHiveIds() + nodeId).joinToString(",")
+    }
+
     /** Last assistant reply — the glanceable tile shows it. */
     var lastReply: String
         get() = prefs.getString("last_reply", "") ?: ""

@@ -76,6 +76,8 @@ fun ChatScreen(
     onDisconnect: () -> Unit,
     onCode: (String) -> Unit = {},
     onLinkCode: (String) -> Unit = {},
+    onScanHives: () -> Unit = {},
+    onPickHive: (dev.agenthive.watch.MeshLinker.MeshHive) -> Unit = {},
 ) {
     var showAgents by rememberSaveable { mutableStateOf(false) }
     var showMesh by rememberSaveable { mutableStateOf(false) }
@@ -223,6 +225,8 @@ fun ChatScreen(
                 },
                 onCode = onCode,
                 onLinkCode = onLinkCode,
+                onScanHives = onScanHives,
+                onPickHive = onPickHive,
                 onClose = { showMesh = false },
             )
         }
@@ -336,7 +340,7 @@ private fun GeminiHomeStage(
             state.unlinked && state.meshSnap.watchTunnelIp.isNotBlank() ->
                 "mesh ${state.meshSnap.watchTunnelIp} · tap 🔗 to link a hive"
             state.mesh == "mesh" && state.meshSnap.watchTunnelIp.isNotBlank() ->
-                "mesh ${state.meshSnap.watchTunnelIp} ⇄ ${state.meshSnap.hiveTunnelIp}"
+                "${state.hiveName.ifBlank { "hive" }} · ${state.meshSnap.hiveTunnelIp.ifBlank { "mesh" }}"
             state.meshInfo.isNotBlank() -> state.meshInfo
             else -> "Ask ${state.agent?.name ?: "your agent"} anything"
         }
@@ -695,8 +699,14 @@ private fun MeshConsoleSheet(
     onDisconnect: () -> Unit,
     onCode: (String) -> Unit,
     onLinkCode: (String) -> Unit,
+    onScanHives: () -> Unit,
+    onPickHive: (dev.agenthive.watch.MeshLinker.MeshHive) -> Unit,
     onClose: () -> Unit,
 ) {
+    // first open while on the mesh → fill the switcher once; ↻ rescans
+    LaunchedEffect(Unit) {
+        if (state.mesh == "mesh" && state.hives.isEmpty()) onScanHives()
+    }
     val snap = state.meshSnap
     Box(
         modifier = Modifier
@@ -726,6 +736,19 @@ private fun MeshConsoleSheet(
             MeshRow("Node ID", snap.watchNodeId.take(12).ifBlank { "—" })
             if (snap.peerCount > 0) {
                 MeshRow("Peers", "${snap.onlineCount}/${snap.peerCount} online")
+            }
+
+            if (state.mesh == "mesh") {
+                // the switcher — every hive answering on the group is a
+                // tap-to-connect row; bound ones hop with no code
+                Spacer(Modifier.height(8.dp))
+                HivePicker(
+                    hives = state.hives,
+                    scanning = state.hiveScanning,
+                    activeNodeId = snap.hiveNodeId,
+                    onScan = onScanHives,
+                    onPick = onPickHive,
+                )
             }
 
             if (state.unlinked) {
