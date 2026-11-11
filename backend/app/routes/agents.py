@@ -7,7 +7,8 @@ from ..auth import current_user
 from ..db import db, emit_buzz, now, row_to_dict
 from ..hub import hub
 
-from ..helpers import agent_json, can_see_agent, friend_ids, public_user
+from ..helpers import (agent_json, agents_json_batch, can_see_agent, friend_ids,
+                       public_user)
 from ..schemas import AgentIn, AgentPatch, ReviewIn
 from .engage import AI_FLAG_KEYS
 
@@ -19,7 +20,12 @@ def list_agents(q: str = "", tag: str = "", sort: str = "new", mine: int = 0,
                 user=Depends(current_user)):
     with db() as conn:
         rows = conn.execute("SELECT * FROM agents ORDER BY id DESC").fetchall()
-        agents = [agent_json(conn, a, user["id"]) for a in rows if can_see_agent(conn, a, user["id"])]
+        # friend_ids is a query — hoist it instead of paying it per agent via can_see_agent
+        fids = set(friend_ids(conn, user["id"]))
+        rows = [a for a in rows
+                if a["visibility"] == "public" or a["owner_id"] == user["id"]
+                or (a["visibility"] != "private" and a["owner_id"] in fids)]
+        agents = agents_json_batch(conn, rows, user["id"])
         if mine:
             agents = [a for a in agents if a["owner_id"] == user["id"]]
         if q:
@@ -46,24 +52,34 @@ def trending_agents(user=Depends(current_user)):
     out = []
     with db() as conn:
         rows = conn.execute("SELECT * FROM agents ORDER BY id DESC").fetchall()
+        fids = set(friend_ids(conn, user["id"]))
+        rows = [a for a in rows
+                if a["visibility"] == "public" or a["owner_id"] == user["id"]
+                or (a["visibility"] != "private" and a["owner_id"] in fids)]
+        # one aggregate pass per table instead of three queries per agent
+        replies_by = {r["username"]: r["c"] for r in conn.execute(
+            "SELECT u.username, COUNT(*) c FROM messages m JOIN users u ON u.id=m.author_id "
+            "WHERE u.username LIKE 'agent:%' AND m.created_at>? GROUP BY u.username",
+            (cutoff,)).fetchall()}
+        stars_by = {r["agent_id"]: r["c"] for r in conn.execute(
+            "SELECT agent_id, COUNT(*) c FROM agent_stars WHERE created_at>? GROUP BY agent_id",
+            (cutoff,)).fetchall()}
+        installs_by = {r["agent_id"]: r["c"] for r in conn.execute(
+            "SELECT agent_id, COUNT(*) c FROM agent_installs WHERE created_at>? GROUP BY agent_id",
+            (cutoff,)).fetchall()}
+        scored, week, score_by = [], {}, {}
         for a in rows:
-            if not can_see_agent(conn, a, user["id"]):
-                continue
             slug = re.sub(r"[^a-z0-9]+", "", a["name"].lower())[:24] or f"a{a['id']}"
-            replies = conn.execute(
-                "SELECT COUNT(*) c FROM messages m JOIN users u ON u.id=m.author_id "
-                "WHERE u.username=? AND m.created_at>?", (f"agent:{slug}", cutoff)).fetchone()["c"]
-            stars = conn.execute(
-                "SELECT COUNT(*) c FROM agent_stars WHERE agent_id=? AND created_at>?",
-                (a["id"], cutoff)).fetchone()["c"]
-            installs = conn.execute(
-                "SELECT COUNT(*) c FROM agent_installs WHERE agent_id=? AND created_at>?",
-                (a["id"], cutoff)).fetchone()["c"]
-            score = replies + stars * 3 + installs * 5
-            if score:
-                d = agent_json(conn, a, user["id"])
-                d["week"] = {"replies": replies, "stars": stars, "installs": installs}
-                out.append((score, d))
+            r_ = replies_by.get(f"agent:{slug}", 0)
+            s_ = stars_by.get(a["id"], 0)
+            i_ = installs_by.get(a["id"], 0)
+            if r_ + s_ * 3 + i_ * 5:
+                scored.append(a)
+                score_by[a["id"]] = r_ + s_ * 3 + i_ * 5
+                week[a["id"]] = {"replies": r_, "stars": s_, "installs": i_}
+        for d in agents_json_batch(conn, scored, user["id"]):
+            d["week"] = week[d["id"]]
+            out.append((score_by[d["id"]], d))
     out.sort(key=lambda x: -x[0])
     return [d for _, d in out[:6]]
 

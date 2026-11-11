@@ -120,6 +120,74 @@ def agent_json(conn, a, uid):
     return d
 
 
+def agents_json_batch(conn, rows, uid):
+    """agent_json for a list — the same shape, but the eight per-agent
+    queries (owner, stars, installs, starred, installed, rating, summons,
+    allowed ids) collapse into one GROUP BY pass each. List endpoints used
+    to pay ~8 queries per row; now ~8 queries total regardless of count."""
+    if not rows:
+        return []
+    aids = [a["id"] for a in rows]
+    ph = ",".join("?" * len(aids))
+    owners = {r["id"]: public_user(r) for r in conn.execute(
+        f"SELECT * FROM users WHERE id IN ({ph})",
+        [a["owner_id"] for a in rows]).fetchall()}
+    stars = {r["agent_id"]: r["c"] for r in conn.execute(
+        f"SELECT agent_id, COUNT(*) c FROM agent_stars "
+        f"WHERE agent_id IN ({ph}) GROUP BY agent_id", aids).fetchall()}
+    installs = {r["agent_id"]: r["c"] for r in conn.execute(
+        f"SELECT agent_id, COUNT(*) c FROM agent_installs "
+        f"WHERE agent_id IN ({ph}) GROUP BY agent_id", aids).fetchall()}
+    starred = {r["agent_id"] for r in conn.execute(
+        f"SELECT agent_id FROM agent_stars WHERE agent_id IN ({ph}) AND user_id=?",
+        aids + [uid]).fetchall()}
+    installed = {r["agent_id"] for r in conn.execute(
+        f"SELECT agent_id FROM agent_installs WHERE agent_id IN ({ph}) AND user_id=?",
+        aids + [uid]).fetchall()}
+    ratings = {r["agent_id"]: (r["avg"], r["n"]) for r in conn.execute(
+        f"SELECT agent_id, AVG(rating) avg, COUNT(*) n FROM agent_reviews "
+        f"WHERE agent_id IN ({ph}) AND rating>0 GROUP BY agent_id", aids).fetchall()}
+    summons = {r["username"]: r["c"] for r in conn.execute(
+        "SELECT u.username, COUNT(*) c FROM messages m "
+        "JOIN users u ON u.id=m.author_id "
+        "WHERE u.username LIKE 'agent:%' GROUP BY u.username").fetchall()}
+    allowed = {}
+    for r in conn.execute(
+            f"SELECT agent_id, user_id FROM agent_allowed_users "
+            f"WHERE agent_id IN ({ph})", aids).fetchall():
+        allowed.setdefault(r["agent_id"], []).append(r["user_id"])
+
+    out = []
+    for a in rows:
+        d = row_to_dict(a)
+        d["owner"] = owners.get(a["owner_id"])
+        d["stars"] = stars.get(a["id"], 0)
+        d["installs"] = installs.get(a["id"], 0)
+        d["starred"] = a["id"] in starred
+        d["installed"] = a["id"] in installed
+        avg, n = ratings.get(a["id"], (None, 0))
+        d["rating"] = round(avg, 1) if avg else None
+        d["rating_count"] = n
+        slug = re.sub(r"[^a-z0-9]+", "", a["name"].lower())[:24] or f"a{a['id']}"
+        d["summons"] = summons.get(f"agent:{slug}", 0)
+        d["has_api_key"] = bool(d.pop("api_key", None))
+        d["has_api_headers"] = bool(d.pop("api_headers", None))
+        d["has_context_headers"] = bool(d.pop("context_headers", None))
+        d["api_kind"] = d.get("api_kind") or ""
+        d["api_url"] = d.get("api_url") or ""
+        d["context_method"] = d.get("context_method") or "GET"
+        d["connected"] = bool(d["api_url"] or d.get("context_url"))
+        d["use_who"] = d.get("use_who") or ""
+        d["use_when"] = d.get("use_when") or "always"
+        try:
+            d["ai"] = json.loads(d.pop("ai_flags", None) or "{}")
+        except Exception:
+            d["ai"] = {}
+        d["allowed_user_ids"] = allowed.get(a["id"], []) if a["owner_id"] == uid else []
+        out.append(d)
+    return out
+
+
 def channel_member_ids(conn, ch):
     if ch["server_id"]:
         ids = [r["user_id"] for r in conn.execute(
