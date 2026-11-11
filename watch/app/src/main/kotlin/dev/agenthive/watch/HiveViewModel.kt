@@ -15,6 +15,7 @@ import dev.agenthive.watch.nexus.NexusNode
 import dev.agenthive.watch.nexus.NexusState
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -278,10 +279,19 @@ class HiveViewModel(app: Application) : AndroidViewModel(app) {
     fun linkWithCode(code: String) {
         val c = code.trim()
         if (c.isBlank()) { joinMeshOnly(); return }
-        if (sessionJob?.isActive == true) { Log.w("HiveVM", "linkWithCode ignored — sessionJob active"); return }
+        // An in-flight job is usually the doomed-to-fail restore loop still
+        // burning discover rounds — a fresh code should preempt it, not drop.
+        // connectWith() already cancels the same way; latest code wins.
+        val prev = sessionJob
+        prev?.cancel()
         Log.i("HiveVM", "linkWithCode '$c' phase=${_ui.value.phase}")
         _ui.update { it.copy(inviteCode = c) }
-        sessionJob = viewModelScope.launch { doMeshLink(c) }
+        sessionJob = viewModelScope.launch {
+            // Let the cancelled job's finally blocks settle (wakelock release,
+            // FFI in-flight) before the native join starts.
+            prev?.join()
+            doMeshLink(c)
+        }
     }
 
     /** Mesh without a hive — the watch is a full mesh node on its own network. */
@@ -312,8 +322,10 @@ class HiveViewModel(app: Application) : AndroidViewModel(app) {
             _ui.update { it.copy(statusLine = "enter the 8-digit code") }
             return
         }
-        if (sessionJob?.isActive == true) return
+        val prev = sessionJob
+        prev?.cancel()
         sessionJob = viewModelScope.launch {
+            prev?.join()
             holdLinkWake()
             try {
                 _ui.update { it.copy(statusLine = "linking hive…", error = "") }
@@ -889,30 +901,59 @@ class HiveViewModel(app: Application) : AndroidViewModel(app) {
             spokenUpTo = cut
         }
         try {
-            api.tryStream(agentId, msg, prior).collect { ev ->
-                when (ev) {
-                    is HiveApi.StreamEvent.Meta -> {
-                        meta = "${ev.provider} · ${ev.model} · $routeBadge"
-                        patchLast(meta = meta)
+            // The stream client has no read cap (NDJSON can pause while the
+            // model thinks) — but a blackholed mesh path means zero bytes for
+            // the whole call and send() would wedge on busy forever. 60s of
+            // total silence = dead; the error lands in `failed` and the retry
+            // path in streamOnce re-bridges and tries again. A collector
+            // exception propagates through coroutineScope into the catch
+            // below with the real message.
+            coroutineScope {
+                val ch = kotlinx.coroutines.channels.Channel<HiveApi.StreamEvent>(
+                    kotlinx.coroutines.channels.Channel.UNLIMITED)
+                val feed = launch {
+                    api.tryStream(agentId, msg, prior).collect { ch.send(it) }
+                    ch.close()
+                }
+                var sawDone = false
+                try {
+                    while (true) {
+                        val ev = kotlinx.coroutines.withTimeoutOrNull(60_000) {
+                            ch.receiveCatching().getOrNull()
+                        }
+                        if (ev == null) {
+                            if (!sawDone && failed == null) failed = "stream stalled"
+                            break
+                        }
+                        when (ev) {
+                            is HiveApi.StreamEvent.Meta -> {
+                                meta = "${ev.provider} · ${ev.model} · $routeBadge"
+                                patchLast(meta = meta)
+                            }
+                            is HiveApi.StreamEvent.Token -> {
+                                reply += ev.text
+                                feedSentences()
+                                val now = System.currentTimeMillis()
+                                if (now - lastFlush > 75) {
+                                    lastFlush = now; patchLast(text = reply)
+                                }
+                            }
+                            is HiveApi.StreamEvent.Thinking ->
+                                patchLast(meta = "✦ thinking… (${ev.n})")
+                            is HiveApi.StreamEvent.Tool ->
+                                patchLast(meta = "⚙ ${ev.name}${if (ev.ok) "" else " · failed"}")
+                            is HiveApi.StreamEvent.Replace -> {
+                                reply = ev.text
+                                spokenUpTo = 0
+                                feedSentences(force = true)
+                                patchLast(text = reply)
+                            }
+                            is HiveApi.StreamEvent.Error -> failed = ev.message
+                            HiveApi.StreamEvent.Done -> { sawDone = true; break }
+                        }
                     }
-                    is HiveApi.StreamEvent.Token -> {
-                        reply += ev.text
-                        feedSentences()
-                        val now = System.currentTimeMillis()
-                        if (now - lastFlush > 75) { lastFlush = now; patchLast(text = reply) }
-                    }
-                    is HiveApi.StreamEvent.Thinking ->
-                        patchLast(meta = "✦ thinking… (${ev.n})")
-                    is HiveApi.StreamEvent.Tool ->
-                        patchLast(meta = "⚙ ${ev.name}${if (ev.ok) "" else " · failed"}")
-                    is HiveApi.StreamEvent.Replace -> {
-                        reply = ev.text
-                        spokenUpTo = 0
-                        feedSentences(force = true)
-                        patchLast(text = reply)
-                    }
-                    is HiveApi.StreamEvent.Error -> failed = ev.message
-                    HiveApi.StreamEvent.Done -> {}
+                } finally {
+                    feed.cancel()
                 }
             }
         } catch (e: kotlinx.coroutines.CancellationException) {

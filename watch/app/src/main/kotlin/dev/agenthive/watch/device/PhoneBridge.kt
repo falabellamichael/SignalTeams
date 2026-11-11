@@ -9,6 +9,7 @@ import com.google.android.gms.wearable.Wearable
 import com.google.android.gms.wearable.WearableListenerService
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
@@ -111,8 +112,11 @@ object PhoneBridge {
     const val PATH_STREAM_START = "/hive/proxy/stream/start"
     const val PATH_STREAM_EVENT = "/hive/proxy/stream/event"
 
-    /** One in-flight request per reply path. */
-    private val pending = mutableMapOf<String, CompletableDeferred<String>>()
+    /** One in-flight request per reply path — serialized so concurrent
+     *  callers (parallel probes + status checks) can't clobber each
+     *  other's deferred on the shared path and hang as a timeout. */
+    private val pending = java.util.concurrent.ConcurrentHashMap<String, CompletableDeferred<String>>()
+    private val requestMutex = kotlinx.coroutines.sync.Mutex()
     private val proxyPending = java.util.concurrent.ConcurrentHashMap<String, CompletableDeferred<JSONObject>>()
     private val streamChannels = java.util.concurrent.ConcurrentHashMap<String, kotlinx.coroutines.channels.Channel<dev.agenthive.watch.data.HiveApi.StreamEvent>>()
 
@@ -206,15 +210,17 @@ object PhoneBridge {
     /** Request/reply round-trip → (payload, errorText). Only one is non-empty. */
     private suspend fun request(ctx: Context, path: String,
                                 replyPath: String): Pair<String, String> {
-        val d = CompletableDeferred<String>()
-        pending[replyPath] = d
-        val err = send(ctx, path)
-        if (err.isNotEmpty()) { pending.remove(replyPath); return "" to err }
-        val raw = withTimeoutOrNull(6_000) { d.await() }
-        pending.remove(replyPath)
-        return (raw ?: "") to
-            if (raw == null) "The phone didn't answer — is AgentHive running on it?"
-            else ""
+        requestMutex.withLock {
+            val d = CompletableDeferred<String>()
+            pending[replyPath] = d
+            val err = send(ctx, path)
+            if (err.isNotEmpty()) { pending.remove(replyPath); return "" to err }
+            val raw = withTimeoutOrNull(6_000) { d.await() }
+            pending.remove(replyPath)
+            return (raw ?: "") to
+                if (raw == null) "The phone didn't answer — is AgentHive running on it?"
+                else ""
+        }
     }
 
     /** Ask the phone for its live status (battery/charging) and await the reply. */

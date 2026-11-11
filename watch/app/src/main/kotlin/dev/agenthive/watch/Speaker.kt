@@ -125,9 +125,13 @@ class Speaker(private val api: HiveApi, private val ctx: Context) {
     }
 
     /** One queued chunk: backend synthesis when the endpoint has a TTS model,
-     *  the on-device engine otherwise. */
+     *  the on-device engine otherwise. The fetch is timeboxed — a slow mesh
+     *  path must not stall the whole speech queue for 90s. */
     private suspend fun playChunk(say: String) {
-        api.ttsBytes(say)?.let { playMp3(it); return }
+        val bytes = kotlinx.coroutines.withTimeoutOrNull(12_000) {
+            api.ttsBytes(say)
+        }
+        if (bytes != null) { playMp3(bytes); return }
         val engine = ensureTts() ?: return
         speakOnDevice(engine, say)
     }

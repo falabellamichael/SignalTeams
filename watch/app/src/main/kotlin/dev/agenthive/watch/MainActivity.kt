@@ -86,9 +86,11 @@ class MainActivity : ComponentActivity() {
         setContent {
             val state by vm.ui.collectAsState()
             // Keep the screen awake while a link is in flight — Wear dozes
-            // fast, and a sleeping screen froze restores mid-join.
+            // fast, and a sleeping screen froze restores mid-join. Ambient
+            // overrides it: the partial linkWake keeps the CPU for the join,
+            // a pinned full-brightness panel doesn't need to.
             SideEffect {
-                if (state.phase == Phase.LINKING) {
+                if (state.phase == Phase.LINKING && !state.ambient) {
                     window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
                 } else {
                     window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
