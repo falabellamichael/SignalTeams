@@ -257,7 +257,14 @@ class FindPhoneService : WearableListenerService() {
             o.optString("role") to o.optString("content")
         }
         CoroutineScope(Dispatchers.IO).launch {
+            // Per-stream seq in every event: the watch dedupes inbound Wear
+            // messages on (node, path, contentHash) — identical token chunks
+            // ("ha" ×4 within 1.5s) used to hash equal and get dropped as a
+            // phantom redelivery. A seq makes each real event's payload
+            // unique while true redeliveries still collide.
+            var seq = 0
             fun send(payload: JSONObject) {
+                payload.put("s", seq++)
                 Wearable.getMessageClient(this@FindPhoneService).sendMessage(
                     nodeId, PATH_STREAM_EVENT, payload.toString().toByteArray())
             }
