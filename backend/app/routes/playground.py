@@ -676,10 +676,19 @@ def try_agent_stream(aid: int, body: TryIn, user=Depends(current_user)):
     def gen():
         hist = [dict(h) for h in (body.history or [])]
         try:
-            for rnd in range(4):
+            for rnd in range(5):
                 reply = ""
+                last_rnd = rnd == 4
                 msg = body.message if rnd == 0 else hist[-1]["content"]
                 ctx = hist if rnd == 0 else hist[:-1]
+                if last_rnd:
+                    # cap reached — force one answer-only turn: the nudge is
+                    # the last user turn and NO calls dispatch after it, so
+                    # the client always ends with a written reply instead of
+                    # a bubble emptied by `replace`
+                    ctx = hist
+                    msg = ("(tool-call limit reached — no more calls. Answer "
+                           "from the results above in plain text now.)")
                 for kind, data in chat_stream(
                         sysp, ctx, msg,
                         model=body.model or _amdl,
@@ -692,6 +701,11 @@ def try_agent_stream(aid: int, body: TryIn, user=Depends(current_user)):
                     elif kind == "token":
                         reply += data
                         yield json.dumps({"t": "token", "c": data}) + "\n"
+                if last_rnd:
+                    stripped = wsx.strip_tool_calls(reply).strip()
+                    if stripped != reply.strip():
+                        yield json.dumps({"t": "replace", "c": stripped}) + "\n"
+                    break
                 calls = wsx.parse_tool_calls(reply) if (ai_web or plugs) else []
                 if not calls:
                     break

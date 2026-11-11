@@ -965,7 +965,16 @@ class HiveViewModel(app: Application) : AndroidViewModel(app) {
                     else return
                 } else return
             }
-            hive.speaker.feed(reply.substring(spokenUpTo, cut))
+            // Never speak tool-call scaffolding: a {"tool":…} round streams
+            // raw JSON tokens (with \n and ", " boundaries that read as
+            // sentence ends) before the server's `replace` event swaps it
+            // out — audio already played can't be un-said. Slices containing
+            // ANY brace are suppressed: prose never carries them, and the
+            // rule catches slices that start mid-JSON too (a skipped feed
+            // still advances spokenUpTo past the '{').
+            val slice = reply.substring(spokenUpTo, cut)
+            if (!slice.contains('{') && !slice.contains('}'))
+                hive.speaker.feed(slice)
             spokenUpTo = cut
         }
         try {
@@ -1006,7 +1015,16 @@ class HiveViewModel(app: Application) : AndroidViewModel(app) {
                                     feedSentences()
                                 val now = System.currentTimeMillis()
                                 if (now - lastFlush > 75) {
-                                    lastFlush = now; patchLast(text = reply.toString())
+                                    lastFlush = now
+                                    // Tool rounds stream raw {"tool":…}
+                                    // tokens before `replace` swaps the
+                                    // buffer — paint text up to the first
+                                    // '{' so pre-JSON prose still shows
+                                    // without flashing the call itself.
+                                    val brace = reply.indexOf('{')
+                                    patchLast(text = if (brace >= 0)
+                                        reply.substring(0, brace).trimEnd()
+                                    else reply.toString())
                                 }
                             }
                             is HiveApi.StreamEvent.Thinking ->
