@@ -206,16 +206,40 @@ class FindPhoneService : WearableListenerService() {
                     val code = resp.code
                     val text = resp.body?.string() ?: ""
                     val out = JSONObject().put("id", id).put("code", code).put("body", text)
-                    Wearable.getMessageClient(this@FindPhoneService).sendMessage(
-                        nodeId, PATH_PROXY_REPLY, out.toString().toByteArray()
-                    )
+                    sendProxyReply(nodeId, out)
                 }
             }.onFailure { e ->
                 val err = JSONObject().put("id", id).put("code", 502).put("body", e.message ?: "proxy error")
-                Wearable.getMessageClient(this@FindPhoneService).sendMessage(
-                    nodeId, PATH_PROXY_REPLY, err.toString().toByteArray()
-                )
+                sendProxyReply(nodeId, err)
             }
+        }
+    }
+
+    /** Send a proxy reply, splitting when it would exceed Wear's ~100KB
+     *  message cap. An oversized sendMessage fails outright — the watch
+     *  waited out the full timeout and then marked the channel dead for
+     *  60s, killing notifications over a fat JSON body. Parts carry
+     *  {id,part,of,data} — the watch reassembles the serialized reply. */
+    private fun sendProxyReply(nodeId: String, payload: JSONObject) {
+        val mc = Wearable.getMessageClient(this@FindPhoneService)
+        val full = payload.toString()
+        if (full.toByteArray(Charsets.UTF_8).size <= 88_000) {
+            mc.sendMessage(nodeId, PATH_PROXY_REPLY, full.toByteArray(Charsets.UTF_8))
+            return
+        }
+        // 20K UTF-16 chars ≤ 80KB UTF-8 even in the worst case (4B/char),
+        // so every part stays comfortably under the cap with no per-part
+        // encode-and-shrink loop.
+        val parts = mutableListOf<String>()
+        var off = 0
+        while (off < full.length) {
+            val end = minOf(full.length, off + 20_000)
+            parts.add(full.substring(off, end)); off = end
+        }
+        parts.forEachIndexed { i, slice ->
+            val msg = JSONObject().put("id", payload.optString("id"))
+                .put("part", i).put("of", parts.size).put("data", slice)
+            mc.sendMessage(nodeId, PATH_PROXY_REPLY, msg.toString().toByteArray(Charsets.UTF_8))
         }
     }
 

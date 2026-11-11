@@ -123,12 +123,32 @@ object PhoneBridge {
     private val requestMutex = kotlinx.coroutines.sync.Mutex()
     private val proxyPending = java.util.concurrent.ConcurrentHashMap<String, CompletableDeferred<JSONObject>>()
     private val streamChannels = java.util.concurrent.ConcurrentHashMap<String, kotlinx.coroutines.channels.Channel<dev.agenthive.watch.data.HiveApi.StreamEvent>>()
+    /** Oversized proxy replies arrive as {id,part,of,data} slices — Wear
+     *  caps a message near 100KB. id → (part → slice, arrival stamp). */
+    private val proxyParts = java.util.concurrent.ConcurrentHashMap<String, Pair<Long, java.util.concurrent.ConcurrentHashMap<Int, String>>>()
 
     fun onProxyReply(data: ByteArray) {
         runCatching {
             val j = JSONObject(String(data))
             val id = j.optString("id")
-            proxyPending[id]?.complete(j)
+            val of = j.optInt("of")
+            if (of > 0) {
+                val buf = proxyParts.getOrPut(id) {
+                    android.os.SystemClock.elapsedRealtime() to java.util.concurrent.ConcurrentHashMap()
+                }
+                buf.second[j.optInt("part")] = j.optString("data")
+                if (buf.second.size >= of) {
+                    proxyParts.remove(id)
+                    val joined = (0 until of).joinToString("") { buf.second[it] ?: "" }
+                    proxyPending[id]?.complete(JSONObject(joined))
+                }
+            } else {
+                proxyPending[id]?.complete(j)
+            }
+            // Orphaned parts (a lost fragment or a cancelled waiter) would
+            // leak — sweep anything idle past the request timeout.
+            val now = android.os.SystemClock.elapsedRealtime()
+            proxyParts.entries.removeAll { now - it.value.first > 60_000 }
         }
     }
 
