@@ -158,31 +158,13 @@ fun ChatScreen(state: UiState, vm: AppViewModel) {
             },
     ) {
     Column(Modifier.fillMaxSize()) {
-        // header — Discord: hamburger, # name, member/search icons
-        // Header: perfectly aligned icons, 36dp touch targets, active tints
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 8.dp, vertical = 6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Box(
-                Modifier
-                    .size(36.dp)
-                    .clip(CircleShape)
-                    .clickable { vm.backHome() },
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    Icons.Filled.Menu,
-                    contentDescription = "back",
-                    tint = DcIcon,
-                    modifier = Modifier.size(22.dp),
-                )
-            }
-            Spacer(Modifier.width(6.dp))
-            Column(Modifier.weight(1f)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+        // header — Discord: hamburger, # name, member/search icons; same
+        // sectioned-off top bar as every other page
+        PageTopBar(
+            navIcon = Icons.Filled.Menu, navDesc = "back",
+            onNav = { vm.backHome() },
+            title = {
+                Column(Modifier.weight(1f)) {
                     Text(
                         chat.title,
                         color = DcText,
@@ -191,67 +173,30 @@ fun ChatScreen(state: UiState, vm: AppViewModel) {
                         maxLines = 1,
                         overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                     )
-                }
-                if (chat.subtitle.isNotBlank())
-                    Text(
-                        chat.subtitle,
-                        color = DcMuted,
-                        fontSize = 11.sp,
-                        maxLines = 1,
-                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                    )
-            }
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(2.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Box(
-                    Modifier
-                        .size(36.dp)
-                        .clip(CircleShape)
-                        .clickable { vm.togglePins() },
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(
-                        Icons.Filled.PushPin,
-                        contentDescription = "pins",
-                        tint = if (state.showPins) DcHoney else DcIcon,
-                        modifier = Modifier.size(19.dp),
-                    )
-                }
-                if (chat.hasMembers) {
-                    Box(
-                        Modifier
-                            .size(36.dp)
-                            .clip(CircleShape)
-                            .clickable { vm.toggleMembers() },
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Icon(
-                            Icons.Filled.Group,
-                            contentDescription = "members",
-                            tint = if (state.showMembers) DcAccent else DcIcon,
-                            modifier = Modifier.size(20.dp),
+                    if (chat.subtitle.isNotBlank())
+                        Text(
+                            chat.subtitle,
+                            color = DcMuted,
+                            fontSize = 11.sp,
+                            maxLines = 1,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                         )
+                }
+            },
+            actions = {
+                TopBarIconBtn(Icons.Filled.PushPin, "pins",
+                    tint = if (state.showPins) DcHoney else DcIcon,
+                    size = 19.dp) { vm.togglePins() }
+                if (chat.hasMembers)
+                    TopBarIconBtn(Icons.Filled.Group, "members",
+                        tint = if (state.showMembers) DcAccent else DcIcon) {
+                        vm.toggleMembers()
                     }
-                }
-                Box(
-                    Modifier
-                        .size(36.dp)
-                        .clip(CircleShape)
-                        .clickable { vm.toggleSearch() },
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(
-                        Icons.Filled.Search,
-                        contentDescription = "search",
-                        tint = if (state.searching) DcAccent else DcIcon,
-                        modifier = Modifier.size(19.dp),
-                    )
-                }
-            }
-        }
-        HorizontalDivider(color = DcBorder, thickness = 1.dp)
+                TopBarIconBtn(Icons.Filled.Search, "search",
+                    tint = if (state.searching) DcAccent else DcIcon,
+                    size = 19.dp) { vm.toggleSearch() }
+            },
+        )
 
         // messages (or search results when 🔍 is open)
         if (state.searching) {

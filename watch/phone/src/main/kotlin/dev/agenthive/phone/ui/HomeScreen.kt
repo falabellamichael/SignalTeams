@@ -121,19 +121,14 @@ fun HomeScreen(state: UiState, vm: AppViewModel) {
 private fun InboxPanel(state: UiState, vm: AppViewModel) {
     val arr = state.inboxArr ?: return
     Column(Modifier.fillMaxSize().background(DcSidebar)) {
-        Row(
-            Modifier.fillMaxWidth().padding(
-                start = 4.dp, end = 12.dp, top = 10.dp, bottom = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(Icons.Filled.Close, contentDescription = "close",
-                 tint = DcIcon,
-                 modifier = Modifier.clickable { vm.closeInbox() }
-                     .padding(10.dp).size(22.dp))
-            Text("Inbox", color = DcText, fontSize = 15.sp,
-                 fontWeight = FontWeight.Bold)
-        }
-        HorizontalDivider(color = DcBorder)
+        PageTopBar(
+            navIcon = Icons.Filled.Close, navDesc = "close",
+            onNav = { vm.closeInbox() },
+            title = {
+                Text("Inbox", color = DcText, fontSize = 15.sp,
+                     fontWeight = FontWeight.Bold)
+            },
+        )
         LazyColumn(Modifier.weight(1f).padding(horizontal = 10.dp)) {
             if (arr.length() == 0)
                 item { EmptyNote("no mentions yet") }
@@ -323,26 +318,18 @@ private fun MenuAction(label: String,
 private fun ServerSheet(state: UiState, vm: AppViewModel) {
     var name by remember { mutableStateOf("") }
     var code by remember { mutableStateOf("") }
-    Column(
-        Modifier.fillMaxSize().background(DcSidebar)
-            .padding(16.dp),
-    ) {
-        Row(
-            Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween,
-        ) {
-            Text("Your Servers", color = DcText, fontSize = 16.sp,
-                 fontWeight = FontWeight.Bold)
-            Box(
-                Modifier.size(36.dp).clip(CircleShape)
-                    .clickable { vm.closeServerSheet() },
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(Icons.Filled.Close, contentDescription = "close",
-                     tint = DcIcon, modifier = Modifier.size(20.dp))
-            }
-        }
+    Column(Modifier.fillMaxSize().background(DcSidebar)) {
+        PageTopBar(
+            title = {
+                Text("Your Servers", color = DcText, fontSize = 16.sp,
+                     fontWeight = FontWeight.Bold,
+                     modifier = Modifier.weight(1f).padding(start = 8.dp))
+            },
+            actions = {
+                TopBarIconBtn(Icons.Filled.Close, "close") { vm.closeServerSheet() }
+            },
+        )
+        Column(Modifier.fillMaxSize().padding(16.dp)) {
         Spacer(Modifier.height(14.dp))
         Text("CREATE A SERVER", color = DcMuted, fontSize = 10.5.sp,
              fontWeight = FontWeight.Bold, letterSpacing = 0.8.sp)
@@ -366,6 +353,7 @@ private fun ServerSheet(state: UiState, vm: AppViewModel) {
         if (state.serverSheetStatus.isNotBlank())
             Text(state.serverSheetStatus, color = DcRed, fontSize = 12.sp,
                  modifier = Modifier.padding(top = 10.dp))
+        }
     }
 }
 
@@ -411,43 +399,40 @@ private fun FriendsPanel(state: UiState, vm: AppViewModel) {
     val incoming = f.optJSONArray("incoming") ?: JSONArray()
     val outgoing = f.optJSONArray("outgoing") ?: JSONArray()
     Column(Modifier.fillMaxSize().background(DcSidebar)) {
-        Row(
-            Modifier.fillMaxWidth().padding(
-                start = 4.dp, end = 12.dp, top = 10.dp, bottom = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(Icons.Filled.Close, contentDescription = "close",
-                 tint = DcIcon,
-                 modifier = Modifier.clickable { vm.closeFriends() }
-                     .padding(10.dp).size(22.dp))
-            Text("Friends", color = DcText, fontSize = 15.sp,
-                 fontWeight = FontWeight.Bold)
-        }
-        // tab strip — Discord's All/Pending/Blocked/Add
+        // tab strip — Discord's All/Pending/Blocked/Add, under the top bar
         val tabs = listOf("all", "pending", "blocked", "add")
-        Row(Modifier.fillMaxWidth().padding(horizontal = 10.dp)
-            .horizontalScroll(rememberScrollState())) {
-            tabs.forEachIndexed { i, t ->
-                val sel = state.friendsTab == i
-                val label = if (t == "pending" &&
-                    incoming.length() + outgoing.length() > 0)
-                        "pending (${incoming.length() + outgoing.length()})"
-                    else t
-                Text(
-                    label, color = if (sel) DcText else DcMuted,
-                    fontSize = 12.sp,
-                    fontWeight = if (sel) FontWeight.SemiBold
-                                  else FontWeight.Medium,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(14.dp))
-                        .background(if (sel) DcHover else Color.Transparent)
-                        .clickable { vm.friendsTab(i) }
-                        .padding(horizontal = 10.dp, vertical = 5.dp))
-                Spacer(Modifier.width(4.dp))
-            }
-        }
-        HorizontalDivider(color = DcBorder,
-                          modifier = Modifier.padding(top = 8.dp))
+        PageTopBar(
+            navIcon = Icons.Filled.Close, navDesc = "close",
+            onNav = { vm.closeFriends() },
+            title = {
+                Text("Friends", color = DcText, fontSize = 15.sp,
+                     fontWeight = FontWeight.Bold)
+            },
+            below = {
+                Row(Modifier.fillMaxWidth().padding(horizontal = 10.dp)
+                    .horizontalScroll(rememberScrollState())) {
+                    tabs.forEachIndexed { i, t ->
+                        val sel = state.friendsTab == i
+                        val label = if (t == "pending" &&
+                            incoming.length() + outgoing.length() > 0)
+                                "pending (${incoming.length() + outgoing.length()})"
+                            else t
+                        Text(
+                            label, color = if (sel) DcText else DcMuted,
+                            fontSize = 12.sp,
+                            fontWeight = if (sel) FontWeight.SemiBold
+                                          else FontWeight.Medium,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(14.dp))
+                                .background(if (sel) DcHover else Color.Transparent)
+                                .clickable { vm.friendsTab(i) }
+                                .padding(horizontal = 10.dp, vertical = 5.dp))
+                        Spacer(Modifier.width(4.dp))
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+            },
+        )
         LazyColumn(Modifier.weight(1f).padding(horizontal = 10.dp)) {
             when (state.friendsTab) {
                 3 -> item { AddFriendBox(state, vm) }
@@ -619,19 +604,14 @@ private fun AddFriendBox(state: UiState, vm: AppViewModel) {
 @Composable
 private fun SavedPanel(state: UiState, vm: AppViewModel) {
     Column(Modifier.fillMaxSize().background(DcSidebar)) {
-        Row(
-            Modifier.fillMaxWidth().padding(
-                start = 4.dp, end = 12.dp, top = 10.dp, bottom = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(Icons.Filled.Close, contentDescription = "close",
-                 tint = DcIcon,
-                 modifier = Modifier.clickable { vm.closeSaved() }
-                     .padding(10.dp).size(22.dp))
-            Text("Saved Messages", color = DcText, fontSize = 15.sp,
-                 fontWeight = FontWeight.Bold)
-        }
-        HorizontalDivider(color = DcBorder)
+        PageTopBar(
+            navIcon = Icons.Filled.Close, navDesc = "close",
+            onNav = { vm.closeSaved() },
+            title = {
+                Text("Saved Messages", color = DcText, fontSize = 15.sp,
+                     fontWeight = FontWeight.Bold)
+            },
+        )
         LazyColumn(Modifier.weight(1f).padding(horizontal = 10.dp)) {
             val arr = state.savedMsgs!!
             if (arr.length() == 0)
@@ -803,49 +783,39 @@ private fun RailIcon(
 private fun DmPanel(state: UiState, vm: AppViewModel) {
     var filter by remember { mutableStateOf("") }
     Column(Modifier.fillMaxSize()) {
-        // Desktop-style SignalTeams Header
-        Row(
-            Modifier.fillMaxWidth().padding(start = 16.dp, top = 14.dp, end = 16.dp, bottom = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Column(Modifier.weight(1f)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+        // Desktop-style SignalHive header — the shared page top bar
+        PageTopBar(
+            title = {
+                Column(Modifier.weight(1f).padding(start = 8.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            "Signal",
+                            color = DcText,
+                            fontSize = 17.sp,
+                            fontWeight = FontWeight.Bold,
+                        )
+                        Spacer(Modifier.width(2.dp))
+                        Text(
+                            "Hive",
+                            color = DcHoney,
+                            fontSize = 17.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontStyle = androidx.compose.ui.text.font.FontStyle.Italic,
+                        )
+                    }
                     Text(
-                        "Nexus",
-                        color = DcText,
-                        fontSize = 17.sp,
-                        fontWeight = FontWeight.Bold,
-                    )
-                    Spacer(Modifier.width(2.dp))
-                    Text(
-                        "Watch",
-                        color = DcHoney,
-                        fontSize = 17.sp,
-                        fontWeight = FontWeight.Bold,
-                        fontStyle = androidx.compose.ui.text.font.FontStyle.Italic,
+                        "your hive, on your wrist",
+                        color = DcSub,
+                        fontSize = 11.sp,
                     )
                 }
-                Text(
-                    "your hive, on your wrist",
-                    color = DcSub,
-                    fontSize = 11.sp,
-                )
-            }
-            Icon(Icons.Filled.Notifications, contentDescription = "inbox",
-                 tint = DcIcon,
-                 modifier = Modifier.size(20.dp)
-                     .clickable { vm.openInbox() })
-            Spacer(Modifier.width(12.dp))
-            Icon(Icons.Filled.Group, contentDescription = "friends",
-                 tint = DcIcon,
-                 modifier = Modifier.size(20.dp)
-                     .clickable { vm.openFriends() })
-            Spacer(Modifier.width(12.dp))
-            Icon(Icons.Filled.Bookmark, contentDescription = "saved messages",
-                 tint = DcIcon,
-                 modifier = Modifier.size(20.dp)
-                     .clickable { vm.openSaved() })
-        }
+            },
+            actions = {
+                TopBarIconBtn(Icons.Filled.Notifications, "inbox") { vm.openInbox() }
+                TopBarIconBtn(Icons.Filled.Group, "friends") { vm.openFriends() }
+                TopBarIconBtn(Icons.Filled.Bookmark, "saved messages") { vm.openSaved() }
+            },
+        )
 
         // Search Bar with Search Icon
         Row(
@@ -1092,22 +1062,22 @@ private fun ServerPanel(state: UiState, vm: AppViewModel) {
     }
 
     Column(Modifier.fillMaxSize()) {
-        Row(
-            Modifier.fillMaxWidth()
-                .clickable { if (curServer != null) vm.openServerMenu(curServer) }
-                .padding(start = 16.dp, top = 14.dp, end = 12.dp, bottom = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                state.serverName.ifBlank { "…" },
-                color = DcText, fontSize = 16.sp, fontWeight = FontWeight.Bold,
-                modifier = Modifier.weight(1f),
-                maxLines = 1, overflow = TextOverflow.Ellipsis,
-            )
-            Icon(Icons.Filled.ExpandMore, contentDescription = null,
-                 tint = DcIcon, modifier = Modifier.size(20.dp))
-        }
-        HorizontalDivider(color = DcBorder, thickness = 1.dp, modifier = Modifier.padding(top = 8.dp))
+        PageTopBar(
+            onBarClick = { if (curServer != null) vm.openServerMenu(curServer) },
+            title = {
+                Text(
+                    state.serverName.ifBlank { "…" },
+                    color = DcText, fontSize = 16.sp, fontWeight = FontWeight.Bold,
+                    modifier = Modifier.weight(1f).padding(start = 8.dp),
+                    maxLines = 1, overflow = TextOverflow.Ellipsis,
+                )
+            },
+            actions = {
+                TopBarIconBtn(Icons.Filled.ExpandMore, "server menu") {
+                    if (curServer != null) vm.openServerMenu(curServer)
+                }
+            },
+        )
 
         val chans = remember(state.channels) {
             (0 until state.channels.length())

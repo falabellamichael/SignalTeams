@@ -44,30 +44,20 @@ import org.json.JSONObject
 @Composable
 fun VoiceScreen(state: UiState, vm: AppViewModel) {
     Column(Modifier.fillMaxSize().background(DcChat)) {
-        Row(
-            Modifier.fillMaxWidth()
-                .padding(start = 8.dp, end = 12.dp, top = 8.dp, bottom = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Box(
-                Modifier
-                    .size(36.dp)
-                    .clip(CircleShape)
-                    .clickable { vm.closeVoicePanel() },
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(Icons.Filled.ExpandMore, contentDescription = "minimize",
-                     tint = DcIcon, modifier = Modifier.size(24.dp))
-            }
-            Spacer(Modifier.width(6.dp))
-            Column(Modifier.weight(1f)) {
-                Text("Voice Connected", color = DcGreen, fontSize = 11.sp,
-                     fontWeight = FontWeight.Bold, letterSpacing = 0.6.sp)
-                Text("🔊 ${state.voiceName}", color = DcText,
-                     fontSize = 16.sp, fontWeight = FontWeight.Bold,
-                     maxLines = 1, overflow = TextOverflow.Ellipsis)
-            }
-        }
+        PageTopBar(
+            navIcon = Icons.Filled.ExpandMore, navDesc = "minimize",
+            navIconSize = 24.dp,
+            onNav = { vm.closeVoicePanel() },
+            title = {
+                Column(Modifier.weight(1f)) {
+                    Text("Voice Connected", color = DcGreen, fontSize = 11.sp,
+                         fontWeight = FontWeight.Bold, letterSpacing = 0.6.sp)
+                    Text("🔊 ${state.voiceName}", color = DcText,
+                         fontSize = 16.sp, fontWeight = FontWeight.Bold,
+                         maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+            },
+        )
         LazyVerticalGrid(
             columns = GridCells.Adaptive(minSize = 96.dp),
             modifier = Modifier.weight(1f).padding(horizontal = 12.dp),

@@ -149,24 +149,16 @@ private data class SetRow(
 private fun SettingsMenu(state: UiState, vm: AppViewModel,
                          onPage: (String) -> Unit) {
     Column(Modifier.fillMaxSize()) {
-        Row(
-            Modifier.fillMaxWidth()
-                .padding(start = 16.dp, end = 8.dp, top = 12.dp, bottom = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text("Settings", color = DcText, fontSize = 20.sp,
-                 fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-            Box(
-                Modifier
-                    .size(36.dp)
-                    .clip(CircleShape)
-                    .clickable { vm.closeSettings() },
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(Icons.Filled.Close, contentDescription = "close",
-                     tint = DcIcon, modifier = Modifier.size(20.dp))
-            }
-        }
+        PageTopBar(
+            title = {
+                Text("Settings", color = DcText, fontSize = 20.sp,
+                     fontWeight = FontWeight.Bold,
+                     modifier = Modifier.weight(1f).padding(start = 8.dp))
+            },
+            actions = {
+                TopBarIconBtn(Icons.Filled.Close, "close") { vm.closeSettings() }
+            },
+        )
         val me = state.meJson
         LazyColumn(Modifier.fillMaxSize()) {
             // Discord shows your account card first
@@ -309,26 +301,14 @@ private fun SettingsRow(icon: ImageVector, label: String, blurb: String,
 private fun SubPage(title: String, onBack: () -> Unit,
                     content: LazyListScope.() -> Unit) {
     Column(Modifier.fillMaxSize()) {
-        Row(
-            Modifier.fillMaxWidth()
-                .padding(start = 8.dp, end = 12.dp, top = 8.dp, bottom = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Box(
-                Modifier
-                    .size(36.dp)
-                    .clip(CircleShape)
-                    .clickable(onClick = onBack),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "back",
-                     tint = DcIcon, modifier = Modifier.size(20.dp))
-            }
-            Spacer(Modifier.width(6.dp))
-            Text(title, color = DcText, fontSize = 17.sp,
-                 fontWeight = FontWeight.Bold)
-        }
-        HorizontalDivider(color = DcBorder, thickness = 1.dp)
+        PageTopBar(
+            navIcon = Icons.AutoMirrored.Filled.ArrowBack, navDesc = "back",
+            onNav = onBack,
+            title = {
+                Text(title, color = DcText, fontSize = 17.sp,
+                     fontWeight = FontWeight.Bold)
+            },
+        )
         LazyColumn(Modifier.fillMaxSize().padding(horizontal = 14.dp)) {
             item { Spacer(Modifier.height(12.dp)) }
             content()
@@ -1154,7 +1134,7 @@ private fun WatchPage(state: UiState, vm: AppViewModel, onBack: () -> Unit) {
             FieldLabel("Alerts")
             PrimaryBtn("Send test alert") {
                 send("alert delivered") {
-                    WatchBridge.notifyWatch(ctx, "Test alert from Nexus Watch")
+                    WatchBridge.notifyWatch(ctx, "Test alert from SignalHive")
                 }
             }
             Text(
