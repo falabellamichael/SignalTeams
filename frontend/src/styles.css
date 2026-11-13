@@ -217,23 +217,31 @@ a { color: var(--accent); text-decoration: none; }
 .ch-agent .ch-hash { color: var(--honey); }
 
 /* me bar at bottom of sidebar */
-.me-bar { display: flex; align-items: center; gap: 8px; padding: 8px;
-  border-top: 1px solid var(--border); background: var(--panel2);
-  flex-shrink: 0; }
+.me-bar { position: relative; display: flex; align-items: center; gap: 4px; padding: 9px 8px;
+  border: 1px solid var(--border); border-radius: 16px 16px 0 0; background: var(--panel2);
+  margin: 0; min-width: 0; min-height: 72px; flex-shrink: 0; }
+.me-profile { display: flex; align-items: center; gap: 9px; flex: 1; min-width: 0;
+  padding: 3px; min-height: 48px; border: 0; border-radius: 12px; background: transparent; color: var(--text); text-align: left; }
+.me-profile:hover { background: var(--hover); }
+.me-bar .me-profile .avatar { width: 42px; height: 42px; font-size: 18px; }
+.me-bar .who > span { display: block; }
 .me-bar .who { flex: 1; min-width: 0; }
-.me-bar .who .n { font-size: 12.5px; font-weight: 600; overflow: hidden;
+.me-bar .who .n { font-size: 14px; line-height: 1.4; font-weight: 600; overflow: hidden;
   text-overflow: ellipsis; white-space: nowrap; }
-.me-bar .who .s { font-size: 10.5px; color: var(--dim); overflow: hidden;
+.me-bar .who .s { font-size: 12px; line-height: 1.5; color: var(--dim); overflow: hidden;
   text-overflow: ellipsis; white-space: nowrap; }
 .me-actions { display: flex; gap: 2px; flex-shrink: 0; }
 
 /* mobile: footer spans the full bottom width; desktop keeps it in the sidebar */
 .me-bar-mobile { display: none; }
 @media (max-width: 760px) {
-  .app { padding-bottom: 52px; }
+  .app { padding-bottom: calc(72px + env(safe-area-inset-bottom, 0px)); }
   .side-wrap .me-bar { display: none; }
   .me-bar-mobile { display: block; }
-  .me-bar-mobile .me-bar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 50; }
+  .me-bar-mobile .me-bar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 50;
+    margin: 0; padding-bottom: calc(9px + env(safe-area-inset-bottom, 0px)); }
+  .me-bar-mobile .me-bar::after { content: ""; position: absolute; top: -1px; bottom: -1px;
+    right: -1px; width: 1px; background: var(--border); pointer-events: none; }
 }
 
 /* avatar */
@@ -1652,6 +1660,16 @@ button > svg { vertical-align: -2px; }
 .side-drag:hover::after, body.col-resizing .side-drag::after {
   background: var(--accent); opacity: .45; }
 .side-wrap { position: relative; }
+@media (min-width: 761px) {
+  .side-wrap { border-right: 1px solid var(--border); }
+  .side-wrap > .side { border-right: 0; }
+  .side-wrap > .me-bar { margin: 8px 8px 0; }
+  .side-wrap .me-actions { gap: 0; margin-left: auto; }
+  .side-wrap .me-bar .me-btn { width: 27px; }
+  .side-wrap .me-bar .me-btn svg { width: 18px; height: 18px; }
+  .side-wrap .me-bar .me-btn.me-chevron { width: 15px; }
+  .side-wrap .me-bar .me-chevron svg { width: 11px; height: 11px; }
+}
 /* the wrapper carries the user-chosen width; the panel fills it.
    268px floor = the me-bar's natural width with a long display name
    (measured 266px) — the footer keeps its one-line shape at any drag */
@@ -1909,13 +1927,25 @@ body.col-resizing .ws-drag { pointer-events: auto !important; }
   gap: 2px;
   flex-shrink: 0;
 }
-.me-btn {
-  padding: 5px 6px;
-  border-radius: 4px;
-  color: var(--dim);
-  transition: all 0.15s ease;
+.me-bar .me-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 32px; height: 44px; padding: 0;
+  border-radius: 10px;
+  color: var(--text);
+  transition: background 0.15s ease, color 0.15s ease;
   cursor: pointer;
 }
+.me-control { display: flex; align-items: center; }
+.me-bar .me-btn.me-chevron { width: 20px; }
+.me-bar .me-btn[aria-expanded="true"] { background: var(--hover); color: var(--accent); }
+.me-bar button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.me-audio-popover { position: absolute; bottom: calc(100% + 8px); right: 0;
+  width: 220px; max-width: 100%; padding: 10px; z-index: 60; background: var(--panel);
+  border: 1px solid var(--border); border-radius: 16px; box-shadow: 0 8px 24px #0003; }
+.me-audio-popover strong { display: block; padding: 6px; font-size: 12px; }
+.me-audio-popover button { display: block; width: 100%; min-height: 44px; text-align: left; padding: 9px 6px;
+  background: transparent; color: var(--text); border: 0; border-radius: 6px; }
+.me-audio-popover button:hover { background: var(--hover); }
 .me-btn:hover {
   color: var(--text);
   background: var(--hover);

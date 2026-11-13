@@ -219,7 +219,7 @@ export function ConnectTab({ agent, me, onSaved }) {
               onChange={(e) => { setHeaders(e.target.value); setClearHeaders(false); }}
               placeholder={agent.has_api_headers && !clearHeaders
                 ? '{"X-Custom-Header": "..."} (leave blank to keep stored headers)'
-                : '{"HTTP-Referer": "https://signalteams.local", "X-Title": "SignalTeams"}'} />
+                : '{"HTTP-Referer": "https://signalteams.local", "X-Title": "SignalHive"}'} />
             {agent.has_api_headers && !clearHeaders && (
               <button type="button" className="ghost" style={{ fontSize: 11, whiteSpace: "nowrap" }}
                 onClick={() => { setHeaders(""); setClearHeaders(true); }}>

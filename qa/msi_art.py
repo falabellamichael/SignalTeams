@@ -1,4 +1,4 @@
-"""Generate WiX MSI installer artwork for SignalTeams.
+"""Generate WiX MSI installer artwork for SignalHive.
 
 Produces:
   frontend/src-tauri/msi/dialog.bmp    (493x312)   — welcome/finish background
@@ -21,7 +21,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 KNOT = os.path.join(ROOT, "qa", "icon_render", "dark", "signal-knot.png")
 OUT = os.path.join(ROOT, "frontend", "src-tauri", "msi")
 
-# SignalTeams palette — obsidian panel, warm paper right side, honey gold accents
+# SignalHive palette — obsidian panel, warm paper right side, honey gold accents
 OBSIDIAN_TOP = (18, 20, 27)
 OBSIDIAN_BOT = (10, 12, 17)
 PAPER = (249, 247, 243)
@@ -139,7 +139,7 @@ def make_dialog(path, s=1):
     d = ImageDraw.Draw(panel)
     wm_f = ImageFont.truetype("C:/Windows/Fonts/georgia.ttf", 19 * s)
     tag_f = ImageFont.truetype("C:/Windows/Fonts/georgiai.ttf", 10 * s)
-    text = "SignalTeams"
+    text = "SignalHive"
     tw = d.textlength(text, font=wm_f)
     d.text(((PANEL - tw) / 2, 216 * s), text, font=wm_f, fill=(*GOLD_SOFT, 255))
     tagline = "your crew's agents"

@@ -22,13 +22,31 @@ class HiveApp : Application() {
     /** Wakes the keep-alive NOW — network arrivals, screen-on and app
      *  foregrounding all emit. One buffered slot: a kick during a pass
      *  just means the next wait returns immediately. */
-    val meshKick = kotlinx.coroutines.flow.MutableSharedFlow<Unit>(
-        extraBufferCapacity = 1)
-    fun kickMesh() { meshKick.tryEmit(Unit) }
+    val meshKick = kotlinx.coroutines.channels.Channel<Unit>(
+        kotlinx.coroutines.channels.Channel.CONFLATED)
+    fun kickMesh() { meshKick.trySend(Unit) }
+
+    // Keep a strong reference: SharedPreferences retains listeners weakly.
+    private val glanceListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+        if (key == null || key in setOf("paired", "display_name", "last_reply", "suggestion")) {
+            runCatching {
+                androidx.wear.tiles.TileService.getUpdater(this)
+                    .requestUpdate(dev.agenthive.watch.tile.HiveTileService::class.java)
+            }
+            runCatching {
+                androidx.wear.watchface.complications.datasource.ComplicationDataSourceUpdateRequester
+                    .create(this, android.content.ComponentName(
+                        this, dev.agenthive.watch.complication.HiveComplicationService::class.java))
+                    .requestUpdateAll()
+            }
+        }
+    }
 
     override fun onCreate() {
         super.onCreate()
         store = Store(this)
+        getSharedPreferences("hive", MODE_PRIVATE)
+            .registerOnSharedPreferenceChangeListener(glanceListener)
         api = HiveApi(this).apply {
             proxyHandler = object : dev.agenthive.watch.data.ApiProxyHandler {
                 override suspend fun proxyRequest(method: String, path: String, bodyString: String, token: String) =
@@ -41,7 +59,7 @@ class HiveApp : Application() {
                     dev.agenthive.watch.device.PhoneBridge.hasNearbyPhone(this@HiveApp)
             }
         }
-        nexus = NexusNode(this).apply {
+        nexus = NexusNode(this, deferNetworkDemand = true).apply {
             hasCompanionCheck = {
                 runCatching {
                     kotlinx.coroutines.runBlocking(Dispatchers.IO) {

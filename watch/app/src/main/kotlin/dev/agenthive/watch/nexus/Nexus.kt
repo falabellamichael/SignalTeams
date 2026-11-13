@@ -152,7 +152,7 @@ data class NexusCfg(
  * One mesh node per watch. All SDK calls serialize on [mutex] and run on
  * Dispatchers.IO — the C ABI blocks on network I/O.
  */
-class NexusNode(private val ctx: Context) {
+class NexusNode(private val ctx: Context, private val deferNetworkDemand: Boolean = false) {
 
     private val mutex = Mutex()
     private val dir = File(ctx.filesDir, "nexus").apply { mkdirs() }
@@ -162,10 +162,9 @@ class NexusNode(private val ctx: Context) {
     init {
         captureNativeOutput()
         ensureTrustStore()
-        // Wake a direct radio NOW — the LTE modem takes 20–40 s to power up,
-        // so the demand has to be filed at process start, not when connect()
-        // finally reaches bindDirectNetwork.
-        runCatching { registerDirectDemand() }
+        // The phone wakes LTE early (a cold modem takes 20–40s). The watch
+        // defers this until connect(): tiles and phone messages need no direct radio.
+        if (!deferNetworkDemand) runCatching { registerDirectDemand() }
     }
 
     /**
@@ -300,6 +299,7 @@ class NexusNode(private val ctx: Context) {
             override fun onAvailable(network: Network) = offer(network)
             override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) = offer(network)
             override fun onLost(network: Network) {
+                if (wifiDemand !== this) return
                 Log.w("NexusNode", "direct net lost ${transports(cm, network)}")
                 val rem = directNet(cm)
                 if (rem == null) {
@@ -314,6 +314,7 @@ class NexusNode(private val ctx: Context) {
                 onNetEvent?.invoke()
             }
             private fun offer(network: Network) {
+                if (wifiDemand !== this) return
                 if (!isDirect(cm, network)) return
                 val caps = cm.getNetworkCapabilities(network)
                 if (caps?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true)
@@ -340,6 +341,7 @@ class NexusNode(private val ctx: Context) {
                         .build(), cb
                 )
             } catch (e: Exception) {
+                wifiDemand = null
                 Log.w("NexusNode", "requestNetwork wifi failed: ${e.message}")
             }
         }
@@ -369,6 +371,8 @@ class NexusNode(private val ctx: Context) {
                     .build(), cellCb
             )
         } catch (e: Exception) {
+            cellDemand = null
+            cellDemandSince = 0L
             Log.w("NexusNode", "requestNetwork cellular failed: ${e.message}")
         }
     }
@@ -377,6 +381,18 @@ class NexusNode(private val ctx: Context) {
         cellDemand?.let { runCatching { cm.unregisterNetworkCallback(it) } }
         cellDemand = null
         cellDemandSince = 0L
+    }
+
+    /** Stop holding Wi-Fi/LTE up after the watch's dataplane has parked. */
+    private fun releaseDirectDemand() {
+        val cm = connectivityManager() ?: return
+        val wifi = wifiDemand
+        wifiDemand = null // Ignore callbacks already queued by the old request.
+        wifi?.let { runCatching { cm.unregisterNetworkCallback(it) } }
+        releaseCellDemand(cm)
+        lastUpNet = null
+        directLatch = java.util.concurrent.CountDownLatch(1)
+        runCatching { cm.bindProcessToNetwork(null) }
     }
 
     /** Event-driven idle for the keep-alive: true if a direct net arrived. */
@@ -776,12 +792,7 @@ class NexusNode(private val ctx: Context) {
         cli = null; ident = null; info = NexusInfo(); suspended = false
         egresses.clear()
         if (releaseDemand) {
-            val cm = connectivityManager()
-            wifiDemand?.let { runCatching { cm?.unregisterNetworkCallback(it) } }
-            cellDemand?.let { runCatching { cm?.unregisterNetworkCallback(it) } }
-            wifiDemand = null
-            cellDemand = null
-            runCatching { cm?.bindProcessToNetwork(null) }
+            releaseDirectDemand()
         }
     }
 
@@ -795,17 +806,23 @@ class NexusNode(private val ctx: Context) {
     suspend fun resume() = withContext(Dispatchers.IO) {
         if (!suspended) return@withContext
         mutex.withLock {
+            if (!suspended) return@withLock
+            // Reacquire a direct radio before resetting the sleeping transport.
+            if (wifiDemand == null) bindDirectNetwork()
             cli?.let { runCatching { NexusLib.load().ln_resume(it) } }
             suspended = false
             egresses.clear()    // transport reset killed every listener
         }
     }
 
-    suspend fun suspendMesh() = withContext(Dispatchers.IO) {
-        if (suspended) return@withContext
+    suspend fun suspendMesh(releaseNetwork: Boolean = false) = withContext(Dispatchers.IO) {
+        if (suspended && !releaseNetwork) return@withContext
         mutex.withLock {
-            cli?.let { runCatching { NexusLib.load().ln_suspend(it) } }
-            suspended = true
+            if (!suspended && cli != null) {
+                runCatching { NexusLib.load().ln_suspend(cli) }
+                suspended = true
+            }
+            if (releaseNetwork) releaseDirectDemand()
         }
     }
 

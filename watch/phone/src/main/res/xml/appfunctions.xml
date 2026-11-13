@@ -505,7 +505,7 @@ playing, like Shazam.</description>
     <appfunction>
         <id>dev.agenthive.phone.HiveAppFunctionServiceBase#remember</id>
         <enabledByDefault>true</enabledByDefault>
-        <description>Saves a note to the user's Nexus memory — "remember that the
+        <description>Saves a note to the user's SignalHive memory — "remember that the
 wifi password is X".</description>
         <parameters>
             <dataTypeMetadata>
@@ -531,7 +531,7 @@ wifi password is X".</description>
     <appfunction>
         <id>dev.agenthive.phone.HiveAppFunctionServiceBase#askHive</id>
         <enabledByDefault>true</enabledByDefault>
-        <description>Asks the Nexus Watch assistant a question and returns the reply,
+        <description>Asks the SignalHive assistant a question and returns the reply,
 routed through the user's hive cluster.</description>
         <parameters>
             <dataTypeMetadata>

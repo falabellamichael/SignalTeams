@@ -1,4 +1,4 @@
-// Custom desktop titlebar for SignalTeams (Tauri v2).
+// Custom desktop titlebar for SignalHive (Tauri v2).
 (() => {
   const workspace = new URL("__APP_URL__");
   const bootstrap = new URL("__BOOTSTRAP_URL__");
@@ -7,7 +7,7 @@
   document.addEventListener("DOMContentLoaded", () => {
     const appWindow = window.__TAURI__.window.getCurrentWindow();
     const host = document.createElement("header");
-    host.setAttribute("aria-label", "SignalTeams title bar");
+    host.setAttribute("aria-label", "SignalHive title bar");
     const root = host.attachShadow({ mode: "open" });
     const pageStyle = document.createElement("style");
     pageStyle.textContent = `
@@ -68,7 +68,7 @@
       <div class="bar">
         <div class="brand">
           <img src="data:image/png;base64,__LOGO__" alt="" draggable="false">
-          <span>Signal<span class="word">Teams</span></span>
+          <span>Signal<span class="word">Hive</span></span>
           <span class="badge">Desktop</span>
         </div>
         <div class="space"></div>
@@ -106,7 +106,7 @@
         : "M1 1h10v10H1z");
     }
 
-    const reportError = (error) => console.error("SignalTeams window control:", error);
+    const reportError = (error) => console.error("SignalHive window control:", error);
     root.querySelector(".minimize").onclick = () => appWindow.minimize().catch(reportError);
     root.querySelector(".close").onclick = () => appWindow.close().catch(reportError);
     const toggleMaximize = () => appWindow.toggleMaximize().then(updateMaximize).catch(reportError);

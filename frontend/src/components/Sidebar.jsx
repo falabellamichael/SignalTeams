@@ -19,7 +19,7 @@ export function HomeSidebar({ view, setView, dms, onOpenDm, onNewGroupDm, onLeav
     <div className="side">
       <div className="side-head">
         <div>
-          <div className="name">Signal<span className="serif" style={{ color: "var(--honey)" }}>Teams</span></div>
+          <div className="name">Signal<span className="serif" style={{ color: "var(--honey)" }}>Hive</span></div>
           <div className="sub">your crew's agents</div>
         </div>
       </div>
@@ -307,31 +307,60 @@ export function VoiceConnectedBar({ voice, channel, server, onDisconnect, onJump
 export function MeBar({ me, voice, onSettings, onToggleMute, onToggleDeafen }) {
   const isMuted = voice?.muted;
   const isDeafened = voice?.deafened;
+  const [menu, setMenu] = React.useState(null);
+  const bar = React.useRef(null);
+  React.useEffect(() => {
+    if (!menu) return;
+    const dismiss = (e) => { if (!bar.current?.contains(e.target)) setMenu(null); };
+    const escape = (e) => { if (e.key === "Escape") { setMenu(null); bar.current?.querySelector(`[data-audio-menu="${menu}"]`)?.focus(); } };
+    document.addEventListener("pointerdown", dismiss);
+    document.addEventListener("keydown", escape);
+    return () => { document.removeEventListener("pointerdown", dismiss); document.removeEventListener("keydown", escape); };
+  }, [menu]);
 
   return (
-    <div className="me-bar">
+    <div className="me-bar" ref={bar}>
+      <button type="button" className="me-profile" onClick={onSettings} title="Edit your profile">
       <Avatar user={me} size="sm" showStatus />
-      <div className="who">
-        <div className="n">{me.display_name}</div>
-        <div className="s">{me.status_text || `@${me.username} · ${me.status}`}</div>
-      </div>
+      <span className="who">
+        <span className="n">{me.display_name}</span>
+        <span className="s">{me.status_text || me.status || "Online"}</span>
+      </span>
+      </button>
       <div className="me-actions">
+        <div className="me-control">
         <button
           className={`ghost me-btn ${isMuted ? "muted" : ""}`}
+          aria-pressed={!!isMuted}
           title={isMuted ? "Unmute Microphone" : "Mute Microphone"}
           onClick={onToggleMute}>
-          <Ico n={isMuted ? "micOff" : "mic"} s={15} />
+          <Ico n={isMuted ? "micOff" : "mic"} s={21} w="fill" />
         </button>
+        <button className="ghost me-btn me-chevron" title="Microphone options" data-audio-menu="mic"
+          aria-expanded={menu === "mic"} onClick={() => setMenu(menu === "mic" ? null : "mic")}><Ico n="caretD" s={13} w="bold" /></button>
+        </div>
+        <div className="me-control">
         <button
           className={`ghost me-btn ${isDeafened ? "deafened" : ""}`}
+          aria-pressed={!!isDeafened}
           title={isDeafened ? "Undeafen" : "Deafen"}
           onClick={onToggleDeafen}>
-          <Ico n={isDeafened ? "undeaf" : "phones"} s={15} />
+          <Ico n={isDeafened ? "undeaf" : "phones"} s={23} w="fill" />
         </button>
+        <button className="ghost me-btn me-chevron" title="Headphone options" data-audio-menu="phones"
+          aria-expanded={menu === "phones"} onClick={() => setMenu(menu === "phones" ? null : "phones")}><Ico n="caretD" s={13} w="bold" /></button>
+        </div>
         <button className="ghost me-btn" title="Settings" onClick={onSettings}>
-          <Ico n="gear" s={15} />
+          <Ico n="gear" s={24} w="fill" />
         </button>
       </div>
+      {menu && <div className="me-audio-popover">
+        <strong>{menu === "mic" ? "Microphone" : "Headphones"}</strong>
+        <button onClick={() => { menu === "mic" ? onToggleMute() : onToggleDeafen(); setMenu(null); }}>
+          {menu === "mic" ? (isMuted ? "Unmute microphone" : "Mute microphone") : (isDeafened ? "Undeafen" : "Deafen")}
+        </button>
+        <button onClick={() => { setMenu(null); onSettings(); }}>Open settings</button>
+      </div>}
     </div>
   );
 }

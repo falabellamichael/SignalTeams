@@ -63,7 +63,7 @@ export const api = {
     const blob = await res.blob();
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
-    a.download = `signalteams-export-${new Date().toISOString().slice(0, 10)}.json`;
+    a.download = `signalhive-export-${new Date().toISOString().slice(0, 10)}.json`;
     a.click();
     URL.revokeObjectURL(a.href);
   },

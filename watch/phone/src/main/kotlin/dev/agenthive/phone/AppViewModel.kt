@@ -1,10 +1,13 @@
 package dev.agenthive.phone
 
 import android.app.Application
+import android.content.Intent
 import android.util.Log
+import android.view.View
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import dev.agenthive.watch.data.HiveApi
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -15,9 +18,18 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.update
 import org.json.JSONArray
 import org.json.JSONObject
+import org.webrtc.RendererCommon
+import org.webrtc.SurfaceViewRenderer
+import org.webrtc.VideoTrack
 
 /** App routes — login → home → chat (+settings overlay). Mesh is transport. */
 enum class Route { LOGIN, LINKING, HOME, CHAT, SETTINGS }
+
+/** One live video feed (self or remote) — `view` is its SurfaceViewRenderer. */
+data class VoiceFeed(
+    val uid: Int, val trackId: String, val streamId: String,
+    val kind: String, val view: View,
+)
 
 data class ChatRef(
     val cid: Int, val title: String, val subtitle: String = "",
@@ -88,6 +100,9 @@ data class UiState(
     val voiceDeafened: Boolean = false,
     val voiceSpeaker: Boolean = true,
     val voiceOpen: Boolean = false,        // full voice screen vs mini-bar
+    val voiceSharing: Boolean = false,     // I'm screen-sharing
+    val voiceCamera: Boolean = false,
+    val voiceFeeds: Map<String, VoiceFeed> = emptyMap(),  // trackId → feed
     val voiceOccupants: Map<Int, JSONArray> = emptyMap(),  // cid → roster
     val typingUsers: Map<Int, Pair<String, Long>> = emptyMap(),  // uid → (name, expiryMs)
     val unread: Set<Int> = emptySet(),        // channel ids w/ unseen msgs (WS)
@@ -122,6 +137,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     private var wsClient: WsClient? = null
     private var voice: VoiceEngine? = null
+    /** uid → (sender stream id → "cam"|"screen") from voice_media hints. */
+    private val videoKinds = HashMap<Int, HashMap<String, String>>()
 
     init {
         nexus.onStatus = { m -> _ui.update { it.copy(status = m) } }
@@ -146,13 +163,35 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             "voice_reject" -> {
                 if (evt.optInt("channel_id") == _ui.value.voiceCid) {
                     voice?.leave()
+                    clearVoiceFeeds()
+                    videoKinds.clear()
                     _ui.update { it.copy(voiceCid = 0, voiceOpen = false,
+                        voiceFeeds = emptyMap(), voiceSharing = false,
                         toast = evt.optString("reason", "can't join voice")) }
                 }
             }
             "voice_signal" -> voice?.onSignal(
                 evt.optInt("from"),
                 evt.optJSONObject("data") ?: JSONObject())
+            "voice_media" -> {
+                // stream-kind hint (cam vs screen) — label existing feeds
+                val from = evt.optInt("from")
+                val d = evt.optJSONObject("data") ?: return
+                val sid = d.optString("stream_id")
+                if (sid.isBlank()) return
+                val kind = d.optString("kind", "screen")
+                val map = videoKinds.getOrPut(from) { HashMap() }
+                if (map[sid] == kind) return
+                map[sid] = kind
+                _ui.update { s ->
+                    val feeds = s.voiceFeeds
+                    val hit = feeds.values.any { it.uid == from && it.streamId == sid }
+                    if (!hit) s else s.copy(voiceFeeds = feeds.mapValues { (_, f) ->
+                        if (f.uid == from && f.streamId == sid) f.copy(kind = kind)
+                        else f
+                    })
+                }
+            }
             "typing" -> {
                 if (evt.optInt("channel_id") == _ui.value.chat?.cid) {
                     val u = evt.optJSONObject("user") ?: return
@@ -291,9 +330,18 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             if (roster.length() == 0) occ.remove(cid) else occ[cid] = roster
             it.copy(voiceOccupants = occ,
                     voiceRoster = if (cid == it.voiceCid) roster
-                                  else it.voiceRoster)
+                                   else it.voiceRoster)
         }
-        if (cid == _ui.value.voiceCid) voice?.onRoster(roster)
+        if (cid == _ui.value.voiceCid) {
+            voice?.onRoster(roster)
+            // feeds whose owner left the room go away (web drops them too)
+            val inRoom = HashSet<Int>()
+            for (i in 0 until roster.length())
+                roster.optJSONObject(i)?.let { inRoom += it.optInt("id") }
+            _ui.value.voiceFeeds.values
+                .filter { it.uid !in inRoom }
+                .forEach { removeVoiceFeed(it.trackId) }
+        }
     }
 
     fun joinVoice(ch: JSONObject) {
@@ -301,20 +349,108 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         val eng = voice ?: VoiceEngine(appInst,
             send = { wsClient?.send(it) },
             onRoster = {})
+        eng.onSharingChange = { on, track ->
+            _ui.update { s -> s.copy(voiceSharing = on) }
+            if (track != null) {
+                if (on) addVoiceFeed(_ui.value.meId, track, HIVE_SCREEN_ID, "screen")
+                else removeVoiceFeed(track.id())
+            }
+        }
+        eng.onCameraChange = { on, track ->
+            _ui.update { it.copy(voiceCamera = on) }
+            if (track != null) {
+                if (on) addVoiceFeed(_ui.value.meId, track, "hiveCamera", "cam")
+                else removeVoiceFeed(track.id())
+            }
+        }
+        eng.onVideoTrack = { uid, track, streamId ->
+            val kind = videoKinds[uid]?.get(streamId) ?: "screen"
+            addVoiceFeed(uid, track, streamId, kind)
+        }
+        eng.onVideoGone = { _, trackId -> removeVoiceFeed(trackId) }
         voice = eng
         eng.join(cid, _ui.value.meId)
         _ui.update {
             it.copy(voiceCid = cid, voiceName = ch.optString("name"),
                     voiceOpen = true, voiceMuted = false,
-                    voiceDeafened = false, showMembers = false)
+                    voiceDeafened = false, voiceSharing = false,
+                    voiceFeeds = emptyMap(), showMembers = false)
         }
     }
 
     fun leaveVoice() {
         voice?.leave()
+        clearVoiceFeeds()
+        videoKinds.clear()
         _ui.update { it.copy(voiceCid = 0, voiceOpen = false,
-                             voiceRoster = JSONArray(),
-                             voiceMuted = false, voiceDeafened = false) }
+                              voiceRoster = JSONArray(),
+                              voiceMuted = false, voiceDeafened = false,
+                              voiceSharing = false) }
+    }
+
+    // -- screen share ----------------------------------------------------------
+
+    /** Consent dialog returned OK — start capturing. */
+    fun screenShareGranted(intent: Intent) {
+        val eng = voice ?: return
+        viewModelScope.launch {
+            runCatching {
+                appInst.startForegroundService(Intent(appInst, ScreenShareService::class.java))
+                kotlinx.coroutines.withTimeout(10000) { ScreenShareService.ready.await() }
+                if (voice !== eng || _ui.value.voiceCid <= 0) error("Voice channel disconnected")
+                eng.startScreenShare(intent)
+            }
+                .onFailure { e ->
+                    appInst.stopService(Intent(appInst, ScreenShareService::class.java))
+                    _ui.update { it.copy(toast = "✗ ${e.message}") } }
+        }
+    }
+
+    fun stopScreenShare() {
+        runCatching { voice?.stopScreenShare() }
+    }
+
+    fun toggleCamera() {
+        runCatching { voice?.toggleCamera() }.onFailure { e ->
+            _ui.update { it.copy(toast = "Camera: ${e.message}") }
+        }
+    }
+
+    /** Bind a SurfaceViewRenderer to a track (self preview or remote feed). */
+    private fun addVoiceFeed(uid: Int, track: VideoTrack,
+                             streamId: String, kind: String) {
+        viewModelScope.launch(Dispatchers.Main) {
+            val eng = voice ?: return@launch
+            val egl = eng.eglContext ?: return@launch
+            val renderer = SurfaceViewRenderer(appInst)
+            renderer.init(egl, null)
+            renderer.setScalingType(RendererCommon.ScalingType.SCALE_ASPECT_FIT)
+            renderer.setMirror(false)
+            runCatching { track.addSink(renderer) }
+            val feed = VoiceFeed(uid, track.id(), streamId, kind, renderer)
+            _ui.update { s ->
+                if (s.voiceFeeds.containsKey(feed.trackId)) s
+                else s.copy(voiceFeeds = s.voiceFeeds + (feed.trackId to feed))
+            }
+        }
+    }
+
+    private fun removeVoiceFeed(trackId: String) {
+        viewModelScope.launch(Dispatchers.Main) {
+            val feed = _ui.value.voiceFeeds[trackId] ?: return@launch
+            runCatching { (feed.view as? SurfaceViewRenderer)?.release() }
+            _ui.update { s -> s.copy(voiceFeeds = s.voiceFeeds - trackId) }
+        }
+    }
+
+    fun clearVoiceFeeds() {
+        viewModelScope.launch(Dispatchers.Main) {
+            val feeds = _ui.value.voiceFeeds
+            for (f in feeds.values)
+                runCatching { (f.view as? SurfaceViewRenderer)?.release() }
+            if (feeds.isNotEmpty())
+                _ui.update { s -> s.copy(voiceFeeds = emptyMap()) }
+        }
     }
 
     fun openVoice() { _ui.update { it.copy(voiceOpen = true) } }

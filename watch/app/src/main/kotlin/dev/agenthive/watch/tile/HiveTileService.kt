@@ -34,8 +34,7 @@ class HiveTileService : TileService() {
         req: ResourcesRequest
     ): ListenableFuture<ResourceBuilders.Resources> =
         CallbackToFutureAdapter.getFuture { c ->
-            c.set(ResourceBuilders.Resources.Builder()
-                .setVersion(RES_VERSION).build())
+            c.set(TileIcons.resources(RES_VERSION))
             "hive-res"
         }
 
@@ -43,13 +42,12 @@ class HiveTileService : TileService() {
         val store = Store(applicationContext)
         val status = when {
             !store.paired -> "Not paired — open Nexus Watch to link your hive"
-            else -> "● Linked" +
+            else -> "Linked" +
                 store.displayName.takeIf { it.isNotBlank() }
                     ?.let { " as $it" }.orEmpty()
         }
         // Proactive line ("Meeting in 35m") wins over lastReply when present
-        val glance = store.suggestion.takeIf { it.isNotBlank() }
-            ?.let { "✦ $it" } ?: store.lastReply.take(90)
+        val glance = store.suggestion.takeIf { it.isNotBlank() } ?: store.lastReply.take(90)
         val ask = ModifiersBuilders.Clickable.Builder()
             .setId("ask")
             .setOnClick(ActionBuilders.LaunchAction.Builder()
@@ -60,29 +58,41 @@ class HiveTileService : TileService() {
                 .build())
             .build()
 
-        val ctx = this
         val body = LayoutElementBuilders.Column.Builder()
             .setWidth(DimensionBuilders.expand())
-            .addContent(Text.Builder(ctx, status).build())
+            .addContent(iconText(status, "linked"))
             .apply {
                 if (glance.isNotBlank())
-                    addContent(Text.Builder(ctx, glance)
-                        .setMaxLines(2).build())
+                    addContent(iconText(glance, if (store.suggestion.isNotBlank()) "suggestion" else "ask"))
             }
             .build()
 
         val layout = PrimaryLayout.Builder(dev)
             .setContent(body)
             .setPrimaryChipContent(
-                CompactChip.Builder(this, "✦ Ask", ask, dev).build())
+                CompactChip.Builder(this, "Ask", ask, dev)
+                    .setIconContent("ask").build())
             .build()
 
         return Tile.Builder()
             .setResourcesVersion(RES_VERSION)
-            .setFreshnessIntervalMillis(30_000)
+            // Content changes request an update; this is only a safety refresh.
+            .setFreshnessIntervalMillis(10 * 60_000L)
             .setTileTimeline(TimelineBuilders.Timeline.fromLayoutElement(layout))
             .build()
     }
 
-    companion object { private const val RES_VERSION = "1" }
+    private fun iconText(text: String, icon: String): LayoutElementBuilders.Row =
+        LayoutElementBuilders.Row.Builder()
+            .setVerticalAlignment(LayoutElementBuilders.VERTICAL_ALIGN_CENTER)
+            .addContent(LayoutElementBuilders.Image.Builder()
+                .setResourceId(icon)
+                .setWidth(DimensionBuilders.dp(14f))
+                .setHeight(DimensionBuilders.dp(14f)).build())
+            .addContent(LayoutElementBuilders.Spacer.Builder()
+                .setWidth(DimensionBuilders.dp(4f)).build())
+            .addContent(Text.Builder(this, text).setMaxLines(2).build())
+            .build()
+
+    companion object { private const val RES_VERSION = "2" }
 }

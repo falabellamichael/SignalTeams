@@ -186,7 +186,6 @@ object PhoneBridge {
             addOnCompleteListener { t ->
                 cont.resume(if (t.isSuccessful) t.result else null)
             }
-            addOnFailureListener { cont.resume(null) }
         }
 
     /** GMS node scans are a binder round trip each — during a proxy stream
@@ -270,23 +269,40 @@ object PhoneBridge {
         requestMutex.withLock {
             val d = CompletableDeferred<String>()
             pending[replyPath] = d
-            val err = send(ctx, path)
-            if (err.isNotEmpty()) { pending.remove(replyPath); return "" to err }
-            val raw = withTimeoutOrNull(6_000) { d.await() }
-            pending.remove(replyPath)
-            if (raw == null) markDead() else markAlive()
-            return (raw ?: "") to
-                if (raw == null) "The phone didn't answer — is Nexus Watch running on it?"
-                else ""
+            try {
+                val err = send(ctx, path)
+                if (err.isNotEmpty()) return "" to err
+                val raw = withTimeoutOrNull(6_000) { d.await() }
+                if (raw == null) markDead() else markAlive()
+                return (raw ?: "") to
+                    if (raw == null) "The phone didn't answer — is Nexus Watch running on it?"
+                    else ""
+            } finally {
+                pending.remove(replyPath, d)
+            }
         }
+    }
+
+    data class BatteryStatus(val percent: Int, val charging: Boolean)
+
+    private suspend fun statusReply(ctx: Context): Pair<JSONObject?, String> {
+        val (raw, err) = request(ctx, "/hive/status", PATH_STATUS_REPLY)
+        if (raw.isEmpty()) return null to err
+        val j = runCatching { JSONObject(raw) }.getOrNull()
+        return j to if (j == null) "The phone answered oddly." else ""
+    }
+
+    /** Structured reading for the home display; an unreachable phone has no percentage. */
+    suspend fun phoneBattery(ctx: Context): BatteryStatus? {
+        val (j, _) = statusReply(ctx)
+        val percent = j?.optInt("batt", -1)?.takeIf { it in 0..100 } ?: return null
+        return BatteryStatus(percent, j.optBoolean("charging"))
     }
 
     /** Ask the phone for its live status (battery/charging) and await the reply. */
     suspend fun phoneStatus(ctx: Context): String {
-        val (raw, err) = request(ctx, "/hive/status", PATH_STATUS_REPLY)
-        if (raw.isEmpty()) return err
-        val j = runCatching { JSONObject(raw) }.getOrNull()
-            ?: return "The phone answered oddly."
+        val (j, err) = statusReply(ctx)
+        if (j == null) return err
         val batt = j.optInt("batt", -1)
         val bits = buildList {
             if (batt >= 0) add("at $batt%")

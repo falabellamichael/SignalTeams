@@ -37,6 +37,10 @@ import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material3.RadioButton
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.ui.semantics.Role
 import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.PersonRemove
 import androidx.compose.material.icons.filled.Psychology
@@ -124,6 +128,7 @@ fun SettingsScreen(state: UiState, vm: AppViewModel) {
             else -> when (page) {
                 "menu" -> SettingsMenu(state, vm, onPage = { page = it })
                 "profile" -> ProfilePage(state, vm) { page = "menu" }
+                "appearance" -> AppearancePage { page = "menu" }
                 "notif" -> NotifPage(state, vm) { page = "menu" }
                 "models" -> ModelsPage(state, vm) { page = "menu" }
                 "conns" -> ConnsPage(state,
@@ -197,6 +202,8 @@ private fun SettingsMenu(state: UiState, vm: AppViewModel,
                 "USER SETTINGS" to listOf(
                     SetRow(Icons.Filled.AccountCircle, "My Account",
                         "Profile, avatar and presence", "profile"),
+                    SetRow(Icons.Filled.Palette, "Appearance",
+                        PhoneAppearance.palette.label, "appearance"),
                     SetRow(Icons.Filled.Notifications, "Notifications",
                         "Keyword alerts", "notif"),
                 ),
@@ -298,6 +305,50 @@ private fun SettingsRow(icon: ImageVector, label: String, blurb: String,
 /* ============================ sub-page kit ============================== */
 
 @Composable
+private fun AppearancePage(onBack: () -> Unit) {
+    val ctx = LocalContext.current
+    val selected = PhoneAppearance.palette
+    SubPage("Appearance", onBack) {
+        item {
+            Text("Choose your theme", color = DcText, fontSize = 18.sp,
+                fontWeight = FontWeight.Bold)
+            Text("Applies instantly and stays saved on this phone.", color = DcSub,
+                fontSize = 13.sp, modifier = Modifier.padding(top = 4.dp, bottom = 16.dp))
+        }
+        PhonePalettes.forEach { theme ->
+            item(key = theme.id) {
+                Row(
+                    Modifier.fillMaxWidth().padding(bottom = 10.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(theme.sidebar)
+                        .border(if (selected.id == theme.id) 2.dp else 1.dp,
+                            if (selected.id == theme.id) DcAccent else theme.border,
+                            RoundedCornerShape(14.dp))
+                        .selectable(selected = selected.id == theme.id, role = Role.RadioButton,
+                            onClick = { PhoneAppearance.select(ctx, theme) })
+                        .padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text(theme.label, color = theme.text, fontSize = 16.sp,
+                            fontWeight = FontWeight.SemiBold)
+                        Row(Modifier.padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            listOf(theme.rail, theme.bar, theme.accent, theme.honey).forEach { color ->
+                                Box(Modifier.size(22.dp).clip(CircleShape).background(color)
+                                    .border(1.dp, theme.border, CircleShape))
+                            }
+                        }
+                    }
+                    RadioButton(selected = selected.id == theme.id, onClick = null,
+                        colors = androidx.compose.material3.RadioButtonDefaults.colors(
+                            selectedColor = theme.accent, unselectedColor = theme.sub))
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun SubPage(title: String, onBack: () -> Unit,
                     content: LazyListScope.() -> Unit) {
     Column(Modifier.fillMaxSize()) {
@@ -365,7 +416,7 @@ private fun PrimaryBtn(label: String, enabled: Boolean = true,
             .padding(vertical = 11.dp),
         contentAlignment = Alignment.Center,
     ) {
-        Text(label, color = Color.White, fontSize = 14.sp,
+        Text(label, color = if (danger) Color.White else DcOnAccent, fontSize = 14.sp,
              fontWeight = FontWeight.SemiBold)
     }
 }

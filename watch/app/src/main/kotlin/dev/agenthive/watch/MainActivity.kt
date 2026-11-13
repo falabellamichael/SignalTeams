@@ -13,7 +13,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.getValue
 import android.view.WindowManager
@@ -85,7 +85,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         handleIntent(intent)
         setContent {
-            val state by vm.ui.collectAsState()
+            val state by vm.ui.collectAsStateWithLifecycle()
             // Keep the screen awake while a link is in flight — Wear dozes
             // fast, and a sleeping screen froze restores mid-join. Ambient
             // overrides it: the partial linkWake keeps the CPU for the join,
@@ -144,18 +144,20 @@ class MainActivity : ComponentActivity() {
             val app = application as HiveApp
             when (event) {
                 Lifecycle.Event.ON_START -> {
+                    vm.setForeground(true)
                     if (app.nexus.state == NexusState.RUNNING) {
                         lifecycleScope.launch { app.nexus.resume() }
                     }
                     app.kickMesh()   // wake-verify the bridge while the user looks
                 }
-                Lifecycle.Event.ON_STOP ->
+                Lifecycle.Event.ON_STOP -> {
+                    vm.setForeground(false)
                     // a doze mid-link must not suspend the dataplane under us;
-                    // while MeshService owns the link it stays up full-time so
-                    // the next app open (or assistant call) is instant
+                    // MeshService owns the idle policy while it is running.
                     if (vm.ui.value.phase != Phase.LINKING && !MeshService.running) {
-                        lifecycleScope.launch { app.nexus.suspendMesh() }
+                        lifecycleScope.launch { app.nexus.suspendMesh(releaseNetwork = true) }
                     }
+                }
                 else -> {}
             }
         })

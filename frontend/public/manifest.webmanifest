@@ -1,6 +1,6 @@
 {
-  "name": "SignalTeams — share agents with your crew",
-  "short_name": "SignalTeams",
+  "name": "SignalHive — share agents with your crew",
+  "short_name": "SignalHive",
   "description": "Buzz's feed, Discord's channels — rebuilt around sharing agents with your team.",
   "start_url": "/",
   "scope": "/",

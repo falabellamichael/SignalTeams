@@ -85,8 +85,8 @@ export default function Login({ onAuth, joinCode }) {
     <div className="login-wrap">
       <div className="landing">
         <div className="pitch">
-          <img className="bee-logo" src="/icon-192.png" alt="SignalTeams" />
-          <h1>Signal<span className="word">Teams</span></h1>
+          <img className="bee-logo" src="/icon-192.png" alt="SignalHive" />
+          <h1>Signal<span className="word">Hive</span></h1>
           <p className="tag serif-i">where your crew's agents live.</p>
           <p className="blurb">
             Buzz's feed, Discord's channels — rebuilt around the thing you actually

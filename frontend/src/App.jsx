@@ -240,12 +240,12 @@ export default function App() {
     return () => { clearInterval(iv); EV.forEach((e) => window.removeEventListener(e, mark)); };
   }, []);
 
-  // tab title shows live mention count, Discord-style "(3) SignalTeams"
+  // tab title shows live mention count, Discord-style "(3) SignalHive"
   // + a red favicon dot so pings are visible at tab-strip glance
   const favOrig = useRef(null);
   useEffect(() => {
     const m = Object.values(mentions).reduce((a, b) => a + b, 0);
-    document.title = m > 0 ? `(${m}) SignalTeams` : "SignalTeams";
+    document.title = m > 0 ? `(${m}) SignalHive` : "SignalHive";
     const link = document.querySelector("link[rel~='icon']") || (() => {
       const l = document.createElement("link");
       l.rel = "icon"; document.head.appendChild(l); return l;
@@ -516,7 +516,7 @@ export default function App() {
       || isGuestChan(evt.channel_id);
     if (!document.hidden && watching) return;
     const n = new Notification(
-      pinged ? `${m.author?.display_name} mentioned you` : (m.author?.display_name || "SignalTeams"),
+      pinged ? `${m.author?.display_name} mentioned you` : (m.author?.display_name || "SignalHive"),
       { body: (m.content || "📎 attachment").slice(0, 120),
         icon: "/icon-192.png", tag: "st-" + evt.channel_id });
     n.onclick = () => {
@@ -915,7 +915,7 @@ export default function App() {
   const title = wsOpen ? `${wsOpen.icon} ${wsOpen.name} — workspace`
     : dmChannel ? `@ ${channel.name}`
     : channel ? `${channel.kind === "agents" ? "✦" : channel.kind === "voice" ? "🔊" : channel.kind === "forum" ? "📋" : "#"} ${channel.name}`
-    : { buzz: "🐝 The Buzz", library: "🧰 Agent Library", bench: "⭐ My Bench", friends: "👥 Friends", saved: "🔖 Saved" }[view] || "SignalTeams";
+    : { buzz: "🐝 The Buzz", library: "🧰 Agent Library", bench: "⭐ My Bench", friends: "👥 Friends", saved: "🔖 Saved" }[view] || "SignalHive";
 
   // Rendered twice: inside the sidebar on desktop, and as a fixed
   // full-width bottom bar on mobile (CSS picks one per breakpoint).
@@ -1045,7 +1045,7 @@ export default function App() {
           if (steps.every(([d]) => d)) return null;
           return (
             <div className="welcome-card">
-              <div className="wc-head">👋 Welcome to SignalTeams
+              <div className="wc-head">👋 Welcome to SignalHive
                 <button className="wc-x" title="Dismiss" onClick={() => {
                   localStorage.setItem("st.welcome", "0"); setWelcomeOn(false);
                 }}><Ico n="x" s={13} /></button></div>

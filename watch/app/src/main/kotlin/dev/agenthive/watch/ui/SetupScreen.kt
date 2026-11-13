@@ -5,6 +5,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -33,6 +34,7 @@ import androidx.compose.ui.unit.sp
 import androidx.wear.compose.material3.CircularProgressIndicator
 import androidx.wear.compose.material3.Text
 import dev.agenthive.watch.Phase
+import dev.agenthive.watch.R
 import dev.agenthive.watch.UiState
 
 @Composable
@@ -107,12 +109,16 @@ fun SetupScreen(
                             .border(1.dp, HiveColors.MeshOn, CircleShape)
                             .padding(horizontal = 10.dp, vertical = 4.dp),
                     ) {
-                        Text(
-                            "● mesh up — enter hive code",
-                            color = HiveColors.MeshOn,
-                            fontSize = 9.sp,
-                            fontWeight = FontWeight.SemiBold,
-                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            WatchIcon(R.drawable.ic_symbol_hub, tint = HiveColors.MeshOn, size = 12.dp)
+                            Spacer(Modifier.size(4.dp))
+                            Text(
+                                "mesh up — enter hive code",
+                                color = HiveColors.MeshOn,
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                        }
                     }
                     Spacer(Modifier.height(6.dp))
                 }
@@ -141,12 +147,16 @@ fun SetupScreen(
                         .padding(vertical = 8.dp),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Text(
-                        if (state.inviteCode.isBlank()) "✦ Join Mesh" else "✦ Link to your hive",
-                        color = Color.White,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        WatchIcon(R.drawable.ic_symbol_link, tint = Color.White, size = 16.dp)
+                        Spacer(Modifier.size(4.dp))
+                        Text(
+                            if (state.inviteCode.isBlank()) "Join Mesh" else "Link to your hive",
+                            color = Color.White,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                        )
+                    }
                 }
 
                 if (state.unlinked) {
@@ -205,12 +215,8 @@ fun HivePicker(
                     .clickable(onClick = onScan)
                     .padding(horizontal = 6.dp, vertical = 1.dp),
             ) {
-                Text(
-                    if (scanning) "…" else "↻",
-                    color = HiveColors.Cyan,
-                    fontSize = 9.sp,
-                    fontWeight = FontWeight.Bold,
-                )
+                if (scanning) CircularProgressIndicator(modifier = Modifier.size(12.dp))
+                else WatchIcon(R.drawable.ic_symbol_refresh, "Scan for hives", size = 14.dp)
             }
         }
         Spacer(Modifier.height(4.dp))
@@ -248,13 +254,14 @@ fun HivePicker(
                     )
                     Spacer(Modifier.size(4.dp))
                 }
-                if (active) Text("●", color = HiveColors.MeshOn, fontSize = 8.sp)
+                if (active) WatchIcon(R.drawable.ic_symbol_check_circle, "Active hive",
+                    tint = HiveColors.MeshOn, size = 12.dp)
             }
             Spacer(Modifier.height(4.dp))
         }
         if (!scanning && hives.isEmpty()) {
             Text(
-                "no hives found — tap ↻ to rescan",
+                "no hives found — tap Refresh to rescan",
                 color = HiveColors.Faint, fontSize = 8.sp, textAlign = TextAlign.Center,
             )
         }

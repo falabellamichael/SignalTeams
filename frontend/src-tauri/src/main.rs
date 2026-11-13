@@ -93,7 +93,7 @@ fn cleanup_previous_instances() {
             "/FI",
             &format!("PID ne {my_pid}"),
             "/IM",
-            "SignalTeams.exe",
+            "SignalHive.exe",
         ])
         .stdin(Stdio::null())
         .stdout(Stdio::null())
@@ -130,9 +130,9 @@ fn ensure_backend() -> Result<(), String> {
     let python = backend_dir.join(".venv/Scripts/python.exe");
     let runner = backend_dir.join("run.py");
     if !python.is_file() || !runner.is_file() {
-        return Err("The SignalTeams backend setup could not be found in backend/.venv.".into());
+        return Err("The SignalHive backend setup could not be found in backend/.venv.".into());
     }
-    log_event("Spawning SignalTeams backend on :8075");
+    log_event("Spawning SignalHive backend on :8075");
     Command::new(python)
         .arg(runner)
         .current_dir(backend_dir)
@@ -141,7 +141,7 @@ fn ensure_backend() -> Result<(), String> {
         .stderr(Stdio::null())
         .creation_flags(CREATE_NO_WINDOW | DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP)
         .spawn()
-        .map_err(|error| format!("Could not start SignalTeams backend: {error}"))?;
+        .map_err(|error| format!("Could not start SignalHive backend: {error}"))?;
 
     let deadline = Instant::now() + Duration::from_secs(30);
     loop {
@@ -150,7 +150,7 @@ fn ensure_backend() -> Result<(), String> {
             return Ok(());
         }
         if Instant::now() >= deadline {
-            return Err("SignalTeams backend is taking too long to start on :8075.".into());
+            return Err("SignalHive backend is taking too long to start on :8075.".into());
         }
         thread::sleep(Duration::from_millis(250));
     }
@@ -204,7 +204,7 @@ fn main() {
     std::panic::set_hook(Box::new(|info| {
         log_event(&format!("PANIC: {info}"));
     }));
-    log_event("SignalTeams main() starting");
+    log_event("SignalHive main() starting");
 
     let res = tauri::Builder::default()
         .setup(|app| {
@@ -273,5 +273,5 @@ fn main() {
     if let Err(e) = res {
         log_event(&format!("tauri::Builder::run error: {e:?}"));
     }
-    log_event("SignalTeams main() exiting");
+    log_event("SignalHive main() exiting");
 }

@@ -35,7 +35,7 @@ export function WorkspaceModal({ server, onClose, onCreated }) {
       sub="A folder on this machine that your crew — and the agents they summon — can read and edit.">
       <label>Name</label>
       <input value={name} onChange={(e) => setName(e.target.value)}
-        placeholder="e.g. signalteams-core" maxLength={64} />
+        placeholder="e.g. signalhive-core" maxLength={64} />
       <label>Icon</label>
       <div className="emoji-pick">
         {ICONS.map((e) => (

@@ -127,13 +127,13 @@ fun LoginScreen(state: UiState, vm: AppViewModel) {
         }
         Spacer(Modifier.height(10.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("Nexus", color = DcText, fontSize = 26.sp, fontWeight = FontWeight.Bold)
+            Text("Signal", color = DcText, fontSize = 26.sp, fontWeight = FontWeight.Bold)
             Spacer(Modifier.width(2.dp))
-            Text("Watch", color = DcHoney, fontSize = 26.sp,
+            Text("Hive", color = DcHoney, fontSize = 26.sp,
                  fontWeight = FontWeight.Bold, fontStyle = FontStyle.Italic)
         }
         Text(
-            "your hive, on your wrist.",
+            "your hive, on your phone.",
             color = DcSub, fontSize = 13.sp, fontStyle = FontStyle.Italic,
             modifier = Modifier.padding(top = 4.dp, bottom = 22.dp),
         )

@@ -192,7 +192,11 @@ object MeshLinker {
 
         // svc binding — the target is a raw AI service, not a claimable
         // hive: verify its /v1 surface on the stored target and keep the
-        // binding; never let the hive scan steal it.
+        // binding; never let the hive scan steal it WHILE IT'S ALIVE. A
+        // dead service must not pin the watch offline forever — fall
+        // through to hive discovery (the svc: id stays in bound_hives,
+        // so the switcher can re-pick it when the node comes back).
+        var svcDead = false
         if (store.hiveNodeId.startsWith("svc:")) {
             val svcIp = store.meshTargetIp
             val svcPort = store.meshTargetPort
@@ -211,13 +215,19 @@ object MeshLinker {
                     delay(1200)
                 }
             }
-            return null
+            log("service $svcIp:$svcPort unreachable — scanning for a hive")
+            svcDead = true
+            // The label belongs to the dead service — claimSession only
+            // refetches a blank name.
+            store.hiveName = ""
         }
 
         // fast path — re-open the egress to the last-linked hive before any
-        // group scan; a stored pairing reconnects in under a second.
+        // group scan; a stored pairing reconnects in under a second. Skip
+        // when an svc binding just died: the stored target IS that dead
+        // endpoint — bridging it again only burns the probe timeouts.
         val knownIp = store.meshTargetIp
-        if (knownIp.isNotBlank()) {
+        if (knownIp.isNotBlank() && !svcDead) {
             // already-bridged? probe the live listener first — keepalive cycles
             // must not swap a healthy bridge for a fresh port every pass, that
             // races and kills in-flight requests.

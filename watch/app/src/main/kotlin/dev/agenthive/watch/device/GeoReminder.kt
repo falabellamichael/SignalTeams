@@ -116,7 +116,7 @@ class GeoReceiver : BroadcastReceiver() {
         nm.createNotificationChannel(NotificationChannel(
             "hive_geo", "Location reminders", NotificationManager.IMPORTANCE_HIGH))
         nm.notify(text.hashCode(), Notification.Builder(ctx, "hive_geo")
-            .setContentTitle("✦ Reminder")
+            .setContentTitle("Reminder")
             .setContentText(text)
             .setSmallIcon(android.R.drawable.ic_dialog_info)
             .setAutoCancel(true)

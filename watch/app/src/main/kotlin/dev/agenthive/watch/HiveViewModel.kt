@@ -20,6 +20,10 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -78,6 +82,10 @@ data class UiState(
     val suggestion: String = "",
     /** Always-on-display mode — the chat dims to a burn-in-safe surface. */
     val ambient: Boolean = false,
+    val watchBattery: Int? = null,
+    val watchCharging: Boolean = false,
+    val phoneBattery: Int? = null,
+    val phoneCharging: Boolean = false,
 )
 
 class HiveViewModel(app: Application) : AndroidViewModel(app) {
@@ -91,6 +99,7 @@ class HiveViewModel(app: Application) : AndroidViewModel(app) {
     val ui: StateFlow<UiState> = _ui.asStateFlow()
 
     private var meshPoll: Job? = null
+    private val foreground = MutableStateFlow(false)
     private var sessionJob: Job? = null
     private var scanJob: Job? = null
     private var sendJob: Job? = null
@@ -177,7 +186,35 @@ class HiveViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             hive.speaker.speaking.collect { s -> _ui.update { it.copy(speaking = s) } }
         }
+        observeHomeBatteries()
         restore()
+    }
+
+    /** One slow refresh while the home stage is visible; no work in AOD or chat. */
+    private fun observeHomeBatteries() {
+        viewModelScope.launch {
+            var lastPhoneAttempt = 0L
+            combine(foreground, _ui) { shown, state ->
+                shown && !state.ambient && state.phase == Phase.READY && state.messages.isEmpty()
+            }.distinctUntilChanged().collectLatest { visible ->
+                if (!visible) return@collectLatest
+                while (isActive) {
+                    val bm = hive.getSystemService(android.os.BatteryManager::class.java)
+                    val watch = bm?.getIntProperty(android.os.BatteryManager.BATTERY_PROPERTY_CAPACITY)
+                        ?.takeIf { it in 0..100 }
+                    _ui.update { it.copy(watchBattery = watch, watchCharging = bm?.isCharging == true) }
+                    val now = android.os.SystemClock.elapsedRealtime()
+                    // Quick wrist raises should reuse the reading, not ping the phone each time.
+                    if (lastPhoneAttempt == 0L || now - lastPhoneAttempt >= 60_000) {
+                        lastPhoneAttempt = now
+                        val phone = dev.agenthive.watch.device.PhoneBridge.phoneBattery(hive)
+                        _ui.update { it.copy(phoneBattery = phone?.percent,
+                            phoneCharging = phone?.charging == true) }
+                    }
+                    delay(60_000)
+                }
+            }
+        }
     }
 
     private fun logLine(m: String) = _ui.update {
@@ -242,8 +279,11 @@ class HiveViewModel(app: Application) : AndroidViewModel(app) {
                 try {
                     meshUp("")
                     svcHiveFromStore()?.let { h ->
-                        linkService(h)               // svc marker — no claim
-                        return@launch
+                        // svc marker — no claim. A dead service used to kill
+                        // the whole boot here; fall through to discoverHive
+                        // so the watch fails over to a live hive instead.
+                        runCatching { linkService(h) }.onSuccess { return@launch }
+                        logLine("${h.name} unreachable — finding a hive…")
                     }
                     discoverHive { logLine(it) }
                         ?: throw Exception("hive peer unreachable")
@@ -1042,7 +1082,7 @@ class HiveViewModel(app: Application) : AndroidViewModel(app) {
         }
         if (api.token.isBlank() && !s.svcMode) {
             Log.w("HiveVM", "send: no token base=${api.baseUrl}")
-            _ui.update { it.copy(error = "link a hive from the mesh console (🔗) to chat") }
+            _ui.update { it.copy(error = "link a hive from the mesh console to chat") }
             return
         }
         Log.i("HiveVM", "send '${msg.take(30)}' agent=${agent.id} base=${api.baseUrl}")
@@ -1324,6 +1364,7 @@ class HiveViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun setListening(v: Boolean) { _ui.update { it.copy(listening = v) } }
+    fun setForeground(v: Boolean) { foreground.value = v }
     fun setAmbient(v: Boolean) { _ui.update { it.copy(ambient = v) } }
 
     fun voiceResult(text: String) {
@@ -1337,10 +1378,12 @@ class HiveViewModel(app: Application) : AndroidViewModel(app) {
         meshPoll?.cancel()
         meshPoll = viewModelScope.launch {
             while (isActive) {
-                // Ambient shows a static card — no need to keep the FFI
-                // mutex hot; interactive cadence is halved too — the badge
-                // doesn't need 10s freshness.
-                delay(if (_ui.value.ambient) 60_000 else 20_000)
+                // The badge is visible only in the foreground, outside AOD.
+                // Park on state changes instead of polling a sleeping mesh.
+                combine(foreground, _ui) { shown, state -> shown && !state.ambient }
+                    .first { it }
+                delay(20_000)
+                if (!foreground.value || _ui.value.ambient || nexus.suspended) continue
                 if (nexus.state != NexusState.RUNNING) {
                     if (store.meshUrl.startsWith("phone://") || api.baseUrl.startsWith("phone://")) {
                         _ui.update {

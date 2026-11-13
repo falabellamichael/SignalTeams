@@ -52,13 +52,14 @@ import androidx.wear.compose.material3.CircularProgressIndicator
 import androidx.wear.compose.material3.Text
 import androidx.wear.compose.material3.TimeText
 import dev.agenthive.watch.Msg
+import dev.agenthive.watch.R
 import dev.agenthive.watch.UiState
 
-private data class QuickPrompt(val icon: String, val label: String, val prompt: String)
+private data class QuickPrompt(val icon: Int, val label: String, val prompt: String)
 
 private val QUICK_PROMPTS = listOf(
-    QuickPrompt("✦", "Daily brief", "Give me a crisp 3-bullet executive focus brief for today."),
-    QuickPrompt("⚡", "Quick idea", "Pitch one bold creative micro-feature for a team chat app."),
+    QuickPrompt(R.drawable.ic_symbol_description, "Daily brief", "Give me a crisp 3-bullet executive focus brief for today."),
+    QuickPrompt(R.drawable.ic_symbol_bolt, "Quick idea", "Pitch one bold creative micro-feature for a team chat app."),
 )
 
 @Composable
@@ -121,7 +122,6 @@ fun ChatScreen(
             TopArcPill(
                 mesh = state.mesh,
                 agent = state.agent,
-                ambient = state.ambient,
                 onAgentClick = { showAgents = true },
                 onMeshClick = { showMesh = true },
             )
@@ -237,7 +237,6 @@ fun ChatScreen(
 private fun TopArcPill(
     mesh: String,
     agent: dev.agenthive.watch.data.HiveApi.Agent?,
-    ambient: Boolean,
     onAgentClick: () -> Unit,
     onMeshClick: () -> Unit,
 ) {
@@ -250,6 +249,7 @@ private fun TopArcPill(
     Row(
         modifier = Modifier
             .padding(top = 22.dp, bottom = 2.dp)
+            .size(width = 144.dp, height = 24.dp)
             .clip(CircleShape)
             .background(HiveColors.Panel.copy(alpha = 0.92f))
             .border(1.dp, HiveColors.Border, CircleShape)
@@ -259,14 +259,13 @@ private fun TopArcPill(
     ) {
         Row(
             modifier = Modifier
+                .weight(1f)
                 .clip(CircleShape)
                 .clickable(onClick = onAgentClick)
                 .padding(horizontal = 4.dp, vertical = 1.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            val icon = agent?.icon?.ifBlank { "✦" } ?: "✦"
-            if (icon == "✦") HiveMark(12.dp, animate = !ambient)
-            else Text(icon, color = HiveColors.Violet, fontSize = 10.sp)
+            WatchIcon(agentIcon(agent?.icon.orEmpty()), tint = HiveColors.Violet, size = 14.dp)
             Spacer(Modifier.width(4.dp))
             Text(
                 agent?.name ?: "Agent",
@@ -274,8 +273,10 @@ private fun TopArcPill(
                 fontSize = 10.sp,
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
             )
-            Text(" ▾", color = HiveColors.Dim, fontSize = 8.sp)
+            WatchIcon(R.drawable.ic_symbol_expand_more, tint = HiveColors.Dim, size = 12.dp)
         }
 
         Box(
@@ -288,10 +289,12 @@ private fun TopArcPill(
 
         Row(
             modifier = Modifier
+                .width(48.dp)
                 .clip(CircleShape)
                 .clickable(onClick = onMeshClick)
                 .padding(horizontal = 4.dp, vertical = 1.dp),
             verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center,
         ) {
             Box(
                 Modifier
@@ -323,22 +326,33 @@ private fun GeminiHomeStage(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        GeminiOrb(size = 42.dp, active = state.busy || state.listening || state.speaking,
-                  animate = !state.ambient)
-
-        Spacer(Modifier.height(4.dp))
-
-        val who = state.displayName.ifBlank { state.username }.ifBlank { "there" }
-        Text(
-            "Hi, $who",
-            color = HiveColors.Text,
-            fontSize = 14.sp,
-            fontWeight = FontWeight.Bold,
-        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            BatteryGlance("Watch", R.drawable.ic_symbol_watch, state.watchBattery,
+                state.watchCharging, HiveColors.Cyan)
+            Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                GeminiOrb(size = 42.dp, active = state.busy || state.listening || state.speaking,
+                          animate = !state.ambient)
+                Spacer(Modifier.height(4.dp))
+                val who = state.displayName.ifBlank { state.username }.ifBlank { "there" }
+                Text(
+                    "Hi, $who",
+                    color = HiveColors.Text,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            BatteryGlance("Phone", R.drawable.ic_symbol_smartphone, state.phoneBattery,
+                state.phoneCharging, HiveColors.Violet)
+        }
 
         val meshSub = when {
             state.unlinked && state.meshSnap.watchTunnelIp.isNotBlank() ->
-                "mesh ${state.meshSnap.watchTunnelIp} · tap 🔗 to link a hive"
+                "mesh ${state.meshSnap.watchTunnelIp} · tap Link to link a hive"
             state.mesh == "mesh" && state.meshSnap.watchTunnelIp.isNotBlank() ->
                 "${state.hiveName.ifBlank { "hive" }} · ${state.meshSnap.hiveTunnelIp.ifBlank { "mesh" }}"
             state.meshInfo.isNotBlank() -> state.meshInfo
@@ -363,7 +377,7 @@ private fun GeminiHomeStage(
             // Proactive chip: when the hive reports a suggestion ("Meeting in
             // 35m") it takes the left slot — Gemini-style contextual prompt.
             val prompts = if (state.suggestion.isNotBlank())
-                listOf(QuickPrompt("✦", state.suggestion.take(22),
+                listOf(QuickPrompt(R.drawable.ic_symbol_notifications, state.suggestion.take(22),
                     "Tell me about: ${state.suggestion}")) +
                     QUICK_PROMPTS.take(1)
             else QUICK_PROMPTS
@@ -378,7 +392,7 @@ private fun GeminiHomeStage(
                         .padding(horizontal = 8.dp, vertical = 7.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text(item.icon, color = HiveColors.Violet, fontSize = 10.sp)
+                    WatchIcon(item.icon, tint = HiveColors.Violet, size = 14.dp)
                     Spacer(Modifier.width(4.dp))
                     Text(
                         item.label,
@@ -389,6 +403,29 @@ private fun GeminiHomeStage(
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun BatteryGlance(label: String, icon: Int, percent: Int?, charging: Boolean, accent: Color) {
+    val color = when {
+        percent == null -> HiveColors.Faint
+        charging -> HiveColors.MeshOn
+        percent <= 15 -> HiveColors.Error
+        else -> accent
+    }
+    Column(Modifier.width(36.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        WatchIcon(icon, tint = color, size = 18.dp)
+        Spacer(Modifier.height(2.dp))
+        Text(percent?.let { "$it%" } ?: "—", color = color, fontSize = 12.sp,
+            fontWeight = FontWeight.SemiBold, maxLines = 1)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(label, color = HiveColors.Dim, fontSize = 8.sp)
+            if (charging) {
+                Spacer(Modifier.width(2.dp))
+                WatchIcon(R.drawable.ic_symbol_bolt, "Charging", HiveColors.MeshOn, 8.dp)
             }
         }
     }
@@ -438,10 +475,19 @@ private fun MessageBubble(msg: Msg) {
                 .padding(horizontal = 10.dp, vertical = 7.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("✦", color = HiveColors.Cyan, fontSize = 10.sp)
+                val meta = msg.meta.trim()
+                val metaIcon = when {
+                    meta.startsWith("⌁") -> R.drawable.ic_symbol_smartphone
+                    meta.startsWith("⚠") -> R.drawable.ic_symbol_warning
+                    meta.startsWith("⚙") -> R.drawable.ic_symbol_settings
+                    else -> R.drawable.ic_symbol_auto_awesome
+                }
+                WatchIcon(metaIcon, size = 12.dp)
                 Spacer(Modifier.width(4.dp))
                 Text(
-                    msg.meta.ifBlank { if (msg.pending) "streaming via mesh…" else "Gemini · Mesh" },
+                    meta.removePrefix("⌁").removePrefix("⚠").removePrefix("⚙")
+                        .removePrefix("✦").trim()
+                        .ifBlank { if (msg.pending) "streaming via mesh…" else "Gemini · Mesh" },
                     color = HiveColors.Dim,
                     fontSize = 8.sp,
                     maxLines = 1,
@@ -449,10 +495,14 @@ private fun MessageBubble(msg: Msg) {
                 )
             }
             Spacer(Modifier.height(3.dp))
+            // Some OpenAI-compatible models start/end with blank lines.
+            // Trim only the accumulated display's outer line breaks, never
+            // individual tokens or spaces used for words/code indentation.
+            val displayText = msg.text.trim('\r', '\n')
             val body = when {
-                msg.text.isEmpty() && msg.pending -> "Thinking…"
-                msg.pending -> msg.text + " ▍"
-                else -> msg.text
+                displayText.isBlank() && msg.pending -> "Thinking…"
+                msg.pending -> displayText + " ▍"
+                else -> displayText
             }
             Text(
                 body,
@@ -497,7 +547,7 @@ private fun BottomArcDock(
                 .clickable(enabled = !busy, onClick = onOpenComposer),
             contentAlignment = Alignment.Center,
         ) {
-            Text("⌨", color = HiveColors.Text, fontSize = 12.sp)
+            WatchIcon(R.drawable.ic_symbol_keyboard, "Type a prompt", HiveColors.Text, 18.dp)
         }
 
         // Primary luminous Gemini Ask / Voice pill — flips to Stop while
@@ -528,7 +578,9 @@ private fun BottomArcDock(
                 Spacer(Modifier.width(4.dp))
                 Text("Stop", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
             } else if (stoppable) {
-                Text("■ Stop",
+                WatchIcon(R.drawable.ic_symbol_stop, tint = Color.White, size = 14.dp)
+                Spacer(Modifier.width(4.dp))
+                Text("Stop",
                     color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
             } else {
                 HiveMark(14.dp, animate = !ambient)
@@ -547,10 +599,10 @@ private fun BottomArcDock(
                 .clickable(onClick = onSecondary),
             contentAlignment = Alignment.Center,
         ) {
-            Text(
-                if (hasMessages) "↺" else "🔗",
-                color = HiveColors.Cyan,
-                fontSize = 11.sp,
+            WatchIcon(
+                if (hasMessages) R.drawable.ic_symbol_restart_alt else R.drawable.ic_symbol_link,
+                description = if (hasMessages) "Clear conversation" else "Link a hive",
+                size = 18.dp,
             )
         }
     }
@@ -621,7 +673,11 @@ private fun PromptComposerSheet(
                         .clickable(enabled = state.input.isNotBlank()) { onSend(state.input) }
                         .padding(horizontal = 14.dp, vertical = 6.dp),
                 ) {
-                    Text("Send ➤", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Send", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                        Spacer(Modifier.width(4.dp))
+                        WatchIcon(R.drawable.ic_symbol_send, tint = Color.White, size = 14.dp)
+                    }
                 }
             }
         }
@@ -652,8 +708,10 @@ private fun AgentPickerSheet(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Text("Select Agent", color = HiveColors.Text, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                Text("↻", color = HiveColors.Cyan, fontSize = 13.sp, modifier = Modifier.clickable(onClick = onRefresh))
-                Text("✕", color = HiveColors.Dim, fontSize = 12.sp, modifier = Modifier.clickable(onClick = onClose))
+                WatchIcon(R.drawable.ic_symbol_refresh, "Refresh agents",
+                    modifier = Modifier.clickable(onClick = onRefresh))
+                WatchIcon(R.drawable.ic_symbol_close, "Close agent picker", tint = HiveColors.Dim,
+                    modifier = Modifier.clickable(onClick = onClose))
             }
             Spacer(Modifier.height(6.dp))
             state.agents.forEach { a ->
@@ -673,7 +731,7 @@ private fun AgentPickerSheet(
                         .padding(horizontal = 10.dp, vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text(a.icon.ifBlank { "✦" }, fontSize = 13.sp)
+                    WatchIcon(agentIcon(a.icon), tint = HiveColors.Violet, size = 18.dp)
                     Column(Modifier.padding(start = 8.dp).weight(1f)) {
                         Text(a.name, color = HiveColors.Text, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
                         Text(
@@ -684,7 +742,7 @@ private fun AgentPickerSheet(
                             overflow = TextOverflow.Ellipsis,
                         )
                     }
-                    if (sel) Text("●", color = HiveColors.Cyan, fontSize = 10.sp)
+                    if (sel) WatchIcon(R.drawable.ic_symbol_check_circle, "Selected agent", size = 14.dp)
                 }
             }
             Spacer(Modifier.height(12.dp))
@@ -721,12 +779,17 @@ private fun MeshConsoleSheet(
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Text("Nexus Mesh Link", color = HiveColors.Text, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-            Text(
-                if (state.mesh == "mesh") "● BORINGTUN WIREGUARD UP" else "● ${state.mesh.uppercase()}",
-                color = if (state.mesh == "mesh") HiveColors.MeshOn else HiveColors.MeshDirect,
-                fontSize = 8.sp,
-                fontWeight = FontWeight.Bold,
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                val statusColor = if (state.mesh == "mesh") HiveColors.MeshOn else HiveColors.MeshDirect
+                WatchIcon(R.drawable.ic_symbol_hub, tint = statusColor, size = 12.dp)
+                Spacer(Modifier.width(4.dp))
+                Text(
+                    if (state.mesh == "mesh") "BORINGTUN WIREGUARD UP" else state.mesh.uppercase(),
+                    color = statusColor,
+                    fontSize = 8.sp,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
             Spacer(Modifier.height(6.dp))
 
             MeshRow("Watch IP", snap.watchTunnelIp.ifBlank { "—" })
@@ -775,7 +838,11 @@ private fun MeshConsoleSheet(
                         .clickable { onLinkCode(state.inviteCode) }
                         .padding(horizontal = 14.dp, vertical = 6.dp),
                 ) {
-                    Text("✦ Link", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        WatchIcon(R.drawable.ic_symbol_link, tint = Color.White, size = 14.dp)
+                        Spacer(Modifier.width(4.dp))
+                        Text("Link", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                    }
                 }
                 if (state.statusLine.isNotBlank()) {
                     Text(state.statusLine, color = HiveColors.Cyan, fontSize = 8.sp,
@@ -793,7 +860,11 @@ private fun MeshConsoleSheet(
                         .clickable(onClick = onRelink)
                         .padding(horizontal = 10.dp, vertical = 5.dp),
                 ) {
-                    Text("↻ Re-link", color = HiveColors.Cyan, fontSize = 9.sp, fontWeight = FontWeight.SemiBold)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        WatchIcon(R.drawable.ic_symbol_refresh, size = 14.dp)
+                        Spacer(Modifier.width(4.dp))
+                        Text("Re-link", color = HiveColors.Cyan, fontSize = 9.sp, fontWeight = FontWeight.SemiBold)
+                    }
                 }
                 Box(
                     modifier = Modifier

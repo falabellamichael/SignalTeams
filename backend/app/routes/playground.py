@@ -713,6 +713,10 @@ def try_agent_stream(aid: int, body: TryIn, user=Depends(current_user)):
                 # client to swap it for the stripped text before tool events
                 yield json.dumps({"t": "replace",
                                   "c": wsx.strip_tool_calls(reply).strip()}) + "\n"
+                if rnd == 0:
+                    # Round zero passed this separately to chat_stream; every
+                    # tool follow-up must keep it alongside the older turns.
+                    hist.append({"role": "user", "content": body.message})
                 hist.append({"role": "assistant", "content": reply})
                 results = []
                 for c in calls[:3]:

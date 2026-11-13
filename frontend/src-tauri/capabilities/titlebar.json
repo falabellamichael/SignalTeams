@@ -1,6 +1,6 @@
 {
   "identifier": "titlebar",
-  "description": "Window controls for the bundled startup page and the local SignalTeams workspace.",
+  "description": "Window controls for the bundled startup page and the local SignalHive workspace.",
   "webviews": ["main"],
   "remote": {
     "urls": ["http://127.0.0.1:8075/*"]

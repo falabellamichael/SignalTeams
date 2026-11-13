@@ -183,7 +183,7 @@ export function PermissionsPage({ me }) {
       <div className="msub" style={{ margin: "4px 0 12px" }}>
         {DESKTOP
           ? "Voice and video permissions are granted by the app shell; links and sign-ins always open in your default browser."
-          : "What SignalTeams can ask your browser for — check a row to see its live state."}
+          : "What SignalHive can ask your browser for — check a row to see its live state."}
       </div>
       {PERMS.map((p) => (
         <div key={p.id} className="con-card perm-card">

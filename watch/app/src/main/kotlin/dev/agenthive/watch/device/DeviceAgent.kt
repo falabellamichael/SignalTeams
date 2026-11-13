@@ -199,7 +199,7 @@ class DeviceAgent(
             // the model relaunches the target app instead of tapping our icons.
             val ourUi = HiveA11y.hasPackage(ctx.packageName) || screen.any {
                 it == "MESH" || it == "✦ Ask" || it == "● Listening" ||
-                    it.startsWith("⌁ device")
+                    it.startsWith("⌁ device") || it == "device"
             }
             if (ourUi)
                 screen = listOf("[hive-ui: the assistant's own screen is on " +

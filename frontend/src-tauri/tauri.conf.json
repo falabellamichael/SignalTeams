@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "SignalTeams",
+  "productName": "SignalHive",
   "version": "1.0.1",
   "identifier": "com.falab.signalteams",
   "build": {
@@ -12,7 +12,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "SignalTeams",
+        "title": "SignalHive",
         "url": "http://127.0.0.1:8075/",
         "create": false,
         "decorations": false,
@@ -33,12 +33,12 @@
     "targets": ["msi", "nsis"],
     "publisher": "Falab",
     "category": "Developer Tool",
-    "shortDescription": "SignalTeams — your crew's agents",
-    "longDescription": "SignalTeams is a local-first team chat built around AI agents: publish, bench and @-summon them in channels, with workspaces, DMs and a local LLM playground.",
+    "shortDescription": "SignalHive — your crew's agents",
+    "longDescription": "SignalHive is a local-first team chat built around AI agents: publish, bench and @-summon them in channels, with workspaces, DMs and a local LLM playground.",
     "licenseFile": "msi/license.rtf",
     "icon": ["icons/icon.ico"],
     "resources": {
-      "icons/icon.ico": "SignalTeams.ico"
+      "icons/icon.ico": "SignalHive.ico"
     },
     "windows": {
       "wix": {

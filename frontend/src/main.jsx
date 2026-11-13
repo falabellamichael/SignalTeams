@@ -17,7 +17,7 @@ class CrashGuard extends React.Component {
     return (
       <div className="crashguard">
         <KnotMark size={46} />
-        <div className="cg-title serif">SignalTeams hit a snag</div>
+        <div className="cg-title serif">SignalHive hit a snag</div>
         <p className="cg-msg">{String(this.state.err?.message || this.state.err)}</p>
         <button className="primary" onClick={() => location.reload()}>Reload</button>
       </div>

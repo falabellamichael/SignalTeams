@@ -32,8 +32,7 @@ class HiveControlsTileService : TileService() {
         req: ResourcesRequest
     ): ListenableFuture<ResourceBuilders.Resources> =
         CallbackToFutureAdapter.getFuture { c ->
-            c.set(ResourceBuilders.Resources.Builder()
-                .setVersion(RES_VERSION).build())
+            c.set(TileIcons.resources(RES_VERSION))
             "hive-controls-res"
         }
 
@@ -60,17 +59,18 @@ class HiveControlsTileService : TileService() {
                      action: String? = null): LayoutElementBuilders.LayoutElement =
         Chip.Builder(this, click(id, cls, action), dev)
             .setPrimaryLabelContent(label)
+            .setIconContent(id)
             .build()
 
     private fun buildTile(dev: DeviceParametersBuilders.DeviceParameters): Tile {
         val grid = MultiButtonLayout.Builder()
-            .addButtonContent(chip(dev, "ask", "✦ Ask",
+            .addButtonContent(chip(dev, "ask", "Ask",
                 "dev.agenthive.watch.MainActivity"))
-            .addButtonContent(chip(dev, "torch", "🔦 Torch",
+            .addButtonContent(chip(dev, "torch", "Torch",
                 "dev.agenthive.watch.device.TorchActivity"))
-            .addButtonContent(chip(dev, "find", "📱 Find phone",
+            .addButtonContent(chip(dev, "find", "Find phone",
                 "dev.agenthive.watch.device.QuickActionActivity", "find_phone"))
-            .addButtonContent(chip(dev, "batt", "🔋 Phone",
+            .addButtonContent(chip(dev, "batt", "Phone",
                 "dev.agenthive.watch.device.QuickActionActivity", "phone_status"))
             .addButtonContent(chip(dev, "buzz", "Buzz",
                 "dev.agenthive.watch.device.QuickActionActivity", "vibrate"))
@@ -82,5 +82,5 @@ class HiveControlsTileService : TileService() {
             .build()
     }
 
-    companion object { private const val RES_VERSION = "1" }
+    companion object { private const val RES_VERSION = "2" }
 }

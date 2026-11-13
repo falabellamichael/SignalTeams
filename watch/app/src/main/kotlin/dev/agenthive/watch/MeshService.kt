@@ -19,7 +19,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
@@ -35,10 +34,12 @@ class MeshService : Service() {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     @Volatile private var linking = false
-    @Volatile private var linkStart = 0L
     private var loopJob: kotlinx.coroutines.Job? = null
-    private var watchJob: kotlinx.coroutines.Job? = null
     private var mgr: NotificationManager? = null
+    private val wearListener = com.google.android.gms.wearable.MessageClient.OnMessageReceivedListener { ev ->
+        if (ev.path.startsWith("/hive/"))
+            dev.agenthive.watch.device.WatchWearService.handleMessage(this, ev)
+    }
 
     /** True when the user can actually interact — PowerManager can stay
      *  "interactive" on a Wear always-on display, so a dozing panel counts
@@ -67,10 +68,7 @@ class MeshService : Service() {
         // Wear OS refuses manifest MESSAGE_RECEIVED delivery to sideloaded
         // apps — a runtime listener rides a live binder and works.
         com.google.android.gms.wearable.Wearable.getMessageClient(this)
-            .addListener { ev ->
-                if (ev.path.startsWith("/hive/"))
-                    dev.agenthive.watch.device.WatchWearService.handleMessage(this, ev)
-            }.addOnCompleteListener { t ->
+            .addListener(wearListener).addOnCompleteListener { t ->
                 android.util.Log.i("MeshService",
                     "wear listener registered: ${t.isSuccessful}" +
                     (t.exception?.let { " (${it.message})" } ?: ""))
@@ -90,21 +88,6 @@ class MeshService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (loopJob?.isActive == true) return START_STICKY   // one warm loop
-        // watchdog: a hung ln_* call holds linking=true forever AND blocks
-        // reset() on the same mutex — the only escape is a fresh process.
-        // Guarded like loopJob — re-delivered start intents stacked one each.
-        if (watchJob?.isActive != true) {
-            watchJob = scope.launch {
-                while (isActive) {
-                    delay(60_000)
-                    if (linking && linkStart > 0 &&
-                        android.os.SystemClock.elapsedRealtime() - linkStart > 360_000) {
-                        Log.e("MeshService", "link hung >6min — killing process for a clean rejoin")
-                        android.os.Process.killProcess(android.os.Process.myPid())
-                    }
-                }
-            }
-        }
         loopJob = scope.launch {
             val app = application as HiveApp
             var lastActive = SystemClock.elapsedRealtime()
@@ -123,13 +106,13 @@ class MeshService : Service() {
                         runCatching { app.nexus.resume() }
                     } else {
                         // Dataplane suspended — the WG keepalives are off and
-                        // the radio actually idles. A kick (wrist raise, net
-                        // change, Wear message) wakes instantly; otherwise a
+                        // the app releases its radio requests. A screen/app
+                        // kick rechecks interactivity immediately; otherwise a
                         // 15min maintenance wake re-handshakes once so the
                         // tunnel, peer presence and the complication stay
                         // warm — then straight back to sleep.
                         val kicked = withTimeoutOrNull(DEEP_IDLE_CHECK_MS) {
-                            app.meshKick.first(); true
+                            app.meshKick.receive(); true
                         } ?: false
                         if (!kicked) {
                             runCatching { app.nexus.resume() }
@@ -138,19 +121,17 @@ class MeshService : Service() {
                             } catch (e: Exception) {
                                 Log.w("MeshService", "maintenance pass: ${e.message}")
                             }
-                            if (app.nexus.state == NexusState.RUNNING)
-                                runCatching { app.nexus.suspendMesh() }
+                            runCatching { app.nexus.suspendMesh(releaseNetwork = true) }
                         }
                         continue
                     }
                 }
 
                 if (!interactive &&
-                    SystemClock.elapsedRealtime() - lastActive > DEEP_IDLE_MS &&
-                    app.nexus.state == NexusState.RUNNING) {
+                    SystemClock.elapsedRealtime() - lastActive > DEEP_IDLE_MS) {
                     deepIdle = true
                     Log.i("MeshService", "deep idle — suspending dataplane")
-                    runCatching { app.nexus.suspendMesh() }
+                    runCatching { app.nexus.suspendMesh(releaseNetwork = true) }
                     notify("Mesh sleeping — wakes when you do")
                     continue
                 } else if (!interactive &&
@@ -181,7 +162,7 @@ class MeshService : Service() {
                     !inter -> 150_000L
                     else -> 30_000L
                 }
-                withTimeoutOrNull(waitMs) { app.meshKick.first() }
+                withTimeoutOrNull(waitMs) { app.meshKick.receive() }
             }
         }
         return START_STICKY
@@ -210,7 +191,13 @@ class MeshService : Service() {
     private suspend fun linkOnce(app: HiveApp) {
         if (linking) return
         linking = true
-        linkStart = android.os.SystemClock.elapsedRealtime()
+        // A hung native join needs a fresh process. Arm this only during a
+        // pass; a minute timer has no work to do while the watch is asleep.
+        val watchdog = scope.launch {
+            delay(360_000)
+            Log.e("MeshService", "link hung >6min — killing process for a clean rejoin")
+            android.os.Process.killProcess(android.os.Process.myPid())
+        }
         try {
             // The node list is a Wear binder round-trip — lazy so healthy
             // direct passes never pay it; computed once per pass.
@@ -345,7 +332,10 @@ class MeshService : Service() {
                 return
             }
             notify("Mesh offline — retrying…")
-        } finally { linking = false }
+        } finally {
+            watchdog.cancel()
+            linking = false
+        }
     }
 
     /** Proactive glanceable — pull /api/assistant/next ~every 10min so the
@@ -357,20 +347,8 @@ class MeshService : Service() {
         lastSuggest = now
         val label = app.api.assistantNext()
         if (app.store.suggestion != label) {
+            // HiveApp's preference listener updates both glanceable surfaces.
             app.store.suggestion = label
-            runCatching {
-                androidx.wear.watchface.complications.datasource
-                    .ComplicationDataSourceUpdateRequester
-                    .create(this, android.content.ComponentName(
-                        this, dev.agenthive.watch.complication
-                            .HiveComplicationService::class.java))
-                    .requestUpdateAll()
-            }
-            runCatching {
-                androidx.wear.tiles.TileService.getUpdater(this)
-                    .requestUpdate(dev.agenthive.watch.tile
-                        .HiveTileService::class.java)
-            }
         }
     }
 
@@ -402,6 +380,8 @@ class MeshService : Service() {
     override fun onDestroy() {
         running = false
         runCatching { unregisterReceiver(screenRx) }
+        com.google.android.gms.wearable.Wearable.getMessageClient(this)
+            .removeListener(wearListener)
         scope.cancel()
         super.onDestroy()
     }

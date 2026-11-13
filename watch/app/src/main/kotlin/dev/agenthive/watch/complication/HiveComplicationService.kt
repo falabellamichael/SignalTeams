@@ -39,7 +39,7 @@ class HiveComplicationService : ComplicationDataSourceService() {
     private fun text(s: String) = PlainComplicationText.Builder(s).build()
 
     private fun icon() = MonochromaticImage.Builder(
-        Icon.createWithResource(this, R.drawable.hive_mark))
+        Icon.createWithResource(this, R.drawable.ic_symbol_auto_awesome))
         .build()
 
     private fun battery(): Int {
@@ -57,7 +57,7 @@ class HiveComplicationService : ComplicationDataSourceService() {
     ) {
         val data = when (request.complicationType) {
             ComplicationType.SHORT_TEXT -> ShortTextComplicationData.Builder(
-                text("✦ Ask"), text("Ask Nexus Watch"))
+                text("Ask"), text("Ask Nexus Watch"))
                 .setMonochromaticImage(icon())
                 .setTapAction(tap())
                 .build()
@@ -70,8 +70,8 @@ class HiveComplicationService : ComplicationDataSourceService() {
                     lastReply().ifBlank { "Ask Scout anything" } }
                 LongTextComplicationData.Builder(
                     text(body.take(80)), text("Nexus Watch — $body"))
-                    .setTitle(text(if (suggest.isNotBlank()) "✦ Next"
-                        else if (body == "Ask Scout anything") "✦ Ask" else "✦ Nexus"))
+                    .setTitle(text(if (suggest.isNotBlank()) "Next"
+                        else if (body == "Ask Scout anything") "Ask" else "Nexus"))
                     .setMonochromaticImage(icon())
                     .setTapAction(tap())
                     .build()
@@ -95,13 +95,13 @@ class HiveComplicationService : ComplicationDataSourceService() {
 
     override fun getPreviewData(type: ComplicationType): ComplicationData? = when (type) {
         ComplicationType.SHORT_TEXT -> ShortTextComplicationData.Builder(
-            text("✦ Ask"), text("Ask Nexus Watch"))
+            text("Ask"), text("Ask Nexus Watch"))
             .setMonochromaticImage(icon())
             .setTapAction(tap())
             .build()
         ComplicationType.LONG_TEXT -> LongTextComplicationData.Builder(
             text("Ask Scout anything"), text("Nexus Watch"))
-            .setTitle(text("✦ Nexus"))
+            .setTitle(text("Nexus"))
             .setMonochromaticImage(icon())
             .setTapAction(tap())
             .build()

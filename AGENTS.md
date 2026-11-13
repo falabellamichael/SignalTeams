@@ -97,6 +97,12 @@
   `MeshService.running`, and `restore()`'s warm path probes `store.meshUrl`
   for a ready bridge before paying a relink. `disconnect()` clears store +
   stops the service — boot receiver no-ops until re-paired.
+  **svc: bindings fail over**: a `svc:`-prefixed `hive_node_id` (raw Lemonade
+  /v1 endpoint picked in the hive switcher) is probed first every link pass,
+  but a dead service no longer pins the watch offline — `MeshLinker.discover`
+  and the boot path's `linkService` both fall through to hive discovery and
+  rebind a live hive (svc id stays in `bound_hives` for re-picking; the
+  stale target is skipped as a fast-path candidate).
   **Watch as button assistant** (`assist/` package): a `VoiceInteractionService`
   stub registers the app as the default digital assistant (Gemini's slot —
   center-button press-and-hold). Samsung's Wear OS requires the service to
